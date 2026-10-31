@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TCG — content validation &amp; game fuzzer</title>
+<style>
+    body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #12102a;
+        color: #e9ebf5;
+        margin: 0;
+        padding: 26px;
+        line-height: 1.55;
+    }
+    h1 { font-size: 24px; margin-bottom: 4px; }
+    h2 { font-size: 15px; margin: 26px 0 10px; color: #f4c35a;
+         text-transform: uppercase; letter-spacing: 0.1em; }
+    p.lede { color: #a8adc4; margin-bottom: 20px; max-width: 760px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    button {
+        font: inherit; font-weight: 650;
+        padding: 9px 18px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.2);
+        background: linear-gradient(160deg, #8b6cf0, #5f42c4); color: #fff; cursor: pointer;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.ghost { background: rgba(255,255,255,0.07); }
+    input {
+        font: inherit; padding: 8px 11px; border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(0,0,0,0.35); color: #e9ebf5; width: 90px;
+    }
+    label { font-size: 13px; color: #a8adc4; }
+    pre {
+        background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 11px; padding: 15px; overflow-x: auto;
+        font-size: 12.5px; white-space: pre-wrap; max-height: 460px; overflow-y: auto;
+    }
+    .ok   { color: #7bf0b6; }
+    .bad  { color: #ff9aa2; }
+    .warn { color: #ffd08a; }
+    .stat-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 11px; margin-bottom: 12px;
+    }
+    .stat {
+        background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 11px; padding: 12px 14px;
+    }
+    .stat b { display: block; font-size: 22px; color: #f4c35a; }
+    .stat span { font-size: 11.5px; color: #a8adc4; text-transform: uppercase; letter-spacing: 0.07em; }
+</style>
+</head>
+<body>
+
+<h1>TCG content validation &amp; game fuzzer</h1>
+<p class="lede">
+    Runs the real engine headless. The validator proves every card references an
+    implemented effect, ability and item; the fuzzer plays complete games with
+    both seats driven by the AI policy, which shakes out crashes and states the
+    rules can't resolve. Coverage reports which effects were never exercised —
+    those are the cards a manual playtest still needs to reach.
+</p>
+
+<div class="row">
+    <button id="run-validate">Validate content</button>
+    <button id="run-images" class="ghost">Check card images</button>
+</div>
+
+<h2>Validation</h2>
+<pre id="validate-out">Not run yet.</pre>
+
+<div class="row">
+    <label>Games <input id="game-count" type="number" value="200" min="1" max="5000"></label>
+    <label>Seed <input id="seed" type="number" value="1"></label>
+    <button id="run-fuzz">Run fuzzer</button>
+</div>
+
+<h2>Fuzz results</h2>
+<div id="stats" class="stat-grid"></div>
+<pre id="fuzz-out">Not run yet.</pre>
+
+<h2>Effect coverage</h2>
+<pre id="coverage-out">Not run yet.</pre>
+
+<!-- Same load order as index.html, minus main.js: the harness does its own init. -->
+<script src="src/data/sets.js"></script>
+<script src="src/data/cards.js"></script>
+<script src="src/data/preset-decks.js"></script>
+<script src="src/core/util.js"></script>
+<script src="src/core/cards-index.js"></script>
+<script src="src/core/timing.js"></script>
+<script src="src/core/state.js"></script>
+<script src="src/data/decks.js"></script>
+<script src="src/ui/log.js"></script>
+<script src="src/ui/prompt.js"></script>
+<script src="src/core/status.js"></script>
+<script src="src/core/heal.js"></script>
+<script src="src/core/damage.js"></script>
+<script src="src/core/combat.js"></script>
+<script src="src/core/effects.js"></script>
+<script src="src/core/abilities.js"></script>
+<script src="src/core/items.js"></script>
+<script src="src/core/actions.js"></script>
+<script src="src/core/knockout.js"></script>
+<script src="src/core/turn.js"></script>
+<script src="src/ai/ai.js"></script>
+<script src="src/ui/render.js"></script>
+<script src="src/ui/interaction.js"></script>
+<script src="src/ui/deckbuilder.js"></script>
+<script src="src/ui/screens.js"></script>
+<script src="src/validate.js"></script>
+
+<script>
+// ---------------------------------------------------------------------------
+// Harness setup
+// ---------------------------------------------------------------------------
+
+CardIndex.build();
+Log.init();          // no DOM targets on this page, so logging is a no-op
+Prompt.init();
+DeckLibrary.load();
+
+// Headless: no pacing, and every choice resolves through AI heuristics.
+Log.speed = 0;
+Automation.active = true;
+Automation.playBothSides = true;
+
+const out = id => document.getElementById(id);
+let turnHistogram = {};
+let lastRun = null;
+
+// Exercise sub-optimal moves too, so coverage isn't limited to whatever the AI
+// considers best. This is a testing knob only; normal play leaves it at 0.
+Automation.exploreRate = 0.25;
+
+// ---------------------------------------------------------------------------
+// Effect coverage: count how often each effect actually resolves.
+// ---------------------------------------------------------------------------
+
+const coverage = {
+    effects: new Map(),
+    abilities: new Map(),
+    items: new Map(),
+
+    reset() {
+        this.effects.clear();
+        this.abilities.clear();
+        this.items.clear();
+    },
+    bump(map, id) {
+        if (id) map.set(id, (map.get(id) || 0) + 1);
+    }
+};
+
+(function instrument() {
+    const calcOriginal = EffectRegistry.damageCalc.bind(EffectRegistry);
+    EffectRegistry.damageCalc = async ctx => {
+        coverage.bump(coverage.effects, ctx.move.effect);
+        return calcOriginal(ctx);
+    };
+    const resolveOriginal = EffectRegistry.resolve.bind(EffectRegistry);
+    EffectRegistry.resolve = async ctx => {
+        coverage.bump(coverage.effects, ctx.move.effect);
+        return resolveOriginal(ctx);
+    };
+
+    const abilityOriginal = AbilityRegistry.use.bind(AbilityRegistry);
+    AbilityRegistry.use = async (card, side, location, index) => {
+        coverage.bump(coverage.abilities, card.data.abilityEffect);
+        return abilityOriginal(card, side, location, index);
+    };
+
+    const itemOriginal = ItemRegistry.use.bind(ItemRegistry);
+    ItemRegistry.use = async (card, side, handIndex) => {
+        coverage.bump(coverage.items, card.data.itemEffect);
+        return itemOriginal(card, side, handIndex);
+    };
+})();
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function runValidation() {
+    const result = Validate.run({ showBanner: false });
+    const lines = [];
+
+    lines.push(`Cards:      ${cardDatabase.length} across ${cardSets.length} sets`);
+    for (const set of cardSets) {
+        const cards = CardIndex.inSet(set.id);
+        const items = cards.filter(c => isItem(c)).length;
+        lines.push(`            ${set.name}: ${cards.length} (${cards.length - items} creatures, ${items} items)`);
+    }
+    lines.push(`Effects:    ${EffectRegistry.ids().length} registered`);
+    lines.push(`Abilities:  ${AbilityRegistry.ids().length} registered`);
+    lines.push(`Items:      ${ItemRegistry.ids().length} registered`);
+    lines.push(`Modifiers:  ${DAMAGE_MODIFIERS.length} in the damage pipeline`);
+    lines.push(`Decks:      ${DeckLibrary.all().length} (${DeckLibrary.presets().length} preset)`);
+    lines.push('');
+
+    if (result.errors.length === 0) {
+        lines.push('<span class="ok">No errors.</span>');
+    } else {
+        lines.push(`<span class="bad">${result.errors.length} ERROR(S):</span>`);
+        for (const message of result.errors) lines.push(`  <span class="bad">x ${escapeHtml(message)}</span>`);
+    }
+    lines.push('');
+    if (result.warnings.length === 0) {
+        lines.push('<span class="ok">No warnings.</span>');
+    } else {
+        lines.push(`<span class="warn">${result.warnings.length} warning(s):</span>`);
+        for (const message of result.warnings) lines.push(`  <span class="warn">! ${escapeHtml(message)}</span>`);
+    }
+
+    out('validate-out').innerHTML = lines.join('\n');
+    return result;
+}
+
+function escapeHtml(text) {
+    return String(text).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// One headless game
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a random legal deck from the WHOLE card pool.
+ *
+ * The 8 preset decks are all vanilla Elemental Awakening creatures, so fuzzing
+ * with them exercises almost no effects. Random decks reach the cards that
+ * actually have behaviour, across every set.
+ */
+function makeRandomDeck() {
+    const primaryTypes = ['Mystic', 'Wind', 'Celestial', 'Mechanic'];
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+        const primary = Rng.pick(primaryTypes);
+        const inPool = card => {
+            const type = getCardType(card);
+            return type === primary || type === 'Neutral' || type === 'Item';
+        };
+
+        const stage1 = cardDatabase.filter(c => inPool(c) && c.stage === 'Stage 1');
+        const items = cardDatabase.filter(c => c.stage === 'Item');
+        if (stage1.length === 0) continue;
+
+        const cards = [];
+        const add = (card, copies) => {
+            const already = cards.filter(id => id === card.id).length;
+            for (let i = 0; i < copies && already + i < MAX_COPIES; i++) {
+                if (cards.length < DECK_SIZE) cards.push(card.id);
+            }
+        };
+
+        // Seed with a few evolution lines so evolution actually happens.
+        const shuffledStage1 = Rng.shuffle(stage1.slice());
+        for (const base of shuffledStage1) {
+            if (cards.length >= DECK_SIZE - 4) break;
+            add(base, 2);
+
+            // Walk the chain upward, adding each stage.
+            let current = base;
+            for (let depth = 0; depth < 2; depth++) {
+                const next = current.nextStageIds
+                    .map(id => getCardData(id))
+                    .filter(c => c && inPool(c));
+                if (next.length === 0) break;
+                const chosen = Rng.pick(next);
+                add(chosen, 2);
+                current = chosen;
+            }
+        }
+
+        // Fill the rest with items, which is also how items get exercised.
+        while (cards.length < DECK_SIZE && items.length > 0) {
+            const item = Rng.pick(items);
+            const already = cards.filter(id => id === item.id).length;
+            if (already >= MAX_COPIES) {
+                // Fall back to any legal creature if items are exhausted.
+                const filler = Rng.pick(cardDatabase.filter(c =>
+                    inPool(c) && cards.filter(id => id === c.id).length < MAX_COPIES));
+                if (!filler) break;
+                cards.push(filler.id);
+                continue;
+            }
+            cards.push(item.id);
+        }
+
+        if (cards.length === DECK_SIZE && validateDeck(cards).valid) {
+            return { name: `Random ${primary}`, type: 'preset', cards };
+        }
+    }
+    return null;
+}
+
+async function playOneGame(useRandomDecks) {
+    resetGameState();
+    Log.clear();
+
+    if (useRandomDecks) {
+        // Append two throwaway decks and point both seats at them.
+        const a = makeRandomDeck();
+        const b = makeRandomDeck();
+        if (a && b) {
+            DeckLibrary.decks.push(a, b);
+            gameState.player.selectedDeck = DeckLibrary.decks.length - 2;
+            gameState.opponent.selectedDeck = DeckLibrary.decks.length - 1;
+        } else {
+            gameState.player.selectedDeck = 0;
+            gameState.opponent.selectedDeck = 1;
+        }
+    } else {
+        const decks = DeckLibrary.all();
+        gameState.player.selectedDeck = Rng.int(decks.length);
+        gameState.opponent.selectedDeck = Rng.int(decks.length);
+    }
+
+    gameState.phase = 'setup';
+    buildDecks();
+    drawOpeningHands();
+    aiSetup('player');
+    aiSetup('opponent');
+
+    if (!gameState.player.active || !gameState.opponent.active) {
+        throw new Error('setup failed to place an active creature');
+    }
+
+    await startGame();
+
+    return {
+        turns: gameState.turnNumber,
+        playerPoints: gameState.player.points,
+        opponentPoints: gameState.opponent.points,
+        finished: gameState.phase === 'gameOver'
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Fuzzer
+// ---------------------------------------------------------------------------
+
+async function runFuzz() {
+    const total = Math.max(1, parseInt(out('game-count').value, 10) || 1);
+    const baseSeed = parseInt(out('seed').value, 10) || 1;
+
+    const button = out('run-fuzz');
+    button.disabled = true;
+    out('fuzz-out').textContent = 'Running…';
+    coverage.reset();
+
+    const failures = [];
+    let playerWins = 0, aiWins = 0, draws = 0, unfinished = 0;
+    let totalTurns = 0, minTurns = Infinity, maxTurns = 0;
+    turnHistogram = {};
+
+    const started = performance.now();
+
+    // Reload so throwaway random decks from a previous run don't accumulate.
+    DeckLibrary.load();
+
+    for (let i = 0; i < total; i++) {
+        Rng.seed(baseSeed + i);
+        try {
+            // Mostly random decks (broad coverage), some presets (regression).
+            const result = await playOneGame(i % 5 !== 0);
+
+            totalTurns += result.turns;
+            minTurns = Math.min(minTurns, result.turns);
+            maxTurns = Math.max(maxTurns, result.turns);
+
+            // Buckets of 5 turns, to show games are not all ending instantly.
+            const bucket = `${Math.floor((result.turns - 1) / 5) * 5 + 1}-${Math.floor((result.turns - 1) / 5) * 5 + 5}`;
+            turnHistogram[bucket] = (turnHistogram[bucket] || 0) + 1;
+
+            if (!result.finished) unfinished++;
+            else if (result.playerPoints > result.opponentPoints) playerWins++;
+            else if (result.opponentPoints > result.playerPoints) aiWins++;
+            else draws++;
+        } catch (err) {
+            failures.push({ seed: baseSeed + i, message: err && err.message, stack: err && err.stack });
+        }
+
+        // Yield so the page stays responsive on large runs.
+        if (i % 20 === 19) await new Promise(r => setTimeout(r, 0));
+    }
+
+    const elapsed = performance.now() - started;
+    const completed = total - failures.length;
+
+    lastRun = {
+        total,
+        crashes: failures.length,
+        unfinished,
+        playerWins, aiWins, draws,
+        avgTurns: completed ? +(totalTurns / completed).toFixed(1) : 0,
+        minTurns: minTurns === Infinity ? 0 : minTurns,
+        maxTurns,
+        msPerGame: +(elapsed / total).toFixed(2)
+    };
+
+    out('stats').innerHTML = [
+        stat(total, 'games'),
+        stat(failures.length, 'crashes', failures.length ? 'bad' : 'ok'),
+        stat(unfinished, 'unfinished', unfinished ? 'bad' : 'ok'),
+        stat(playerWins, 'seat A wins'),
+        stat(aiWins, 'seat B wins'),
+        stat(draws, 'draws'),
+        stat(completed ? (totalTurns / completed).toFixed(1) : '—', 'avg turns'),
+        stat(`${(elapsed / total).toFixed(1)}ms`, 'per game')
+    ].join('');
+
+    const lines = [];
+    lines.push(`${total} games in ${(elapsed / 1000).toFixed(2)}s`);
+    lines.push(`turn range: ${minTurns === Infinity ? '—' : minTurns}–${maxTurns}`);
+    lines.push('');
+
+    if (failures.length === 0) {
+        lines.push('<span class="ok">No crashes. Every game reached a result.</span>');
+    } else {
+        lines.push(`<span class="bad">${failures.length} crash(es):</span>`);
+        // Group identical messages, so one bug doesn't fill the screen.
+        const grouped = new Map();
+        for (const failure of failures) {
+            const key = failure.message || 'unknown';
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key).push(failure);
+        }
+        for (const [message, entries] of grouped) {
+            lines.push('');
+            lines.push(`<span class="bad">${entries.length}x ${escapeHtml(message)}</span>`);
+            lines.push(`  seeds: ${entries.slice(0, 12).map(e => e.seed).join(', ')}`);
+            if (entries[0].stack) {
+                lines.push(escapeHtml(entries[0].stack.split('\n').slice(0, 6).join('\n')));
+            }
+        }
+    }
+
+    out('fuzz-out').innerHTML = lines.join('\n');
+    renderCoverage();
+    button.disabled = false;
+}
+
+function stat(value, label, tone) {
+    return `<div class="stat"><b class="${tone || ''}">${value}</b><span>${label}</span></div>`;
+}
+
+function renderCoverage() {
+    const lines = [];
+
+    const report = (title, registeredIds, counts) => {
+        const untouched = registeredIds.filter(id => !counts.has(id));
+        lines.push(`${title}: ${registeredIds.length - untouched.length}/${registeredIds.length} exercised`);
+        if (untouched.length > 0) {
+            lines.push(`  <span class="warn">never resolved: ${untouched.join(', ')}</span>`);
+        }
+        lines.push('');
+    };
+
+    report('Move effects', EffectRegistry.ids(), coverage.effects);
+    report('Abilities', AbilityRegistry.ids(), coverage.abilities);
+    report('Items', ItemRegistry.ids(), coverage.items);
+
+    const busiest = Array.from(coverage.effects.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([id, count]) => `${id} (${count})`);
+    if (busiest.length) {
+        lines.push(`Most exercised: ${busiest.join(', ')}`);
+    }
+
+    out('coverage-out').innerHTML = lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+
+out('run-validate').addEventListener('click', runValidation);
+out('run-fuzz').addEventListener('click', runFuzz);
+out('run-images').addEventListener('click', async () => {
+    const button = out('run-images');
+    button.disabled = true;
+    const missing = await Validate.checkImages();
+    out('validate-out').innerHTML += missing.length
+        ? `\n<span class="bad">${missing.length} missing image(s): ${escapeHtml(missing.join(', '))}</span>`
+        : `\n<span class="ok">All ${cardDatabase.length} card images resolve.</span>`;
+    button.disabled = false;
+});
+
+// Validate immediately on load; it is cheap and it is the thing most likely to
+// catch a mistake in newly added card data.
+runValidation();
+
+// ---------------------------------------------------------------------------
+// Headless entry point.
+//
+//   test.html?auto=200
+//
+// Runs validation and the fuzzer without any clicking and writes a compact,
+// greppable summary, so this page can be driven from a headless browser:
+//
+//   chrome --headless=new --dump-dom --virtual-time-budget=120000 \
+//          "file:///.../test.html?auto=200"
+// ---------------------------------------------------------------------------
+
+(async function autoRun() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('auto')) return;
+
+    const count = parseInt(params.get('auto'), 10) || 50;
+    out('game-count').value = count;
+    if (params.has('seed')) out('seed').value = params.get('seed');
+
+    const summary = document.createElement('pre');
+    summary.id = 'summary';
+    document.body.appendChild(summary);
+
+    const validation = Validate.run({ showBanner: false });
+
+    let error = null;
+    try {
+        await runFuzz();
+    } catch (err) {
+        error = err && (err.stack || err.message);
+    }
+    const run = lastRun || {};
+    const crashes = run.crashes === undefined ? -1 : run.crashes;
+    const unfinished = run.unfinished === undefined ? -1 : run.unfinished;
+
+    const untouched = registry => registry.ids()
+        .filter(id => !coverage.effects.has(id) &&
+                      !coverage.abilities.has(id) &&
+                      !coverage.items.has(id));
+
+    const lines = [
+        'SELFTEST-BEGIN',
+        `cards=${cardDatabase.length}`,
+        `sets=${cardSets.length}`,
+        `effects=${EffectRegistry.ids().length}`,
+        `abilities=${AbilityRegistry.ids().length}`,
+        `items=${ItemRegistry.ids().length}`,
+        `validate_errors=${validation.errors.length}`,
+        `validate_warnings=${validation.warnings.length}`,
+        `games=${count}`,
+        `crashes=${crashes}`,
+        `unfinished=${unfinished}`,
+        `effects_never_run=${untouched(EffectRegistry).join('|') || 'none'}`,
+        `abilities_never_run=${untouched(AbilityRegistry).join('|') || 'none'}`,
+        `items_never_run=${untouched(ItemRegistry).join('|') || 'none'}`,
+        `harness_error=${error || 'none'}`,
+        `stats=${JSON.stringify(run)}`,
+        `turn_histogram=${JSON.stringify(turnHistogram)}`
+    ];
+
+    if (validation.errors.length) {
+        lines.push('VALIDATE-ERRORS');
+        for (const message of validation.errors) lines.push(`  ${message}`);
+    }
+    if (validation.warnings.length) {
+        lines.push('VALIDATE-WARNINGS');
+        for (const message of validation.warnings) lines.push(`  ${message}`);
+    }
+
+    const fuzzText = out('fuzz-out').textContent;
+    if (/crash/i.test(fuzzText)) {
+        lines.push('FUZZ-DETAIL');
+        lines.push(fuzzText);
+    }
+
+    lines.push('SELFTEST-END');
+    summary.textContent = lines.join('\n');
+    document.title = `crashes=${crashes} errors=${validation.errors.length}`;
+})();
+</script>
+
+</body>
+</html>

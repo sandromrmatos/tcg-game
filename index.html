@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elemental Awakening TCG</title>
+<meta name="theme-color" content="#171232">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="hub.css">
+</head>
+<body>
+
+<!-- Shown only when the content validator finds a real error. -->
+<div id="validation-banner" class="banner"></div>
+
+<!-- ===================================================================== -->
+<!-- Deck selection                                                        -->
+<!-- ===================================================================== -->
+<!-- Recovery gate: replaces everything when a save exists but could not load -->
+<div id="boot-gate" class="boot-gate show"><p class="gate-loading">Loading your collection…</p></div>
+
+<div id="deck-screen" class="screen">
+    <header class="hub-header">
+        <h1 class="hub-title">Elemental Awakening TCG</h1>
+        <div id="hub-audio" class="hub-audio"></div>
+        <div class="hub-wallet">
+            <span class="chip chip-credits" title="Credits: 1 per draw, 1 regained per hour">🪙 <b id="hub-credits">0</b>/<span id="hub-credits-max">12</span></span>
+            <span class="chip chip-gems" title="Gems: spent in the Store">💜 <b id="hub-gems">0</b></span>
+            <span id="hub-timer" class="chip chip-timer"></span>
+            <button id="hub-info-btn" class="btn btn-ghost btn-sm" type="button">ℹ️ Info</button>
+        </div>
+    </header>
+    <div id="hub-sunday" class="hub-sunday">🎉 It's Promo Sunday! Promo cards can be drawn today! 🎉</div>
+    <div id="hub-notices" class="hub-notices"></div>
+    <nav id="hub-nav" class="hub-nav"></nav>
+
+    <main class="hub-main">
+        <section id="page-play" class="hub-page active">
+            <div class="page-head">
+                <h2>⚔️ Play against the AI</h2>
+                <p id="play-summary" class="page-sub"></p>
+            </div>
+            <div id="deck-list" class="deck-list"></div>
+            <footer class="deck-footer">
+                <button id="create-deck-btn" class="btn btn-primary btn-lg" type="button">
+                    Build a deck
+                </button>
+                <button id="debug-btn" class="btn btn-ghost btn-lg" type="button">
+                    🔒 QA mode
+                </button>
+            </footer>
+        </section>
+        <section id="page-dex" class="hub-page"></section>
+        <section id="page-draw" class="hub-page"></section>
+        <section id="page-store" class="hub-page"></section>
+        <section id="page-missions" class="hub-page"></section>
+        <section id="page-wheel" class="hub-page"></section>
+        <section id="page-guess" class="hub-page"></section>
+        <section id="page-memory" class="hub-page"></section>
+        <section id="page-collection" class="hub-page"></section>
+        <section id="page-stats" class="hub-page"></section>
+        <section id="page-save" class="hub-page"></section>
+    </main>
+</div>
+
+<!-- ===================================================================== -->
+<!-- Game                                                                  -->
+<!-- ===================================================================== -->
+<div id="game-screen" class="screen">
+    <div class="game-grid">
+
+        <main class="board-column">
+
+            <!-- HUD ------------------------------------------------------ -->
+            <div id="hud">
+                <section class="hud-side" data-player="opponent">
+                    <div class="hud-title">
+                        <span class="hud-name">Opponent</span>
+                        <span id="opponent-point-pips" class="point-pips"></span>
+                    </div>
+                    <div class="hud-stats">
+                        <span title="Points"><b id="opponent-points">0</b>/3 pts</span>
+                        <span title="Cards in deck">🂠 <b id="opponent-deck-count">20</b></span>
+                        <span title="Cards in hand">✋ <b id="opponent-hand-count">0</b></span>
+                        <span title="Cards in discard pile">🗑 <b id="opponent-discard-count">0</b></span>
+                    </div>
+                    <div id="opponent-side-chips" class="chip-row"></div>
+                </section>
+
+                <section class="hud-center">
+                    <div id="turn-label" class="turn-label">Choose a deck</div>
+                    <div class="turn-count">
+                        Turn <b id="turn-number">0</b> / <span id="turn-limit">30</span>
+                    </div>
+                    <div id="busy-indicator" class="busy-indicator">resolving…</div>
+                </section>
+
+                <section class="hud-side" data-player="player">
+                    <div class="hud-title">
+                        <span class="hud-name">You</span>
+                        <span id="player-point-pips" class="point-pips"></span>
+                    </div>
+                    <div class="hud-stats">
+                        <span title="Points"><b id="player-points">0</b>/3 pts</span>
+                        <span title="Cards in deck">🂠 <b id="player-deck-count">20</b></span>
+                        <span title="Cards in hand">✋ <b id="player-hand-count">0</b></span>
+                        <span title="Cards in discard pile">🗑 <b id="player-discard-count">0</b></span>
+                    </div>
+                    <div id="player-side-chips" class="chip-row"></div>
+                </section>
+            </div>
+
+            <!-- Battlefield ---------------------------------------------- -->
+            <div class="battlefield">
+
+                <div class="field-side field-opponent">
+                    <div id="opponent-hand" class="opponent-hand"></div>
+                    <div class="bench-row">
+                        <div class="card-slot bench-slot" data-player="opponent" data-slot="0"></div>
+                        <div class="card-slot bench-slot" data-player="opponent" data-slot="1"></div>
+                        <div class="card-slot bench-slot" data-player="opponent" data-slot="2"></div>
+                    </div>
+                    <div class="active-row">
+                        <div class="card-slot active-slot" data-player="opponent"></div>
+                    </div>
+                </div>
+
+                <div class="field-divider"><span></span></div>
+
+                <div class="field-side field-player">
+                    <div class="active-row">
+                        <div class="card-slot active-slot" data-player="player"></div>
+                    </div>
+                    <div class="bench-row">
+                        <div class="card-slot bench-slot" data-player="player" data-slot="0"></div>
+                        <div class="card-slot bench-slot" data-player="player" data-slot="1"></div>
+                        <div class="card-slot bench-slot" data-player="player" data-slot="2"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Prompt bar: shown while the game is waiting on a choice --- -->
+            <div id="prompt-bar" class="prompt-bar"></div>
+
+            <!-- Actions -------------------------------------------------- -->
+            <div id="action-bar">
+                <div id="move-buttons" class="move-buttons"></div>
+                <div class="action-buttons">
+                    <button id="energy-btn" class="btn btn-energy" type="button">Attach energy</button>
+                    <button id="retreat-btn" class="btn btn-ghost" type="button">Retreat</button>
+                    <button id="end-turn-btn" class="btn btn-primary" type="button">End turn</button>
+                </div>
+            </div>
+
+            <!-- Hand ----------------------------------------------------- -->
+            <div class="hand-area">
+                <div id="player-hand" class="player-hand"></div>
+            </div>
+        </main>
+
+        <!-- Battle log --------------------------------------------------- -->
+        <aside class="log-column">
+            <header class="log-header">
+                <h2>Battle log</h2>
+                <label class="speed-control">
+                    Pace
+                    <select id="speed-select">
+                        <option value="0.35">Fast</option>
+                        <option value="1" selected>Normal</option>
+                        <option value="1.8">Slow</option>
+                    </select>
+                </label>
+            </header>
+            <div id="battle-log-entries" class="log-entries"></div>
+            <footer class="log-footer">
+                <button id="player-discard-btn" class="btn btn-ghost btn-sm" type="button">Your discards</button>
+                <button id="opponent-discard-btn" class="btn btn-ghost btn-sm" type="button">Their discards</button>
+                <button id="info-btn" class="btn btn-ghost btn-sm" type="button">Rules</button>
+                <button id="new-game-btn" class="btn btn-ghost btn-sm" type="button">Leave game</button>
+            </footer>
+        </aside>
+    </div>
+
+    <div id="turn-banner" class="turn-banner"></div>
+</div>
+
+<!-- Outside both screens so toasts show on the hub and over modals too -->
+<div id="toast-stack" class="toast-stack"></div>
+
+<!-- ===================================================================== -->
+<!-- Modals                                                                -->
+<!-- ===================================================================== -->
+
+<!-- Generic choice modal, driven by Prompt -->
+<div id="choice-modal" class="modal" data-dismissable="false">
+    <div class="modal-panel">
+        <h2 class="choice-title">Choose a card</h2>
+        <p class="choice-subtitle"></p>
+        <div class="choice-grid"></div>
+        <div class="choice-foot"></div>
+    </div>
+</div>
+
+<!-- Discard pile -->
+<div id="discard-modal" class="modal">
+    <div class="modal-panel">
+        <button class="modal-close" type="button" data-close-modal="discard-modal">×</button>
+        <h2 id="discard-title">Discard pile</h2>
+        <div id="discard-grid" class="discard-grid"></div>
+    </div>
+</div>
+
+<!-- Deck preview -->
+<div id="deck-preview-modal" class="modal">
+    <div class="modal-panel modal-wide">
+        <button class="modal-close" type="button" data-close-modal="deck-preview-modal">×</button>
+        <h2 id="deck-preview-title">Deck</h2>
+        <div id="deck-preview-warnings" class="validation-warn-block"></div>
+        <div id="deck-preview-grid" class="preview-grid"></div>
+        <div class="modal-foot">
+            <button id="deck-preview-play" class="btn btn-primary" type="button">Play this deck</button>
+        </div>
+    </div>
+</div>
+
+<!-- Deck builder -->
+<div id="builder-modal" class="modal">
+    <div class="modal-panel modal-full">
+        <button class="modal-close" type="button" data-close-modal="builder-modal">×</button>
+        <h2 id="builder-title">Deck builder</h2>
+        <p id="builder-hint" class="builder-hint"></p>
+
+        <div class="builder-top">
+            <input id="builder-name" class="text-input" type="text"
+                   placeholder="Deck name" maxlength="40">
+            <div class="builder-count">
+                <b id="builder-deck-count">0</b> / <span id="builder-deck-target">20</span> cards
+            </div>
+        </div>
+
+        <div id="builder-set-tabs" class="set-tabs"></div>
+
+        <div class="builder-filters">
+            <input id="builder-search" class="text-input" type="search"
+                   placeholder="Search name, move or ability…">
+            <select id="builder-type-filter" class="select-input"></select>
+            <select id="builder-stage-filter" class="select-input"></select>
+            <span class="builder-pool-meta"><b id="builder-pool-count">0</b> shown</span>
+        </div>
+
+        <div class="builder-body">
+            <section class="builder-pool-wrap">
+                <div id="builder-pool" class="builder-pool"></div>
+            </section>
+            <section class="builder-deck-wrap">
+                <div id="builder-validation" class="builder-validation"></div>
+                <div id="builder-deck" class="builder-deck"></div>
+                <div class="builder-actions">
+                    <button id="builder-save" class="btn btn-primary" type="button">Save deck</button>
+                    <button id="builder-clear" class="btn btn-ghost" type="button">Clear</button>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<!-- Rules -->
+<div id="info-modal" class="modal">
+    <div class="modal-panel modal-wide modal-scroll">
+        <button class="modal-close" type="button" data-close-modal="info-modal">×</button>
+        <h2>How to play</h2>
+
+        <div class="info-body">
+            <section>
+                <h3>Goal</h3>
+                <p>Score <strong>3 points</strong>. You score a point each time you knock out
+                   one of your opponent's creatures, including creatures on their bench.
+                   If neither player reaches 3 points by turn 30, the higher score wins.</p>
+            </section>
+
+            <section>
+                <h3>Your board</h3>
+                <p>One <strong>active</strong> creature does the fighting. Up to
+                   <strong>three bench</strong> creatures wait behind it. Retreating swaps
+                   the active creature with one from the bench and costs that creature's
+                   retreat cost in energy.</p>
+            </section>
+
+            <section>
+                <h3>Your turn</h3>
+                <ul>
+                    <li>Play <strong>one item</strong> card</li>
+                    <li>Play Stage 1 creatures to empty bench slots</li>
+                    <li>Evolve creatures, from turn 3 onwards</li>
+                    <li>Attach <strong>one energy</strong> to any creature you control</li>
+                    <li>Use abilities — these must come <em>before</em> attacking</li>
+                    <li>Retreat, or <strong>attack</strong>, which ends your turn</li>
+                </ul>
+            </section>
+
+            <section>
+                <h3>Evolution</h3>
+                <ul>
+                    <li>Not before turn 3</li>
+                    <li>Not on a creature you played this turn</li>
+                    <li>Not twice on the same creature in one turn</li>
+                    <li>Damage, energy and status carry over to the new form</li>
+                    <li>When an evolved creature is knocked out, every card in its chain
+                        goes to the discard pile</li>
+                </ul>
+            </section>
+
+            <section>
+                <h3>Deck building</h3>
+                <ul>
+                    <li>Only cards you own, and no more copies than you own</li>
+                    <li>Exactly 20 cards, at most 2 copies of any one card</li>
+                    <li>At least one Stage 1 creature</li>
+                    <li>One primary type, plus any number of Neutral and Item cards</li>
+                    <li>Cards from different sets can be mixed freely</li>
+                </ul>
+            </section>
+
+            <!-- Generated from the registries so it cannot go stale. -->
+            <div id="info-generated"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Debug: choose both decks -->
+<div id="debug-modal" class="modal">
+    <div class="modal-panel">
+        <button class="modal-close" type="button" data-close-modal="debug-modal">×</button>
+        <h2>QA mode: choose both decks</h2>
+        <p class="builder-hint">Pick any deck for either side, including the AI presets and test decks built from any card.
+           QA games are not counted in stats and never earn credits.</p>
+        <div class="debug-grid">
+            <label>Your deck
+                <select id="debug-player-deck" class="select-input"></select>
+            </label>
+            <label>Opponent deck
+                <select id="debug-ai-deck" class="select-input"></select>
+            </label>
+        </div>
+        <div class="modal-foot">
+            <button id="debug-build-btn" class="btn btn-ghost" type="button">Build a test deck (any card)</button>
+            <button id="debug-clear-btn" class="btn btn-ghost" type="button">Delete test decks</button>
+            <button id="debug-start-btn" class="btn btn-primary" type="button">Start</button>
+        </div>
+    </div>
+</div>
+
+<!-- Game over -->
+<div id="game-over-modal" class="modal" data-dismissable="false">
+    <div class="modal-panel modal-narrow">
+        <h2 id="game-over-title">Game over</h2>
+        <div id="game-over-score" class="game-over-score">0 — 0</div>
+        <p id="game-over-reason" class="game-over-reason"></p>
+        <p id="game-over-reward" class="game-over-reward"></p>
+        <div class="modal-foot">
+            <button id="game-over-again" class="btn btn-primary" type="button">Back to menu</button>
+        </div>
+    </div>
+</div>
+
+<!-- Hub: card details (Card Dex, draws) -->
+<div id="hub-card-modal" class="modal">
+    <div class="modal-panel modal-narrow">
+        <button class="modal-close" type="button" data-close-modal="hub-card-modal">×</button>
+        <div id="hub-card-body" class="hub-card-body"></div>
+    </div>
+</div>
+
+<!-- Hub: store purchase (no image, as in the original Store) -->
+<div id="hub-store-modal" class="modal">
+    <div class="modal-panel modal-narrow">
+        <button class="modal-close" type="button" data-close-modal="hub-store-modal">×</button>
+        <div id="hub-store-body"></div>
+    </div>
+</div>
+
+<!-- Hub: generic dialog (confirm, alert, password) -->
+<div id="hub-dialog" class="modal hub-dialog" data-dismissable="false">
+    <div class="modal-panel modal-narrow">
+        <h2 id="hub-dialog-title"></h2>
+        <p id="hub-dialog-message" class="hub-dialog-message"></p>
+        <input id="hub-dialog-input" class="text-input" type="text" autocomplete="off">
+        <div id="hub-dialog-buttons" class="modal-foot"></div>
+    </div>
+</div>
+
+<!-- Hub: how to play the collection side -->
+<div id="hub-info-modal" class="modal">
+    <div class="modal-panel modal-wide modal-scroll">
+        <button class="modal-close" type="button" data-close-modal="hub-info-modal">×</button>
+        <h2>ℹ️ How to play</h2>
+        <div class="info-accordion">
+            <details open>
+                <summary>🎮 What is this game?</summary>
+                <p>Collect creature cards from the Elemental Awakening set (and later Galactic Adventures), build
+                   decks from the cards you own, and battle the AI. Draw cards with credits, buy specific ones in the
+                   Store with gems, complete missions and play the daily mini-games for more credits and gems.</p>
+            </details>
+            <details>
+                <summary>🗂️ What each section does</summary>
+                <ul>
+                    <li><strong>⚔️ Play</strong>: your decks, the deck builder, and games against the AI.</li>
+                    <li><strong>📚 Card Dex</strong>: every card in a set and how many of each you own.</li>
+                    <li><strong>🎰 Draw a Card</strong>: spend 1 credit for a random card from an unlocked set.</li>
+                    <li><strong>🛒 Store</strong>: buy any specific card with gems.</li>
+                    <li><strong>📋 Missions</strong>: objectives that pay credits and gems.</li>
+                    <li><strong>🎡 Spin the Wheel</strong>, <strong>🎯 Guess the Number</strong>, <strong>🧠 Memory Game</strong>: free once-a-day games for credits and gems.</li>
+                    <li><strong>📈 Collection</strong>: your progress through each set.</li>
+                    <li><strong>🏆 Stats</strong>: games played, won and lost against the AI.</li>
+                    <li><strong>💾 Save data</strong>: download and import backups, or move your save to another device.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🪙 Currency and draw odds</summary>
+                <ul>
+                    <li><strong>Credits</strong>: capped at 12, 1 comes back every hour (even while the game is closed), 1 per card draw.</li>
+                    <li><strong>Gems (💜)</strong>: no cap, start with 5, earned from mini-games and missions, spent in the Store.</li>
+                </ul>
+                <p>Draw odds: 🟢 Common 55% · 🔵 Uncommon 28% · ⭐ Rare 13% · 💎 Epic 4%.</p>
+                <p>Store prices: 🟢 Common 1 · 🔵 Uncommon 5 · ⭐ Rare 10 · 💎 Epic 20 gems.</p>
+            </details>
+            <details>
+                <summary>⚔️ Decks and games against the AI</summary>
+                <ul>
+                    <li>A deck is 20 cards you own: one main type plus any Neutral and Item cards, at least one Stage 1 creature, at most 2 copies of a card (and no more than you own).</li>
+                    <li>The AI plays one of its own preset decks, picked at random.</li>
+                    <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>. If your credits are full when you start, a win earns nothing, and the game warns you first.</li>
+                    <li>Leaving a game before it ends, or closing the page mid-game, counts as a loss.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🔒 Unlocking Galactic Adventures</summary>
+                <p>Galactic Adventures unlocks once you own 90% of the non-promo Elemental Awakening cards
+                   (63 of 69). Promo cards don't count. Until then its cards can't be drawn, bought or used in decks.
+                   Once unlocked, choose which set to draw from.</p>
+            </details>
+            <details>
+                <summary>🎡 Spin the Wheel</summary>
+                <ul>
+                    <li>Once per day, only with 7 or fewer credits (you could win up to 5 more, and credits cap at 12).</li>
+                    <li>10 segments, alternating "No Win" and a prize: +1, +3 or +5 credits, or +1/+2 gems.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🎯 Guess the Number</summary>
+                <ul>
+                    <li>Once per day, only with 7 or fewer credits.</li>
+                    <li>Guess a number from 1 to 50. 3 or fewer guesses wins 5 credits, 4-5 wins 3, 6-7 wins 2, 8+ wins 1.</li>
+                    <li>50% chance of a bonus gem.</li>
+                    <li>Once you start, you can't leave the page until you guess correctly.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🧠 Memory Game</summary>
+                <ul>
+                    <li>Once per day, only with 7 or fewer credits.</li>
+                    <li>Find all 8 pairs on the 4×4 board.</li>
+                    <li>Reward: 50% chance of +2 credits, 40% +3, 10% +5, plus a 50% chance of a bonus gem.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>📋 Missions</summary>
+                <ul>
+                    <li>Collect cards (overall, by rarity, by type, with an ability, Promo and Item cards), complete sets, log in on different days, play the mini-games, and play and win games against the AI.</li>
+                    <li>Claim only lights up once a mission is complete and there's room under the 12-credit cap for its credits. Gems never block a claim.</li>
+                    <li>Claimed missions move to the bottom and grey out.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>💾 Saving</summary>
+                <ul>
+                    <li>Progress saves automatically in this browser.</li>
+                    <li>Use <strong>Save data → Download backup</strong> to keep a file, and <strong>Import backup</strong> to load it, for example to move your progress between your computer and your phone.</li>
+                    <li>Clearing your browser data deletes the browser copy, so keep a recent backup.</li>
+                </ul>
+            </details>
+            <details class="highlight" open>
+                <summary>🌞 Sundays are special!</summary>
+                <ul>
+                    <li><strong>Promo cards join the draw pool</strong>, the only day you can draw them.</li>
+                    <li><strong>Spin the Wheel gem prizes are boosted</strong> (from +1/+2 up to +3/+6 gems).</li>
+                    <li><strong>Guess the Number's and Memory's bonus gem is guaranteed</strong>.</li>
+                </ul>
+            </details>
+        </div>
+    </div>
+</div>
+
+<!-- Hover zoom -->
+<div id="card-zoom" class="card-zoom">
+    <img id="card-zoom-image" src="" alt="">
+</div>
+
+<!-- ===================================================================== -->
+<!-- Scripts. Order matters: data, then core, then UI, then bootstrap.     -->
+<!-- Plain scripts rather than ES modules, so the game still works when    -->
+<!-- opened from the filesystem or inside the arcade's iframe.             -->
+<!-- ===================================================================== -->
+
+<!-- data -->
+<script src="src/data/sets.js"></script>
+<script src="src/data/cards.js"></script>
+<script src="src/data/preset-decks.js"></script>
+
+<!-- core -->
+<script src="src/core/util.js"></script>
+<script src="src/core/cards-index.js"></script>
+<script src="src/core/timing.js"></script>
+<script src="src/core/state.js"></script>
+<script src="src/data/decks.js"></script>
+
+<!-- collection layer: rarity data, saving, the player's profile, missions -->
+<script src="src/data/collection-data.js"></script>
+<script src="src/meta/codec.js"></script>
+<script src="src/meta/persist.js"></script>
+<script src="src/meta/profile.js"></script>
+<script src="src/meta/missions.js"></script>
+
+<!-- ui surfaces the core logs and prompts through -->
+<script src="src/ui/log.js"></script>
+<script src="src/ui/prompt.js"></script>
+
+<!-- rules -->
+<script src="src/core/status.js"></script>
+<script src="src/core/heal.js"></script>
+<script src="src/core/damage.js"></script>
+<script src="src/core/combat.js"></script>
+<script src="src/core/effects.js"></script>
+<script src="src/core/abilities.js"></script>
+<script src="src/core/items.js"></script>
+<script src="src/core/actions.js"></script>
+<script src="src/core/knockout.js"></script>
+<script src="src/core/turn.js"></script>
+
+<!-- ai -->
+<script src="src/ai/ai.js"></script>
+
+<!-- remaining ui -->
+<script src="src/ui/render.js"></script>
+<script src="src/ui/interaction.js"></script>
+<script src="src/ui/deckbuilder.js"></script>
+<script src="src/ui/screens.js"></script>
+<script src="src/ui/hub.js"></script>
+
+<!-- tooling + bootstrap -->
+<script src="src/validate.js"></script>
+<script src="src/main.js"></script>
+
+</body>
+</html>

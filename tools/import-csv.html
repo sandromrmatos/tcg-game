@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Card CSV importer</title>
+<style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: #12102a; color: #e9ebf5;
+           margin: 0; padding: 26px; line-height: 1.55; }
+    h1 { font-size: 23px; margin-bottom: 4px; }
+    h2 { font-size: 14px; margin: 24px 0 9px; color: #f4c35a;
+         text-transform: uppercase; letter-spacing: 0.1em; }
+    p.lede { color: #a8adc4; max-width: 820px; margin-bottom: 18px; }
+    textarea, pre {
+        width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.42);
+        border: 1px solid rgba(255,255,255,0.14); border-radius: 11px;
+        color: #e9ebf5; padding: 13px; font-family: ui-monospace, Consolas, monospace;
+        font-size: 12.5px;
+    }
+    textarea { height: 170px; resize: vertical; }
+    pre { white-space: pre-wrap; max-height: 420px; overflow-y: auto; }
+    .row { display: flex; gap: 11px; align-items: center; flex-wrap: wrap; margin: 11px 0; }
+    button { font: inherit; font-weight: 650; padding: 9px 18px; border-radius: 9px;
+             border: 1px solid rgba(255,255,255,0.2); cursor: pointer;
+             background: linear-gradient(160deg, #8b6cf0, #5f42c4); color: #fff; }
+    button.ghost { background: rgba(255,255,255,0.07); }
+    input { font: inherit; padding: 8px 11px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.35);
+            color: #e9ebf5; }
+    label { font-size: 13px; color: #a8adc4; }
+    .warn { color: #ffd08a; }
+    .bad  { color: #ff9aa2; }
+    .ok   { color: #7bf0b6; }
+    ol { margin-left: 20px; } li { margin-bottom: 6px; font-size: 13.5px; color: #cdd1e2; }
+    code { background: rgba(255,255,255,0.09); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Card CSV importer</h1>
+<p class="lede">
+    Converts a design spreadsheet into the card literals used by
+    <code>src/data/cards.js</code>. It fills in everything mechanical — id, name,
+    stage, type, HP, retreat, move names, costs and damage — and then lists the
+    moves and abilities whose rules text implies behaviour, because those need an
+    effect id that you implement in the registries. Nothing is guessed silently.
+</p>
+
+<h2>1. Set details</h2>
+<div class="row">
+    <label>Set name <input id="set-name" value="New Set" size="26"></label>
+    <label>Set id <input id="set-id" value="NS" size="6"></label>
+</div>
+
+<h2>2. Paste the CSV</h2>
+<p class="lede">
+    Include the header row. Recognised columns:
+    <code>id_output</code>, <code>Name</code>, <code>Stage</code>, <code>Type</code>,
+    <code>hp</code>, <code>retreat</code>, <code>previous stage</code>,
+    <code>file</code>, <code>Move1 Cost</code>, <code>Move1 Name</code>,
+    <code>Move1 Damage</code>, <code>Move1 Description</code>, the same for Move2,
+    and <code>Ability</code>.
+</p>
+<textarea id="csv-input" placeholder="Paste CSV here, including the header row…"></textarea>
+
+<div class="row">
+    <button id="convert">Convert</button>
+    <button id="copy" class="ghost">Copy card literals</button>
+</div>
+
+<h2>3. Card literals — paste into src/data/cards.js</h2>
+<pre id="output">Nothing converted yet.</pre>
+
+<h2>4. What still needs a decision</h2>
+<pre id="todo">Nothing converted yet.</pre>
+
+<h2>5. Then</h2>
+<ol>
+    <li>Add the set to <code>src/data/sets.js</code> with the exact filename prefix.</li>
+    <li>Drop the card images into <code>cards/</code>, named to match each id.</li>
+    <li>Implement each listed effect in <code>src/core/effects.js</code>,
+        ability in <code>src/core/abilities.js</code>, item in <code>src/core/items.js</code>.</li>
+    <li>Open <code>test.html</code>. The validator will name anything still missing;
+        the fuzzer will play thousands of games with the new cards.</li>
+</ol>
+
+<script>
+// ---------------------------------------------------------------------------
+// CSV parsing that handles quoted fields containing commas and newlines.
+// ---------------------------------------------------------------------------
+
+function parseCsv(text) {
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+
+        if (inQuotes) {
+            if (ch === '"') {
+                if (text[i + 1] === '"') { field += '"'; i++; }
+                else inQuotes = false;
+            } else field += ch;
+            continue;
+        }
+        if (ch === '"') { inQuotes = true; continue; }
+        if (ch === ',') { row.push(field); field = ''; continue; }
+        if (ch === '\r') continue;
+        if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue; }
+        field += ch;
+    }
+    if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(cell => cell.trim() !== ''));
+}
+
+const num = value => {
+    const match = String(value || '').match(/-?\d+/);
+    return match ? parseInt(match[0], 10) : null;
+};
+
+const str = value => {
+    const trimmed = String(value || '').trim();
+    return trimmed === '' ? null : trimmed;
+};
+
+const jsString = value => value === null ? 'null' : `"${String(value).replace(/"/g, '\\"')}"`;
+
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+function convert() {
+    const setName = document.getElementById('set-name').value.trim() || 'New Set';
+    const setId = document.getElementById('set-id').value.trim() || 'NS';
+    const rows = parseCsv(document.getElementById('csv-input').value);
+
+    if (rows.length < 2) {
+        document.getElementById('output').textContent = 'Need a header row and at least one card row.';
+        return;
+    }
+
+    const header = rows[0].map(h => h.trim());
+    const col = name => header.indexOf(name);
+    const get = (row, name) => {
+        const index = col(name);
+        return index === -1 ? '' : (row[index] || '');
+    };
+
+    const missingColumns = ['id_output', 'Name', 'Stage', 'Type']
+        .filter(name => col(name) === -1);
+    if (missingColumns.length) {
+        document.getElementById('output').innerHTML =
+            `<span class="bad">Missing required column(s): ${missingColumns.join(', ')}</span>`;
+        return;
+    }
+
+    const dataRows = rows.slice(1).filter(row => str(get(row, 'id_output')));
+
+    // "previous stage" holds the previous card's FILE, so build file -> name.
+    const fileToName = new Map();
+    for (const row of dataRows) {
+        const file = str(get(row, 'file'));
+        if (file) fileToName.set(file, str(get(row, 'Name')));
+    }
+
+    const literals = [];
+    const todo = { moveEffects: [], abilities: [], items: [], notes: [] };
+
+    for (const row of dataRows) {
+        const id = str(get(row, 'id_output'));
+        const name = str(get(row, 'Name'));
+        const stageRaw = str(get(row, 'Stage')) || '';
+        const type = str(get(row, 'Type')) || 'Neutral';
+        const isItemCard = /item/i.test(stageRaw) || /item/i.test(type);
+        const stage = isItemCard ? 'Item' : stageRaw;
+
+        if (!id.startsWith(setName + '_')) {
+            todo.notes.push(
+                `${name}: id "${id}" does not start with "${setName}_". ` +
+                `The set prefix in sets.js must match the ids exactly.`);
+        }
+
+        const prevFile = str(get(row, 'previous stage'));
+        const prevStage = prevFile ? (fileToName.get(prevFile) || prevFile.replace(/\.png$/i, '')) : null;
+
+        const fields = [
+            `id: ${jsString(id)}`,
+            `name: ${jsString(name)}`,
+            `stage: ${jsString(stage)}`,
+            `hp: ${isItemCard ? 0 : (num(get(row, 'hp')) || 0)}`,
+            `retreat: ${isItemCard ? 0 : (num(get(row, 'retreat')) || 0)}`
+        ];
+
+        for (const n of [1, 2]) {
+            const moveName = isItemCard ? null : str(get(row, `Move${n} Name`));
+            const cost = isItemCard ? null : str(get(row, `Move${n} Cost`));
+            const damage = isItemCard ? null : num(get(row, `Move${n} Damage`));
+            const description = str(get(row, `Move${n} Description`));
+
+            fields.push(`move${n}Cost: ${jsString(cost)}`);
+            fields.push(`move${n}Name: ${jsString(moveName)}`);
+            fields.push(`move${n}Damage: ${damage === null ? (moveName ? 0 : 'null') : damage}`);
+            // An effect id cannot be derived from prose, so it is left null and
+            // reported. The validator will also flag a move that does nothing.
+            fields.push(`move${n}Effect: null`);
+
+            if (moveName && description) {
+                todo.moveEffects.push({ card: name, move: moveName, text: description });
+            }
+        }
+
+        fields.push(`prevStage: ${jsString(prevStage)}`);
+        fields.push(`type: ${jsString(type)}`);
+
+        const abilityRaw = str(get(row, 'Ability'));
+        if (abilityRaw && !isItemCard) {
+            // Convention in the existing sheets: "Name: what it does".
+            const split = abilityRaw.indexOf(':');
+            const abilityName = split === -1 ? abilityRaw : abilityRaw.slice(0, split).trim();
+            const abilityText = split === -1 ? '' : abilityRaw.slice(split + 1).trim();
+
+            fields.push(`abilityName: ${jsString(abilityName)}`);
+            fields.push(`abilityEffect: null`);
+            fields.push(`abilityLocation: "any"`);
+
+            todo.abilities.push({ card: name, ability: abilityName, text: abilityText });
+        }
+
+        if (isItemCard) {
+            fields.push(`itemEffect: null`);
+            todo.items.push({ card: name });
+        }
+
+        literals.push(`    {${fields.join(', ')}},`);
+    }
+
+    document.getElementById('output').textContent =
+        `    // ${setName}\n` + literals.join('\n');
+
+    renderTodo(setName, setId, todo, dataRows.length);
+}
+
+function renderTodo(setName, setId, todo, cardCount) {
+    const lines = [];
+
+    lines.push(`Converted ${cardCount} card(s) for "${setName}".`);
+    lines.push('');
+    lines.push('Add to src/data/sets.js:');
+    lines.push('');
+    lines.push('    {');
+    lines.push(`        id: '${setId}',`);
+    lines.push(`        name: '${setName}',`);
+    lines.push(`        prefix: '${setName}_',`);
+    lines.push(`        accent: '#8b6cf0'`);
+    lines.push('    }');
+    lines.push('');
+
+    if (todo.notes.length) {
+        lines.push('WARNINGS');
+        for (const note of todo.notes) lines.push(`  ! ${note}`);
+        lines.push('');
+    }
+
+    if (todo.moveEffects.length) {
+        lines.push(`MOVE EFFECTS TO IMPLEMENT (${todo.moveEffects.length})`);
+        lines.push('  Each of these moves has rules text, so it needs an effect id in');
+        lines.push('  src/core/effects.js and that id set as moveNEffect on the card.');
+        lines.push('');
+        for (const entry of todo.moveEffects) {
+            lines.push(`  ${entry.card} — ${entry.move}`);
+            lines.push(`      ${entry.text}`);
+        }
+        lines.push('');
+    }
+
+    if (todo.abilities.length) {
+        lines.push(`ABILITIES TO IMPLEMENT (${todo.abilities.length})`);
+        lines.push('  Set abilityEffect to a new id registered in src/core/abilities.js,');
+        lines.push("  and set abilityLocation to 'any', 'active' or 'bench'.");
+        lines.push('');
+        for (const entry of todo.abilities) {
+            lines.push(`  ${entry.card} — ${entry.ability}`);
+            if (entry.text) lines.push(`      ${entry.text}`);
+        }
+        lines.push('');
+    }
+
+    if (todo.items.length) {
+        lines.push(`ITEMS TO IMPLEMENT (${todo.items.length})`);
+        lines.push('  Set itemEffect to a new id registered in src/core/items.js.');
+        lines.push('');
+        for (const entry of todo.items) lines.push(`  ${entry.card}`);
+        lines.push('');
+    }
+
+    if (!todo.moveEffects.length && !todo.abilities.length && !todo.items.length) {
+        lines.push('No effects, abilities or items to implement — plain creatures only.');
+    }
+
+    document.getElementById('todo').textContent = lines.join('\n');
+}
+
+document.getElementById('convert').addEventListener('click', convert);
+document.getElementById('copy').addEventListener('click', async () => {
+    const text = document.getElementById('output').textContent;
+    try {
+        await navigator.clipboard.writeText(text);
+        const button = document.getElementById('copy');
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = original; }, 1200);
+    } catch (err) {
+        alert('Could not copy automatically — select the text and copy it manually.');
+    }
+});
+</script>
+
+</body>
+</html>

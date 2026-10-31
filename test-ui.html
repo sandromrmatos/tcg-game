@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TCG — UI state tests</title>
+<style>
+    body { font-family: "Segoe UI", system-ui, sans-serif; background: #12102a; color: #e9ebf5;
+           margin: 0; padding: 26px; line-height: 1.55; }
+    h1 { font-size: 23px; margin-bottom: 4px; }
+    p.lede { color: #a8adc4; max-width: 800px; margin-bottom: 18px; }
+    pre { background: rgba(0,0,0,0.42); border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 11px; padding: 15px; font-size: 12.5px; white-space: pre-wrap; }
+    .ok { color: #7bf0b6; } .bad { color: #ff9aa2; }
+    .hidden-stage { position: absolute; left: -9999px; top: -9999px; }
+    button { font: inherit; font-weight: 650; padding: 9px 18px; border-radius: 9px;
+             border: 1px solid rgba(255,255,255,0.2); cursor: pointer;
+             background: linear-gradient(160deg, #8b6cf0, #5f42c4); color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>UI state tests</h1>
+<p class="lede">
+    The fuzzer in <code>test.html</code> drives the engine directly and never
+    touches the control bar, so it cannot catch a button that is wrongly disabled.
+    This page asserts the button and hand states the real renderer produces in
+    each phase. It exists because a permanently disabled Ready button shipped
+    once already.
+</p>
+
+<button id="run">Run tests</button>
+<pre id="out">Not run yet.</pre>
+
+<!-- The elements the renderer writes to. Off-screen; this is a test page. -->
+<div class="hidden-stage">
+    <span id="player-points"></span><span id="player-deck-count"></span>
+    <span id="player-hand-count"></span><span id="player-discard-count"></span>
+    <span id="player-point-pips"></span><span id="player-side-chips"></span>
+    <span id="opponent-points"></span><span id="opponent-deck-count"></span>
+    <span id="opponent-hand-count"></span><span id="opponent-discard-count"></span>
+    <span id="opponent-point-pips"></span><span id="opponent-side-chips"></span>
+    <span id="turn-label"></span><span id="turn-number"></span><span id="turn-limit"></span>
+    <div id="busy-indicator"></div>
+
+    <div class="card-slot active-slot" data-player="opponent"></div>
+    <div class="card-slot bench-slot" data-player="opponent" data-slot="0"></div>
+    <div class="card-slot bench-slot" data-player="opponent" data-slot="1"></div>
+    <div class="card-slot bench-slot" data-player="opponent" data-slot="2"></div>
+    <div class="card-slot active-slot" data-player="player"></div>
+    <div class="card-slot bench-slot" data-player="player" data-slot="0"></div>
+    <div class="card-slot bench-slot" data-player="player" data-slot="1"></div>
+    <div class="card-slot bench-slot" data-player="player" data-slot="2"></div>
+
+    <div id="player-hand"></div><div id="opponent-hand"></div>
+    <div id="move-buttons"></div>
+    <button id="energy-btn"></button>
+    <button id="retreat-btn"></button>
+    <button id="end-turn-btn"></button>
+</div>
+
+<script src="src/data/sets.js"></script>
+<script src="src/data/cards.js"></script>
+<script src="src/data/preset-decks.js"></script>
+<script src="src/core/util.js"></script>
+<script src="src/core/cards-index.js"></script>
+<script src="src/core/timing.js"></script>
+<script src="src/core/state.js"></script>
+<script src="src/data/decks.js"></script>
+<script src="src/ui/log.js"></script>
+<script src="src/ui/prompt.js"></script>
+<script src="src/core/status.js"></script>
+<script src="src/core/heal.js"></script>
+<script src="src/core/damage.js"></script>
+<script src="src/core/combat.js"></script>
+<script src="src/core/effects.js"></script>
+<script src="src/core/abilities.js"></script>
+<script src="src/core/items.js"></script>
+<script src="src/core/actions.js"></script>
+<script src="src/core/knockout.js"></script>
+<script src="src/core/turn.js"></script>
+<script src="src/ai/ai.js"></script>
+<script src="src/ui/render.js"></script>
+<script src="src/ui/interaction.js"></script>
+<script src="src/ui/deckbuilder.js"></script>
+<script src="src/ui/screens.js"></script>
+<script src="src/validate.js"></script>
+
+<script>
+CardIndex.build();
+Log.init(); Prompt.init(); DeckLibrary.load();
+Log.speed = 0;
+Automation.active = true;
+
+const results = [];
+const check = (label, actual, expected) => {
+    const pass = actual === expected;
+    results.push({ label, pass, detail: pass ? '' : `got ${actual}, expected ${expected}` });
+};
+
+const el = id => document.getElementById(id);
+const readyBtn = () => el('end-turn-btn');
+const energyBtn = () => el('energy-btn');
+const retreatBtn = () => el('retreat-btn');
+
+/** Deals a fresh game up to the start of the setup phase. */
+function dealSetup(playerDeck = 0, aiDeck = 1) {
+    resetGameState();
+    gameState.player.selectedDeck = playerDeck;
+    gameState.opponent.selectedDeck = aiDeck;
+    gameState.phase = 'setup';
+    buildDecks();
+    drawOpeningHands();
+    aiSetup('opponent');
+    Render.all();
+}
+
+function placePlayerActive() {
+    const stage1 = gameState.player.hand.find(c => c.data.stage === 'Stage 1');
+    gameState.player.active = stage1;
+    gameState.player.hand.splice(gameState.player.hand.indexOf(stage1), 1);
+    Render.all();
+}
+
+async function runTests() {
+    results.length = 0;
+    Rng.seed(12345);
+
+    // ---- setup phase ---------------------------------------------------
+    dealSetup();
+    check('setup: Ready says "Ready"', readyBtn().textContent, 'Ready');
+    check('setup: Ready disabled with no active creature', readyBtn().disabled, true);
+    check('setup: energy button hidden', energyBtn().style.display, 'none');
+    check('setup: retreat button hidden', retreatBtn().style.display, 'none');
+    check('setup: no move buttons', el('move-buttons').children.length, 0);
+    check('setup: hand rendered', el('player-hand').children.length > 0, true);
+
+    // This is the regression that shipped: Ready must enable once an active
+    // creature is placed, even though currentTurn is still null in setup.
+    placePlayerActive();
+    check('setup: Ready ENABLED once an active creature is placed',
+        readyBtn().disabled, false);
+
+    // ---- into play -----------------------------------------------------
+    await startGame();
+    check('play: phase is playing', gameState.phase, 'playing');
+    check('play: player has an active creature', !!gameState.player.active, true);
+    check('play: opponent has an active creature', !!gameState.opponent.active, true);
+    check('play: energy button visible', energyBtn().style.display !== 'none', true);
+    check('play: retreat button visible', retreatBtn().style.display !== 'none', true);
+
+    // startGame may have handed the first turn to the AI, which then plays and
+    // passes back, so force a known state rather than assuming.
+    gameState.currentTurn = 'player';
+    gameState.player.hasAttacked = false;
+    gameState.player.energyAttachedThisTurn = false;
+    Render.all();
+
+    check('player turn: Ready says "End turn"', readyBtn().textContent, 'End turn');
+    check('player turn: End turn enabled', readyBtn().disabled, false);
+    check('player turn: energy enabled', energyBtn().disabled, false);
+    check('player turn: move buttons rendered',
+        el('move-buttons').children.length, movesOf(gameState.player.active.data).length);
+
+    // A move the creature cannot pay for must be offered but disabled.
+    const active = gameState.player.active;
+    active.energy = 0;
+    Render.all();
+    const firstMove = el('move-buttons').children[0];
+    check('no energy: move button disabled', firstMove.disabled, true);
+    check('no energy: tooltip explains why',
+        /Not enough energy/.test(firstMove.title), true);
+
+    active.energy = 10;
+    Render.all();
+    check('with energy: move button enabled',
+        el('move-buttons').children[0].disabled, false);
+
+    // ---- opponent turn --------------------------------------------------
+    gameState.currentTurn = 'opponent';
+    Render.all();
+    check('opponent turn: End turn disabled', readyBtn().disabled, true);
+    check('opponent turn: energy disabled', energyBtn().disabled, true);
+    check('opponent turn: move buttons disabled',
+        el('move-buttons').children[0].disabled, true);
+
+    // ---- already attacked ----------------------------------------------
+    gameState.currentTurn = 'player';
+    gameState.player.hasAttacked = true;
+    Render.all();
+    check('after attacking: energy disabled', energyBtn().disabled, true);
+    check('after attacking: retreat disabled', retreatBtn().disabled, true);
+    check('after attacking: End turn still enabled', readyBtn().disabled, false);
+
+    // ---- restrictions surface on the buttons ---------------------------
+    gameState.player.hasAttacked = false;
+    gameState.player.flags.cantAttackUntil = Timing.opponentTurns(1);
+    Render.all();
+    check('Quick Reflexes lock: move buttons disabled',
+        el('move-buttons').children[0].disabled, true);
+    gameState.player.flags.cantAttackUntil = null;
+
+    gameState.player.active.flags.cooldowns.overdriveSmash = Timing.myTurns(2);
+    Render.all();
+    check('cooldown does not disable an unrelated move',
+        el('move-buttons').children[0].disabled, false);
+    gameState.player.active.flags.cooldowns = {};
+
+    // ---- hand playability ----------------------------------------------
+    gameState.turnNumber = 1;
+    Render.all();
+    const evolution = gameState.player.hand.find(c =>
+        isCreature(c.data) && c.data.stage !== 'Stage 1');
+    if (evolution) {
+        const verdict = handCardPlayability(evolution);
+        check('turn 1: evolution card not playable', verdict.ok, false);
+        check('turn 1: reason mentions the turn limit',
+            /turn 3/.test(verdict.reason), true);
+    } else {
+        results.push({ label: 'turn 1: evolution card not playable', pass: true,
+                       detail: '(no evolution card in this hand — skipped)' });
+    }
+
+    // ---- game over ------------------------------------------------------
+    gameState.player.points = POINTS_TO_WIN;
+    await endGame('player', 'test');
+    check('game over: phase is gameOver', gameState.phase, 'gameOver');
+    Render.all();
+    check('game over: End turn disabled', readyBtn().disabled, true);
+
+    report();
+}
+
+function report() {
+    const failed = results.filter(r => !r.pass);
+    const lines = [];
+
+    lines.push(`UITEST-BEGIN`);
+    lines.push(`${results.length - failed.length}/${results.length} passed`);
+    lines.push('');
+    for (const r of results) {
+        const mark = r.pass ? 'PASS' : 'FAIL';
+        lines.push(`${mark}  ${r.label}${r.detail ? '  — ' + r.detail : ''}`);
+    }
+    lines.push('');
+    lines.push(failed.length === 0 ? 'ALL PASSED' : `${failed.length} FAILED`);
+    lines.push('UITEST-END');
+
+    const html = lines.map(line =>
+        line.startsWith('FAIL') || line.endsWith('FAILED')
+            ? `<span class="bad">${line}</span>`
+            : (line.startsWith('PASS') || line === 'ALL PASSED'
+                ? `<span class="ok">${line}</span>` : line)
+    ).join('\n');
+
+    el('out').innerHTML = html;
+    document.title = failed.length === 0 ? 'ui tests passed' : `${failed.length} ui tests failed`;
+}
+
+el('run').addEventListener('click', () => runTests().catch(err => {
+    el('out').innerHTML = `<span class="bad">UITEST-BEGIN\nTHREW: ${err && err.stack}\nUITEST-END</span>`;
+}));
+
+// Auto-run so this page can be driven headlessly:
+//   chrome --headless=new --dump-dom --virtual-time-budget=30000 test-ui.html
+runTests().catch(err => {
+    el('out').innerHTML = `<span class="bad">UITEST-BEGIN\nTHREW: ${err && err.stack}\nUITEST-END</span>`;
+});
+</script>
+
+</body>
+</html>
