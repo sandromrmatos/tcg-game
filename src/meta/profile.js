@@ -133,6 +133,7 @@ const Profile = {
             lastSpinDate: null,
             lastGuessDate: null,
             lastMemoryDate: null,
+            minigameResults: {},         // 'wheel'|'guess'|'memory' -> { date, credits, gems } of the last play
             guessGame: null,             // { target, count, date }
             memoryGame: null,            // { board, matched, firstFlip, date }
             drawsTotal: 0,
@@ -214,6 +215,16 @@ const Profile = {
         s.lastSpinDate = dateOrNull(raw.lastSpinDate);
         s.lastGuessDate = dateOrNull(raw.lastGuessDate);
         s.lastMemoryDate = dateOrNull(raw.lastMemoryDate);
+
+        s.minigameResults = {};
+        if (raw.minigameResults && typeof raw.minigameResults === 'object') {
+            for (const key of ['wheel', 'guess', 'memory']) {
+                const r = raw.minigameResults[key];
+                if (r && typeof r === 'object' && dateOrNull(r.date)) {
+                    s.minigameResults[key] = { date: r.date, credits: int(r.credits), gems: int(r.gems) };
+                }
+            }
+        }
 
         const g = raw.guessGame;
         s.guessGame = g && typeof g === 'object' && int(g.target) >= GUESS_MIN && int(g.target) <= GUESS_MAX
@@ -589,6 +600,7 @@ const Profile = {
         const today = dayKey();
         this.s.lastSpinDate = today;
         this.s.wheelDays[today] = true;
+        this.s.minigameResults.wheel = { date: today, credits: seg.credits, gems: seg.gems };
         this.touch('wheel', { immediate: true });
         return { index, creditsWon: seg.credits, gemsWon: seg.gems };
     },
@@ -651,6 +663,7 @@ const Profile = {
         const today = dayKey();
         this.s.lastGuessDate = today;
         this.s.guessDays[today] = true;
+        this.s.minigameResults.guess = { date: today, credits: creditsWon, gems: gemsWon };
         const result = { correct: true, target: game.target, count: game.count, creditsWon, gemsWon };
         this.s.guessGame = null;
         this.touch('guess', { immediate: true });
@@ -732,6 +745,7 @@ const Profile = {
         const today = dayKey();
         this.s.lastMemoryDate = today;
         this.s.memoryDays[today] = true;
+        this.s.minigameResults.memory = { date: today, credits: creditsWon, gems: gemsWon };
         this.s.memoryGame = null;
         this.touch('memory', { immediate: true });
         return { position, image, isFirstFlip: false, matched: true, firstPosition, gameComplete: true, creditsWon, gemsWon };
@@ -804,27 +818,6 @@ const Profile = {
             }
         }
         return { valid: true };
-    },
-
-    /**
-     * For the empty-deck hint: how close the collection is to a legal deck of
-     * each primary type (cards of that type plus Neutral and Item, at most 2
-     * copies each).
-     */
-    deckReadiness() {
-        const types = Array.from(new Set(cardDatabase.map(c => getCardType(c))))
-            .filter(t => t !== 'Neutral' && t !== 'Item').sort();
-        return types.map(type => {
-            let usable = 0, hasStage1 = false;
-            for (const card of cardDatabase) {
-                const t = getCardType(card);
-                if (t !== type && t !== 'Neutral' && t !== 'Item') continue;
-                const n = Math.min(MAX_COPIES, this.owned(card.id));
-                usable += n;
-                if (n > 0 && card.stage === 'Stage 1') hasStage1 = true;
-            }
-            return { type, usable, ready: usable >= DECK_SIZE && hasStage1 };
-        });
     },
 
     // -----------------------------------------------------------------------

@@ -80,9 +80,11 @@ const Hub = {
         { id: 'draw',       label: '🎰 Draw a Card' },
         { id: 'store',      label: '🛒 Store' },
         { id: 'missions',   label: '📋 Missions' },
-        { id: 'wheel',      label: '🎡 Spin the Wheel' },
-        { id: 'guess',      label: '🎯 Guess the Number' },
-        { id: 'memory',     label: '🧠 Memory Game' },
+        { id: 'minigames',  label: '🎮 Mini-games' },
+        // The games themselves open from the Mini-games page, not the tab bar.
+        { id: 'wheel',      label: '🎡 Spin the Wheel',   parent: 'minigames' },
+        { id: 'guess',      label: '🎯 Guess the Number', parent: 'minigames' },
+        { id: 'memory',     label: '🧠 Memory Game',      parent: 'minigames' },
         { id: 'collection', label: '📈 Collection' },
         { id: 'stats',      label: '🏆 Stats' },
         { id: 'save',       label: '💾 Save data' }
@@ -100,6 +102,7 @@ const Hub = {
         const nav = document.getElementById('hub-nav');
         nav.innerHTML = '';
         for (const p of this.PAGES) {
+            if (p.parent) continue;
             nav.appendChild(h('button', {
                 class: 'hub-tab', type: 'button', dataset: { page: p.id },
                 on: { click: () => this.showPage(p.id) }
@@ -172,12 +175,14 @@ const Hub = {
         const sunday = document.getElementById('hub-sunday');
         if (sunday) sunday.classList.toggle('show', isSundayToday());
 
-        const badge = document.querySelector('[data-badge="missions"]');
-        if (badge) {
-            const n = Missions.claimableCount();
+        const setBadge = (page, n) => {
+            const badge = document.querySelector(`[data-badge="${page}"]`);
+            if (!badge) return;
             badge.textContent = n > 0 ? String(n) : '';
             badge.classList.toggle('show', n > 0);
-        }
+        };
+        setBadge('missions', Missions.claimableCount());
+        setBadge('minigames', this.minigameList().filter(g => g.status.canPlay || g.status.active).length);
     },
 
     /** Messages that need the player's attention: boot notices and a blocked save. */
@@ -285,7 +290,9 @@ const Hub = {
             return;
         }
         this.page = id;
-        document.querySelectorAll('.hub-tab').forEach(t => t.classList.toggle('active', t.dataset.page === id));
+        const page = this.PAGES.find(p => p.id === id);
+        const tabId = page && page.parent ? page.parent : id;
+        document.querySelectorAll('.hub-tab').forEach(t => t.classList.toggle('active', t.dataset.page === tabId));
         document.querySelectorAll('.hub-page').forEach(p => p.classList.toggle('active', p.id === `page-${id}`));
         const active = document.querySelector('.hub-tab.active');
         if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -299,6 +306,7 @@ const Hub = {
             draw: () => this.renderDraw(),
             store: () => this.renderStore(),
             missions: () => this.renderMissions(),
+            minigames: () => this.renderMinigames(),
             wheel: () => this.renderWheel(),
             guess: () => this.renderGuess(),
             memory: () => this.renderMemory(),
@@ -592,11 +600,75 @@ const Hub = {
     },
 
     // -----------------------------------------------------------------------
+    // Mini-games hub
+    // -----------------------------------------------------------------------
+
+    minigameList() {
+        return [
+            { id: 'wheel',  key: 'wheel',  icon: '🎡', name: 'Spin the Wheel',
+              about: 'One spin a day for +1, +3 or +5 credits, or bonus gems.', status: Profile.wheelStatus() },
+            { id: 'guess',  key: 'guess',  icon: '🎯', name: 'Guess the Number',
+              about: 'Guess a number from 1 to 50. Fewer guesses, bigger reward (up to 5 credits).', status: Profile.guessStatus() },
+            { id: 'memory', key: 'memory', icon: '🧠', name: 'Memory Game',
+              about: 'Find all 8 pairs for 2, 3 or 5 credits and maybe a gem.', status: Profile.memoryStatus() }
+        ];
+    },
+
+    /** One line telling the player whether this game is done for today and what it paid. */
+    minigameMessage(game) {
+        const st = game.status;
+        if (st.active) return { kind: 'active', text: '▶️ Game in progress. Finish it to collect your reward.' };
+        if (st.alreadyToday) {
+            const r = Profile.s.minigameResults[game.key];
+            const won = r && r.date === dayKey() ? fmtWon(r.credits, r.gems) : '';
+            return { kind: 'done', text: won
+                ? `✅ Played today: you earned ${won}. Come back tomorrow!`
+                : '✅ Played today: no prize this time. Come back tomorrow!' };
+        }
+        if (st.tooMany) {
+            return { kind: 'blocked', text: `⚠️ Not played yet today. You need ${MINIGAME_MAX_CREDITS} or fewer credits to play (you have ${st.credits}/${MAX_CREDITS}).` };
+        }
+        return { kind: 'ready', text: '🎁 Not played yet today. Rewards are waiting!' };
+    },
+
+    renderMinigames() {
+        const host = this.pageHost('minigames');
+        host.appendChild(this.pageTitle('🎮 Mini-games',
+            'Each game can be played once a day for free credits and gems.' +
+            (isSundayToday() ? ' 🎉 It\'s Sunday: gem prizes are boosted!' : '')));
+        const grid = h('div', { class: 'minigame-grid' });
+        for (const game of this.minigameList()) {
+            const msg = this.minigameMessage(game);
+            grid.appendChild(h('div', { class: `panel minigame-card ${msg.kind}` },
+                h('div', { class: 'minigame-icon', text: game.icon }),
+                h('h3', { text: game.name }),
+                h('p', { class: 'page-sub', text: game.about }),
+                h('p', { class: `minigame-status ${msg.kind}`, text: msg.text }),
+                h('button', {
+                    class: `btn ${msg.kind === 'ready' || msg.kind === 'active' ? 'btn-primary' : 'btn-ghost'}`, type: 'button',
+                    text: msg.kind === 'active' ? 'Continue' : msg.kind === 'ready' ? 'Play' : 'Open',
+                    on: { click: () => this.showPage(game.id) }
+                })));
+        }
+        host.appendChild(grid);
+    },
+
+    /** "← Mini-games" link at the top of each game page. */
+    backToMinigames() {
+        return h('button', {
+            class: 'btn btn-ghost btn-sm back-btn', type: 'button', text: '← Mini-games',
+            disabled: this.navLocked, title: this.navLocked ? 'Guess the number correctly before leaving' : '',
+            on: { click: () => this.showPage('minigames') }
+        });
+    },
+
+    // -----------------------------------------------------------------------
     // Spin the Wheel
     // -----------------------------------------------------------------------
 
     renderWheel() {
         const host = this.pageHost('wheel');
+        host.appendChild(this.backToMinigames());
         const w = this.wheel;
         const st = Profile.wheelStatus();
         const segments = Profile.wheelSegments(st.sunday);
@@ -676,6 +748,7 @@ const Hub = {
         const g = this.guessUi;
         const st = Profile.guessStatus();
         this.setNavLocked(st.active);
+        host.appendChild(this.backToMinigames());
 
         host.appendChild(this.pageTitle('🎯 Guess the Number', `I'm thinking of a number between ${GUESS_MIN} and ${GUESS_MAX}. Can you guess it?`));
         const area = h('div', { class: 'panel game-area' });
@@ -755,6 +828,7 @@ const Hub = {
             if (st.firstFlip) { m.images[st.firstFlip.position] = st.firstFlip.image; m.pending = [st.firstFlip.position]; }
         }
 
+        host.appendChild(this.backToMinigames());
         host.appendChild(this.pageTitle('🧠 Memory Game', 'Find all 8 matching pairs!'));
         const area = h('div', { class: 'panel memory-area' });
 

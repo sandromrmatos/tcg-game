@@ -201,7 +201,12 @@ const Missions = (() => {
             const blockedByCap = st.completed && !claimed && !canClaim;
             return Object.assign({}, m, st, { claimed, canClaim, blockedByCap });
         });
-        return rows.filter(m => !m.claimed).concat(rows.filter(m => m.claimed));
+        // Ready to claim first, then completed-but-blocked by the credit cap,
+        // then the rest in progress, then claimed at the bottom.
+        return rows.filter(m => m.canClaim)
+            .concat(rows.filter(m => m.blockedByCap))
+            .concat(rows.filter(m => !m.claimed && !m.canClaim && !m.blockedByCap))
+            .concat(rows.filter(m => m.claimed));
     }
 
     function claimableCount() {

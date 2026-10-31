@@ -115,20 +115,6 @@ const Screens = {
             'one main type, plus any Neutral and Item cards, at least one Stage 1 creature, and at most ' +
             `${MAX_COPIES} copies of a card. Collect cards with Draw a Card, the Store, missions and the mini-games.`;
         tile.appendChild(text);
-
-        if (typeof Profile !== 'undefined' && Profile.s) {
-            const types = document.createElement('div');
-            types.className = 'deck-types';
-            for (const r of Profile.deckReadiness()) {
-                const pill = document.createElement('span');
-                pill.className = 'type-pill';
-                pill.style.setProperty('--pill', typeColor(r.type));
-                pill.textContent = r.ready ? `${r.type} ✓ ready` : `${r.type} ${r.usable}/${DECK_SIZE}`;
-                pill.title = `Usable ${r.type}, Neutral and Item cards you own (max ${MAX_COPIES} copies each)`;
-                types.appendChild(pill);
-            }
-            tile.appendChild(types);
-        }
         return tile;
     },
 
