@@ -24,6 +24,8 @@ const DeckLibrary = {
         this.decks = presetDeckLists.map(d => ({
             name: d.name,
             type: 'preset',
+            // The set that has to be unlocked before the AI may pick this deck.
+            set: d.set || cardSets[0].id,
             cards: d.cards.slice()
         }));
 
@@ -46,6 +48,15 @@ const DeckLibrary = {
 
     presets() {
         return this.decks.filter(d => d.type === 'preset');
+    },
+
+    /**
+     * The presets the AI may pick in a real game. A deck tied to a later set
+     * (the Galactic Adventures decks) only joins once the player has unlocked
+     * drawing from that set. Without a Profile (test pages) every preset counts.
+     */
+    aiPresets() {
+        return this.presets().filter(d => !this.hasProfile() || Profile.isSetUnlocked(d.set));
     },
 
     /** The decks the player can play with normally. */
@@ -171,6 +182,21 @@ function validateDeck(cardIds) {
     }
 
     return { valid: true };
+}
+
+/**
+ * A deck's primary type: its one non-Neutral creature type, or 'Neutral' for a
+ * deck of only Neutral creatures and items. Used for "win against a Mystic
+ * deck" style achievements and the AI deck labels.
+ */
+function deckPrimaryType(cardIds) {
+    for (const id of cardIds || []) {
+        const data = getCardData(id);
+        if (!data) continue;
+        const type = getCardType(data);
+        if (type !== 'Neutral' && type !== 'Item') return type;
+    }
+    return 'Neutral';
 }
 
 /**

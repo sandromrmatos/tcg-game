@@ -39,6 +39,17 @@ const Screens = {
             DeckBuilder.open(null, { qa: true });
         });
 
+        // QA: look at either deck before starting a test battle.
+        for (const [buttonId, selectId] of [['debug-preview-player', 'debug-player-deck'], ['debug-preview-ai', 'debug-ai-deck']]) {
+            const btn = document.getElementById(buttonId);
+            if (!btn) continue;
+            btn.addEventListener('click', () => {
+                const select = document.getElementById(selectId);
+                const index = parseInt(select && select.value, 10);
+                if (Number.isInteger(index)) this.showDeckPreview(index, { playable: false });
+            });
+        }
+
         const debugClear = document.getElementById('debug-clear-btn');
         if (debugClear) debugClear.addEventListener('click', () => {
             for (const d of DeckLibrary.loadTestDecks()) DeckLibrary.deleteTestDeck(d.name);
@@ -214,11 +225,19 @@ const Screens = {
         return tile;
     },
 
-    showDeckPreview(index) {
+    /**
+     * @param {number} index deck library index
+     * @param {object} [opts] { playable: false } hides "Play this deck" (QA preview)
+     */
+    showDeckPreview(index, opts = {}) {
         const deck = DeckLibrary.get(index);
         if (!deck) return;
+        const playable = opts.playable !== false;
 
-        setText('deck-preview-title', deck.name);
+        const tag = deck.type === 'preset'
+            ? ` · AI deck (${deckPrimaryType(deck.cards)})`
+            : deck.type === 'test' ? ' · QA test deck' : '';
+        setText('deck-preview-title', deck.name + tag);
 
         const grid = document.getElementById('deck-preview-grid');
         grid.innerHTML = '';
@@ -243,8 +262,7 @@ const Screens = {
             const img = document.createElement('img');
             img.src = cardImage(id);
             img.alt = data.name;
-            img.addEventListener('mouseenter', () => CardZoom.show(id));
-            img.addEventListener('mouseleave', () => CardZoom.hide());
+            CardZoom.bind(img, id);
             tile.appendChild(img);
 
             const count = document.createElement('span');
@@ -269,6 +287,7 @@ const Screens = {
 
         const playBtn = document.getElementById('deck-preview-play');
         if (playBtn) {
+            playBtn.style.display = playable ? '' : 'none';
             playBtn.onclick = () => {
                 this.closeModal('deck-preview-modal');
                 this.selectDeck(index);
@@ -276,6 +295,78 @@ const Screens = {
         }
 
         this.openModal('deck-preview-modal');
+    },
+
+    /**
+     * The panel for one of the player's creatures: the card, its state, and
+     * its ability with a Use button. Opening it never acts on its own.
+     */
+    showCreaturePanel(card, location, index) {
+        const body = document.getElementById('creature-panel-body');
+        if (!body) return;
+        body.innerHTML = '';
+
+        const data = card.data;
+        const hp = remainingHp(card);
+        const el = (tag, cls, text) => {
+            const node = document.createElement(tag);
+            if (cls) node.className = cls;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        };
+
+        const img = el('img', 'creature-panel-img');
+        img.src = cardImage(card.id);
+        img.alt = data.name;
+        body.appendChild(img);
+
+        const info = el('div', 'creature-panel-info');
+        info.appendChild(el('h2', null, data.name));
+        info.appendChild(el('p', 'creature-panel-meta',
+            `${data.type} · ${data.stage} · ${location === 'active' ? 'Active' : 'Bench'}`));
+        info.appendChild(el('p', 'creature-panel-meta',
+            `HP ${hp}/${data.hp} · ⚡ ${card.energy} energy · Retreat ${data.retreat}`));
+
+        for (const status of Status.list(card)) {
+            const c = STATUS_CONDITIONS[status];
+            info.appendChild(el('p', 'creature-panel-status', `${c.icon} ${c.name}: ${c.blurb}`));
+        }
+
+        if (data.abilityEffect) {
+            const box = el('div', 'creature-panel-ability');
+            const where = { any: 'Usable from the active spot or the bench', active: 'Usable from the active spot only', bench: 'Usable from the bench only' };
+            box.appendChild(el('div', 'creature-panel-ability-name', `✨ ${data.abilityName}`));
+            const text = typeof cardText === 'function' ? cardText(card.id, 'ability') : '';
+            if (text) box.appendChild(el('p', 'creature-panel-ability-text', text));
+            box.appendChild(el('p', 'creature-panel-ability-where', where[data.abilityLocation || 'any'] || ''));
+
+            const check = gameState.busy
+                ? { ok: false, reason: 'Wait for the current action to finish.' }
+                : AbilityRegistry.canUse(card, 'player', location);
+            if (!check.ok) box.appendChild(el('p', 'creature-panel-ability-why', check.reason));
+
+            const use = el('button', 'btn btn-primary', `Use ${data.abilityName}`);
+            use.type = 'button';
+            use.disabled = !check.ok;
+            use.onclick = () => {
+                this.closeModal('creature-modal');
+                onUseAbility(card, location, index);
+            };
+            box.appendChild(use);
+            info.appendChild(box);
+        } else {
+            info.appendChild(el('p', 'creature-panel-meta', 'This creature has no ability.'));
+        }
+
+        for (const move of movesOf(data)) {
+            const text = typeof cardText === 'function' ? cardText(card.id, `move${move.number}`) : '';
+            const line = el('p', 'creature-panel-move',
+                `⚔️ ${move.name} · ${move.costCount}⚡ · ${move.damage || '—'}${text ? ' · ' + text : ''}`);
+            info.appendChild(line);
+        }
+
+        body.appendChild(info);
+        this.openModal('creature-modal');
     },
 
     /** Why a player deck can't be played right now, or null. */
@@ -324,7 +415,8 @@ const Screens = {
 
         gameState.player.selectedDeck = index;
 
-        const presets = DeckLibrary.presets();
+        // Galactic Adventures decks join the AI's pool once that set is unlocked.
+        const presets = DeckLibrary.aiPresets();
         const aiDeck = Rng.pick(presets) || deck;
         gameState.opponent.selectedDeck = DeckLibrary.indexOf(aiDeck);
 
@@ -346,7 +438,7 @@ const Screens = {
                 })
                 : { value: true };
             if (!answer || !answer.value) return;
-            Profile.forfeitMatch();
+            Profile.forfeitMatch(playerMatchReport(false));
         }
         gameState.phase = 'gameOver';
         Prompt.cancelAll();
@@ -355,6 +447,8 @@ const Screens = {
 
     beginGame() {
         Log.clear();
+        gameState.track = createMatchTrack();
+        gameState.firstTurnSide = null;
         gameState.phase = 'setup';
         buildDecks();
         drawOpeningHands();
@@ -363,7 +457,7 @@ const Screens = {
         document.getElementById('deck-screen').classList.remove('screen-show');
         document.getElementById('game-screen').classList.add('screen-show');
 
-        Log.write('Place your active creature, then press Ready.',
+        Log.write('Place your active creature, then press Ready. The AI\'s creatures stay face down until then.',
             { kind: 'turn', icon: '🎬' });
         Render.all();
     },
@@ -394,8 +488,7 @@ const Screens = {
                 img.className = 'discard-card';
                 img.src = cardImage(card.id);
                 img.alt = card.data.name;
-                img.addEventListener('mouseenter', () => CardZoom.show(card.id));
-                img.addEventListener('mouseleave', () => CardZoom.hide());
+                CardZoom.bind(img, card.id);
                 grid.appendChild(img);
             }
         }
@@ -534,13 +627,19 @@ const Screens = {
 
     showDebug() {
         DeckLibrary.load();
-        const tag = { preset: ' (AI preset)', custom: ' ★ yours', test: ' 🧪 test' };
+        const tag = deck => {
+            if (deck.type === 'preset') {
+                const set = setById(deck.set);
+                return ` (AI preset · ${deckPrimaryType(deck.cards)}${set && set.id !== cardSets[0].id ? ' · ' + set.name : ''})`;
+            }
+            return deck.type === 'custom' ? ' ★ yours' : deck.type === 'test' ? ' 🧪 test' : '';
+        };
         const fill = select => {
             select.innerHTML = '';
             DeckLibrary.all().forEach((deck, index) => {
                 const option = document.createElement('option');
                 option.value = index;
-                option.textContent = deck.name + (tag[deck.type] || '');
+                option.textContent = deck.name + tag(deck);
                 select.appendChild(option);
             });
         };

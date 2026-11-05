@@ -18,11 +18,23 @@ async function startGame() {
     gameState.phase = 'playing';
     gameState.turnNumber = 1;
     gameState.currentTurn = Rng.flip() === 'heads' ? 'player' : 'opponent';
+    gameState.firstTurnSide = gameState.currentTurn;
     turnTracker.clear();
 
+    // The board was hidden during setup; everything placed is now revealed.
+    for (const side of SIDES) {
+        for (const card of creaturesInPlay(side)) trackPlayed(side, card.id);
+    }
+
+    // A real match remembers who started, for the first/second win rates.
+    if (typeof Profile !== 'undefined' && Profile.hasActiveMatch && Profile.hasActiveMatch()) {
+        Profile.setMatchStarter(gameState.firstTurnSide === 'player');
+    }
+
     Render.all();
+    const starter = gameState.firstTurnSide;
     await Log.say(
-        `${subject(gameState.currentTurn)} ${verb(gameState.currentTurn, 'goes', 'go')} first.`,
+        `${subject(starter)} ${verb(starter, 'goes', 'go')} first.`,
         { kind: 'turn', icon: '🎬' }
     );
     await beginTurn();
@@ -46,6 +58,7 @@ function resetTurnBudget(side) {
     s.energyAttachedThisTurn = false;
     s.hasAttacked = false;
     s.itemUsedThisTurn = false;
+    s.retreatedThisTurn = false;
     s.flags.fluxCheckDone = false;
     s.flags.fluxCheckPassed = false;
 }
@@ -88,10 +101,16 @@ async function beginTurn() {
     Render.all();
     await Log.turnBanner(side, gameState.turnNumber);
 
-    // Draw for the turn.
-    const drawn = drawCards(side, 1);
-    if (drawn === 0) {
-        await Log.say(`${possessive(side)} deck is empty.`, { kind: 'info', pace: 0.5 });
+    // Draw for the turn. The side going first skips it on turn 1.
+    if (isStarterFirstTurn(side)) {
+        const who = side === 'player' ? 'you skip' : 'the AI skips';
+        await Log.say(`Going first: ${who} the draw and cannot attack this turn. Energy can still be attached.`,
+            { kind: 'info', icon: 'ℹ️', pace: 0.9 });
+    } else {
+        const drawn = drawCards(side, 1);
+        if (drawn === 0) {
+            await Log.say(`${possessive(side)} deck is empty.`, { kind: 'info', pace: 0.5 });
+        }
     }
 
     await announceActiveRestrictions(side);

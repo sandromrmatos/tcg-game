@@ -156,8 +156,7 @@ const Prompt = {
                 caption.textContent = entry.label || data.name;
                 tile.appendChild(caption);
 
-                tile.addEventListener('mouseenter', () => CardZoom.show(cardId));
-                tile.addEventListener('mouseleave', () => CardZoom.hide());
+                CardZoom.bind(tile, cardId);
                 tile.addEventListener('click', () => finish(index));
 
                 gridEl.appendChild(tile);
@@ -272,16 +271,29 @@ const Prompt = {
 };
 
 // ---------------------------------------------------------------------------
-// Hover zoom, shared by every surface that shows a card face.
+// Card zoom, shared by every surface that shows a card face.
+//
+//   mouse: hover to zoom, move away to close (as before)
+//   touch: press and hold to zoom, let go to close. A quick tap is still a
+//          normal tap (add to deck, play the card), and the tap that ends a
+//          hold is swallowed so holding a card never also plays it.
+//
+// The old version zoomed on `mouseenter`, which phones fire on every tap but
+// never follow with `mouseleave`, so the zoom stuck open over everything.
 // ---------------------------------------------------------------------------
 
 const CardZoom = {
     _el: null,
     _img: null,
+    HOLD_MS: 320,
+    MOVE_CANCEL_PX: 12,
 
     init() {
         this._el = document.getElementById('card-zoom');
         this._img = document.getElementById('card-zoom-image');
+        // A zoom must never outlive the gesture or the page it was opened on.
+        window.addEventListener('blur', () => this.hide());
+        document.addEventListener('visibilitychange', () => this.hide());
     },
 
     show(cardId) {
@@ -293,5 +305,63 @@ const CardZoom = {
     hide() {
         if (!this._el) return;
         this._el.classList.remove('card-zoom-show');
+    },
+
+    /**
+     * Wires zoom onto one element. `cardId` may be a function, for elements
+     * whose card can change between renders.
+     */
+    bind(el, cardId) {
+        if (!el) return el;
+        const id = () => (typeof cardId === 'function' ? cardId() : cardId);
+        let timer = null;
+        let held = false;
+        let start = null;
+
+        const cancelHold = () => {
+            clearTimeout(timer);
+            timer = null;
+        };
+        const end = () => {
+            cancelHold();
+            if (held) this.hide();
+            start = null;
+        };
+
+        el.addEventListener('pointerenter', e => {
+            if (e.pointerType === 'mouse') this.show(id());
+        });
+        el.addEventListener('pointerleave', e => {
+            if (e.pointerType === 'mouse') this.hide();
+            else end();
+        });
+        el.addEventListener('pointerdown', e => {
+            if (e.pointerType === 'mouse') return;
+            held = false;
+            start = { x: e.clientX, y: e.clientY };
+            cancelHold();
+            timer = setTimeout(() => {
+                held = true;
+                this.show(id());
+            }, this.HOLD_MS);
+        });
+        el.addEventListener('pointermove', e => {
+            if (!start || held) return;
+            // A finger moving is a scroll, not a hold.
+            if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > this.MOVE_CANCEL_PX) cancelHold();
+        });
+        el.addEventListener('pointerup', end);
+        el.addEventListener('pointercancel', end);
+        // Swallow the click that ends a hold, so zooming never also acts.
+        el.addEventListener('click', e => {
+            if (!held) return;
+            held = false;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+        }, true);
+        // Stop the phone's own long-press menu ("save image") appearing.
+        el.addEventListener('contextmenu', e => e.preventDefault());
+        el.classList.add('zoomable');
+        return el;
     }
 };

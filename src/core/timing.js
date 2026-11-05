@@ -116,6 +116,11 @@ function moveIsUsable(card, move, side) {
 /** Can this creature retreat? */
 function creatureCanRetreat(card, side) {
     if (!card) return { ok: false, reason: 'No active creature.' };
+    // One voluntary retreat per turn, so the creature that just came in cannot
+    // be retreated straight back out. Forced switches don't use this check.
+    if (side && gameState[side] && gameState[side].retreatedThisTurn) {
+        return { ok: false, reason: 'You can only retreat once per turn.' };
+    }
     if (Timing.active(card.flags.cantRetreatUntil)) {
         return { ok: false, reason: `${creatureName(card, side)} can't retreat for ${Timing.describe(card.flags.cantRetreatUntil)}.` };
     }

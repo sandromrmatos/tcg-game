@@ -154,7 +154,7 @@ const Render = {
                 : 'Retreat';
             retreatBtn.title = usedTurn
                 ? 'You have already attacked this turn.'
-                : (check.ok ? 'Switch your active creature' : check.reason);
+                : (check.ok ? 'Switch your active creature (once per turn)' : check.reason);
         }
 
         const endBtn = document.getElementById('end-turn-btn');
@@ -194,6 +194,16 @@ function fillSlot(slot, card, side, location, index) {
         hint.className = 'slot-hint';
         hint.textContent = location === 'active' ? 'Active' : 'Bench';
         slot.appendChild(hint);
+        return;
+    }
+
+    // The opponent's setup stays face down until you press Ready, so you
+    // can't pick your own opening around it.
+    if (side === 'opponent' && gameState.phase === 'setup') {
+        const back = document.createElement('div');
+        back.className = 'creature-facedown';
+        back.title = 'Revealed when you press Ready';
+        slot.appendChild(back);
         return;
     }
 
@@ -252,34 +262,38 @@ function buildCreature(card, side, location, index) {
         wrap.appendChild(buildChipRow(chips, 'creature-chips'));
     }
 
-    art.addEventListener('mouseenter', () => CardZoom.show(card.id));
-    art.addEventListener('mouseleave', () => CardZoom.hide());
+    CardZoom.bind(art, card.id);
 
-    // Ability button, for the player's own creatures.
+    // Abilities no longer sit on the card as a button that overlapped
+    // everything. A creature whose ability can be used right now gets a
+    // flashing rainbow border; tapping it opens the creature panel, which
+    // shows the ability and a button to use it.
     if (side === 'player' && card.data.abilityEffect) {
-        wrap.appendChild(buildAbilityButton(card, location, index));
+        wrap.classList.add('creature-has-ability');
+        if (abilityReady(card, location)) wrap.classList.add('creature-ability-ready');
+        const badge = document.createElement('span');
+        badge.className = 'ability-badge';
+        badge.textContent = '✨';
+        badge.title = `Ability: ${card.data.abilityName}. Tap the card to see it.`;
+        wrap.appendChild(badge);
+    }
+    if (side === 'player') {
+        wrap.addEventListener('click', event => {
+            // While a prompt is choosing a creature, the slot's own handler
+            // owns the click.
+            if (Prompt.isOpen) return;
+            event.stopPropagation();
+            onCreatureClick(card, location, index);
+        });
     }
 
     return wrap;
 }
 
-function buildAbilityButton(card, location, index) {
-    const btn = document.createElement('button');
-    btn.className = 'ability-btn';
-    btn.type = 'button';
-    btn.textContent = card.data.abilityName || 'Ability';
-
-    const check = AbilityRegistry.canUse(card, 'player', location);
-    btn.disabled = !check.ok || gameState.busy;
-    btn.title = check.ok
-        ? `Use ${card.data.abilityName}`
-        : check.reason;
-
-    btn.addEventListener('click', event => {
-        event.stopPropagation();
-        onUseAbility(card, location, index);
-    });
-    return btn;
+/** Can the player use this creature's ability right now? */
+function abilityReady(card, location) {
+    if (gameState.busy || gameState.currentTurn !== 'player') return false;
+    return AbilityRegistry.canUse(card, 'player', location).ok;
 }
 
 function buildMoveButton(move, enabled) {
@@ -345,8 +359,7 @@ function buildHandCard(card, index) {
     el.classList.toggle('hand-card-dim', !playable.ok);
     el.title = playable.ok ? card.data.name : `${card.data.name} — ${playable.reason}`;
 
-    el.addEventListener('mouseenter', () => CardZoom.show(card.id));
-    el.addEventListener('mouseleave', () => CardZoom.hide());
+    CardZoom.bind(el, card.id);
     el.addEventListener('click', () => onHandCardClick(card, index));
 
     return el;

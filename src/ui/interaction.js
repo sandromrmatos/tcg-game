@@ -15,6 +15,39 @@ function clearSelection() {
     Render.all();
 }
 
+/**
+ * Asks the player to confirm an action before it happens. Uses the hub's
+ * dialog (with the card shown) when it is loaded, and the in-game choice
+ * modal otherwise.
+ * @returns {Promise<boolean>}
+ */
+async function confirmAction({ title, message = '', okLabel = 'Confirm', cardId = null }) {
+    CardZoom.hide();
+    if (typeof Hub !== 'undefined' && document.getElementById('hub-dialog')) {
+        const answer = await Hub.dialog({
+            title, message,
+            image: cardId ? cardImage(cardId) : null,
+            buttons: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, kind: 'primary' }]
+        });
+        return !!(answer && answer.value);
+    }
+    const value = await Prompt.chooseOption({
+        title, subtitle: message,
+        options: [{ label: okLabel, value: true }],
+        cancellable: true
+    });
+    return value === true;
+}
+
+/** One line describing a move: damage, then its rules text. */
+function describeMove(card, move) {
+    const parts = [];
+    parts.push(move.damage ? `${move.damage} damage` : 'No base damage');
+    const text = typeof cardText === 'function' ? cardText(card.id, `move${move.number}`) : '';
+    if (text) parts.push(text);
+    return parts.join('. ').replace(/\.\./g, '.');
+}
+
 // ---------------------------------------------------------------------------
 // Hand
 // ---------------------------------------------------------------------------
@@ -51,6 +84,18 @@ async function onPlayItem(card, handIndex) {
         Log.warn(check.reason);
         return;
     }
+    const text = typeof cardText === 'function' ? cardText(card.id, 'item') : '';
+    const confirmed = await confirmAction({
+        title: `Use ${card.data.name}?`,
+        message: (text ? text + ' ' : '') + 'You can play one item card per turn.',
+        okLabel: 'Use item',
+        cardId: card.id
+    });
+    if (!confirmed) return;
+    // The hand may have changed while the dialog was open.
+    handIndex = gameState.player.hand.indexOf(card);
+    if (handIndex === -1 || !ItemRegistry.canUse(card, 'player').ok) return;
+
     await runExclusive(async () => {
         await ItemRegistry.use(card, 'player', handIndex);
         await resolveKnockouts();
@@ -112,8 +157,18 @@ async function onSetupPlace(card, handIndex) {
 
     const s = gameState.player;
     if (!s.active) {
+        const confirmed = await confirmAction({
+            title: `Make ${card.data.name} your active creature?`,
+            message: `Your active creature does the fighting and can only leave by retreating. ` +
+                `${card.data.name} has ${card.data.hp} HP and a retreat cost of ${card.data.retreat}.`,
+            okLabel: 'Place as active',
+            cardId: card.id
+        });
+        if (!confirmed || s.active || gameState.phase !== 'setup') return;
+        const index = s.hand.indexOf(card);
+        if (index === -1) return;
         s.active = card;
-        s.hand.splice(handIndex, 1);
+        s.hand.splice(index, 1);
         Log.write(`You place ${card.data.name} as your active creature.`,
             { kind: 'info', icon: '🃏' });
         Render.all();
@@ -150,6 +205,17 @@ async function onAttack(moveNumber) {
         Log.warn(check.reason);
         return;
     }
+    const attacker = gameState.player.active;
+    const move = moveOf(attacker.data, moveNumber);
+    const confirmed = await confirmAction({
+        title: `Use ${move.name}?`,
+        message: `${describeMove(attacker, move)}. Attacking ends your turn, so play items, ` +
+            'attach energy and use abilities first.',
+        okLabel: 'Attack',
+        cardId: attacker.id
+    });
+    if (!confirmed || !canAttackWith('player', moveNumber).ok) return;
+
     clearSelection();
     await runExclusive(async () => {
         await resolveAttack('player', moveNumber);
@@ -168,6 +234,20 @@ async function onUseAbility(card, location, index) {
         await AbilityRegistry.use(card, 'player', location, index);
         await resolveKnockouts();
     });
+}
+
+/**
+ * Tapping one of your creatures opens its panel: the card, HP and energy,
+ * and its ability with a button to use it. The panel is the confirmation
+ * step for abilities: nothing happens until "Use" is pressed.
+ */
+function onCreatureClick(card, location, index) {
+    if (gameState.busy || Prompt.isOpen) return;
+    if (gameState.phase !== 'playing' && gameState.phase !== 'setup') return;
+    CardZoom.hide();
+    if (typeof Screens !== 'undefined' && Screens.showCreaturePanel) {
+        Screens.showCreaturePanel(card, location, index);
+    }
 }
 
 async function onEnergyButton() {
@@ -269,7 +349,8 @@ function bindInteractions() {
     const speed = document.getElementById('speed-select');
     if (speed) {
         const saved = localStorage.getItem('tcg_log_speed');
-        if (saved) speed.value = saved;
+        // A pace saved by an older version may not be one of today's options.
+        if (saved && Array.from(speed.options).some(o => o.value === saved)) speed.value = saved;
         Log.speed = parseFloat(speed.value);
         speed.addEventListener('change', () => {
             Log.speed = parseFloat(speed.value);

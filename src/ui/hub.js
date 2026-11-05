@@ -66,6 +66,8 @@ const Hub = {
     navLocked: false,
     dexSet: null,
     storeSet: null,
+    achSet: null,
+    achFilter: 'all',
     missionCat: 'all',
     draw: { busy: false, cooldownUntil: 0, last: null, error: '' },
     wheel: { rotation: 0, spinning: false, result: null, error: '' },
@@ -80,6 +82,7 @@ const Hub = {
         { id: 'draw',       label: '🎰 Draw a Card' },
         { id: 'store',      label: '🛒 Store' },
         { id: 'missions',   label: '📋 Missions' },
+        { id: 'achievements', label: '🏅 Achievements' },
         { id: 'minigames',  label: '🎮 Mini-games' },
         // The games themselves open from the Mini-games page, not the tab bar.
         { id: 'wheel',      label: '🎡 Spin the Wheel',   parent: 'minigames' },
@@ -97,6 +100,7 @@ const Hub = {
     init() {
         this.dexSet = cardSets[0].id;
         this.storeSet = cardSets[0].id;
+        this.achSet = cardSets[0].id;
         this._today = dayKey();
 
         const nav = document.getElementById('hub-nav');
@@ -182,6 +186,7 @@ const Hub = {
             badge.classList.toggle('show', n > 0);
         };
         setBadge('missions', Missions.claimableCount());
+        setBadge('achievements', CardAchievements.claimableCount());
         setBadge('minigames', this.minigameList().filter(g => g.status.canPlay || g.status.active).length);
     },
 
@@ -236,6 +241,14 @@ const Hub = {
             const foot = document.getElementById('hub-dialog-buttons');
             setText('hub-dialog-title', opts.title || '');
             setText('hub-dialog-message', opts.message || '');
+
+            // Optional card image, for confirmations about a specific card.
+            const image = document.getElementById('hub-dialog-image');
+            if (image) {
+                image.style.display = opts.image ? '' : 'none';
+                if (opts.image) image.src = opts.image;
+                else image.removeAttribute('src');
+            }
 
             input.value = '';
             input.style.display = opts.input ? '' : 'none';
@@ -306,6 +319,7 @@ const Hub = {
             draw: () => this.renderDraw(),
             store: () => this.renderStore(),
             missions: () => this.renderMissions(),
+            achievements: () => this.renderAchievements(),
             minigames: () => this.renderMinigames(),
             wheel: () => this.renderWheel(),
             guess: () => this.renderGuess(),
@@ -544,13 +558,20 @@ const Hub = {
                 error ? h('p', { class: 'buy-error', text: error }) : null,
                 h('button', {
                     class: 'btn btn-primary', type: 'button', disabled: !canAfford,
-                    text: canAfford ? 'Buy' : 'Not enough gems',
-                    on: { click: () => {
+                    text: canAfford ? `Buy for 💜 ${cost}` : 'Not enough gems',
+                    on: { click: e => {
+                        // One purchase per tap: the button can't be pressed
+                        // again while the result is shown.
+                        e.currentTarget.disabled = true;
                         const res = Profile.buy(card.id);
                         if (res.error) { this.showStoreModal(card, res.error); return; }
-                        this.toast(`Bought ${card.name}${res.isNew ? ' (new!)' : ''}`, 'good');
-                        this.showStoreModal(card);
+                        // Back to the Store, then confirm what happened, so it
+                        // is clear the purchase went through exactly once.
+                        Screens.closeModal('hub-store-modal');
                         this.renderStore();
+                        this.alert('✅ Purchase complete',
+                            `You bought ${card.name} for ${res.cost} 💜${res.isNew ? ' (new card!)' : ''}. ` +
+                            `You now own ${res.quantity} and have ${Profile.s.gems} 💜 left.`);
                     } }
                 }))));
         Screens.openModal('hub-store-modal');
@@ -597,6 +618,198 @@ const Hub = {
                 })));
         }
         host.appendChild(list);
+    },
+
+    // -----------------------------------------------------------------------
+    // Achievements: every card in a set, each with its own tasks and three
+    // reward tiers. Laid out like the Search and Go achievements: a grid of
+    // tiles whose border is the tier reached, a gold dot for rewards waiting,
+    // and a sheet per card with the tiers and the task list.
+    // -----------------------------------------------------------------------
+
+    renderAchievements() {
+        const host = this.pageHost('achievements');
+        const setId = this.achSet;
+        const set = setById(setId);
+        const locked = !Profile.isSetUnlocked(setId);
+
+        host.appendChild(this.pageTitle('🏅 Achievements',
+            'Every card has its own tasks. A win only counts for a card you put into play in that game ' +
+            '(placed, played to the bench, evolved into, or used as an item). Turn-30 wins count too.'));
+
+        // Set navigation with waiting rewards: this set beside its name, and
+        // on each arrow the total for every set that way.
+        const counts = cardSets.map(s => (Profile.isSetUnlocked(s.id) ? CardAchievements.claimableCount(s.id) : 0));
+        const index = cardSets.findIndex(s => s.id === setId);
+        const sum = list => list.reduce((a, b) => a + b, 0);
+        const dot = n => (n > 0 ? h('span', { class: 'claim-dot', text: String(n) }) : null);
+        host.appendChild(h('div', { class: 'set-switcher ach-set-nav' },
+            h('button', {
+                class: 'set-arrow', type: 'button', text: '←', disabled: index <= 0, 'aria-label': 'Previous set',
+                on: { click: () => { this.achSet = cardSets[index - 1].id; this.renderAchievements(); } }
+            }, dot(sum(counts.slice(0, index)))),
+            h('span', { class: 'set-name' }, (locked ? '🔒 ' : '') + set.name, dot(counts[index])),
+            h('button', {
+                class: 'set-arrow', type: 'button', text: '→', disabled: index >= cardSets.length - 1, 'aria-label': 'Next set',
+                on: { click: () => { this.achSet = cardSets[index + 1].id; this.renderAchievements(); } }
+            }, dot(sum(counts.slice(index + 1))))));
+
+        // Legend, read off the tier table so it cannot drift from the rules.
+        const legend = h('p', { class: 'ach-legend' });
+        CARD_ACH_TIERS.forEach((t, i) => {
+            if (i) legend.append(' · ');
+            legend.append(h('span', { class: `ach-chip ach-${t.id}`, text: t.label }),
+                ` ${t.tasks} tasks: ${CardAchievements.rewardLabel(t)}`);
+        });
+        legend.append(h('br'), 'Items have 7 tasks, so their top reward is Silver.');
+        host.appendChild(legend);
+
+        if (locked) {
+            host.appendChild(this.lockNotice(setId));
+            host.appendChild(this.notice('Achievements for this set start counting once it is unlocked.', 'locked'));
+            return;
+        }
+
+        const summary = CardAchievements.setSummary(setId);
+        host.appendChild(h('p', { class: 'set-progress-line', text:
+            `🥇 ${summary.gold} · 🥈 ${summary.silver} · 🥉 ${summary.bronze} of ${summary.total} cards` +
+            (summary.claimable ? ` · ${summary.claimable} reward${summary.claimable === 1 ? '' : 's'} ready to claim` : '') }));
+
+        const filters = [
+            { id: 'all', name: 'All cards' },
+            { id: 'claimable', name: 'Ready to claim' },
+            { id: 'owned', name: 'Owned' },
+            { id: 'progress', name: 'In progress' }
+        ];
+        const tabs = h('div', { class: 'set-tabs center' });
+        for (const f of filters) {
+            tabs.appendChild(h('button', {
+                class: `set-tab ${this.achFilter === f.id ? 'set-tab-active' : ''}`, type: 'button', text: f.name,
+                on: { click: () => { this.achFilter = f.id; this.renderAchievements(); } }
+            }));
+        }
+        host.appendChild(tabs);
+
+        const grid = h('div', { class: 'ach-grid' });
+        let shown = 0;
+        for (const card of Collection.setCards(setId)) {
+            const st = CardAchievements.state(card.id);
+            if (!st) continue;
+            const owned = Profile.owned(card.id) > 0;
+            if (this.achFilter === 'claimable' && !st.claimable) continue;
+            if (this.achFilter === 'owned' && !owned) continue;
+            if (this.achFilter === 'progress' && (st.done === 0 || st.done === st.total)) continue;
+            shown++;
+            const rarity = Collection.rarity(card.rarity);
+            grid.appendChild(h('button', {
+                class: 'ach-cell' + (owned ? '' : ' ach-unowned') + (st.tier ? ` ach-${st.tier}` : '') +
+                    (st.claimable ? ' ach-claimable' : ''),
+                type: 'button', title: `${card.name}: ${st.done}/${st.total} tasks`,
+                on: { click: () => this.showAchievementSheet(card.id) }
+            },
+                st.claimable ? h('span', { class: 'ach-dot', text: String(st.claimable) }) : null,
+                h('span', { class: 'ach-rar', title: rarity.name, text: rarity.icon }),
+                card.promo ? h('span', { class: 'ach-promo', text: 'PROMO' }) : null,
+                h('img', { src: cardImage(card.id), alt: card.name, loading: 'lazy' }),
+                h('span', { class: 'ach-nm', text: card.name }),
+                h('span', { class: 'ach-sub', text: `${st.done} / ${st.total}` })));
+        }
+        if (!shown) grid.appendChild(h('p', { class: 'empty-note', text: 'No cards match this filter.' }));
+        host.appendChild(grid);
+    },
+
+    showAchievementSheet(cardId, error = '') {
+        const st = CardAchievements.state(cardId);
+        if (!st) return;
+        const card = st.card;
+        const rarity = Collection.rarity(card.rarity);
+        const body = document.getElementById('ach-sheet-body');
+        body.innerHTML = '';
+
+        // Previous / next card in the set, like swiping through the family sheets.
+        const list = Collection.setCards(card.set);
+        const at = list.findIndex(c => c.id === cardId);
+        const go = step => { const next = list[at + step]; if (next) this.showAchievementSheet(next.id); };
+
+        const tierLabel = st.tier ? CARD_ACH_TIERS.find(t => t.id === st.tier).label : null;
+        body.appendChild(h('div', { class: 'ach-head' },
+            h('div', { class: 'ach-head-art' + (st.tier ? ` ach-${st.tier}` : '') },
+                h('img', { src: cardImage(card.id), alt: card.name })),
+            h('div', { class: 'ach-head-meta' },
+                h('h3', { text: card.name }),
+                h('div', { class: 'ach-muted', text: `${card.type} · ${card.stage} · ${rarity.icon} ${rarity.name}${card.promo ? ' · Promo' : ''}` }),
+                h('div', { class: 'ach-muted', text: `${st.done} / ${st.total} tasks · you own ${Profile.owned(card.id)}` }),
+                tierLabel ? h('span', { class: `ach-chip ach-${st.tier}`, text: tierLabel })
+                    : h('span', { class: 'ach-muted', text: 'No tier yet' }))));
+
+        if (error) body.appendChild(this.notice(error, 'bad'));
+
+        body.appendChild(h('div', { class: 'ach-tiers' },
+            st.tiers.map(t => h('div', { class: `ach-tier ach-${t.id}` + (t.reached ? ' reached' : '') },
+                h('b', { text: t.label }),
+                h('span', { class: 'ach-small', text: `${t.tasks} tasks` }),
+                h('span', { class: 'ach-small', text: CardAchievements.rewardLabel(t) }),
+                t.claimed ? h('span', { class: 'mission-tick', text: '✓ Claimed' })
+                    : t.claimable ? h('button', { class: 'btn btn-primary btn-sm', type: 'button', text: 'Claim',
+                        on: { click: () => this.claimAchievement(cardId, t.id) } })
+                    : t.blockedByCap ? h('span', { class: 'ach-small ach-cap', text: `Credits full (${MAX_CREDITS}). Spend one to claim.` })
+                    : h('span', { class: 'ach-small ach-muted', text: `${Math.max(0, t.tasks - st.done)} more` })))));
+
+        body.appendChild(h('div', { class: 'ach-missions' },
+            st.tasks.map(task => h('div', { class: 'ach-task' + (task.done ? ' ach-done' : '') },
+                h('span', { class: 'ach-task-ico', text: task.def.icon }),
+                h('div', { class: 'ach-task-main' },
+                    h('b', { text: task.def.label }),
+                    progressBar(task.progress, task.target),
+                    h('div', { class: 'ach-task-meta' },
+                        h('span', { text: `${task.progress} / ${task.target}` }),
+                        task.def.hint ? h('span', { text: task.def.hint }) : null)),
+                h('div', { class: 'ach-task-act' }, task.done ? h('span', { class: 'mission-tick', text: '✓' }) : null)))));
+
+        body.appendChild(h('div', { class: 'modal-foot' },
+            h('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: '← Previous', disabled: at <= 0, on: { click: () => go(-1) } }),
+            h('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: 'Next →', disabled: at >= list.length - 1, on: { click: () => go(1) } })));
+
+        Screens.openModal('ach-modal');
+    },
+
+    async claimAchievement(cardId, tierId) {
+        const tier = CARD_ACH_TIERS.find(t => t.id === tierId);
+        let setId = null;
+        if (tier && tier.reward.promo) {
+            // The promo can come from any unlocked set that has promo cards.
+            const sets = cardSets.filter(s => Profile.isSetUnlocked(s.id) && Profile.promoPool(s.id).length > 0);
+            if (sets.length === 0) { this.showAchievementSheet(cardId, 'No unlocked set has promo cards yet.'); return; }
+            const answer = await this.dialog({
+                title: '🎁 Choose a set for your promo card',
+                message: 'You get one random promo card from the set you pick. Rarer promos are less likely, ' +
+                    'with the same odds as drawing: 🟢 55% · 🔵 28% · ⭐ 13% · 💎 4%.',
+                buttons: [{ label: 'Cancel', value: false }].concat(sets.map(s => ({ label: s.name, value: s.id, kind: 'primary' })))
+            });
+            if (!answer || !answer.value) return;
+            setId = answer.value;
+        }
+
+        const res = Profile.claimCardAchievement(cardId, tierId, { setId });
+        if (res.error) { this.showAchievementSheet(cardId, res.error); return; }
+
+        const r = res.reward;
+        this.showAchievementSheet(cardId);
+        if (this.page === 'achievements') this.renderAchievements();
+        this.renderHeader();
+
+        if (r.card) {
+            const rarity = Collection.rarity(r.card.rarity);
+            await this.dialog({
+                title: `🎉 ${r.isNew ? 'New promo card!' : 'Promo card!'}`,
+                message: `${r.card.name} · ${rarity.icon} ${rarity.name}. You now own ${r.quantity}.`,
+                image: cardImage(r.card.id),
+                buttons: [{ label: 'Awesome!', value: true, kind: 'primary' }]
+            });
+        } else {
+            this.toast(`Claimed 🪙 +${r.credits}${r.gems ? ' and 💜 +1 gem!' : ''}`, 'gold');
+        }
+        this.showAchievementSheet(cardId);
     },
 
     // -----------------------------------------------------------------------
@@ -992,9 +1205,12 @@ const Hub = {
         const st = Profile.s.stats;
         host.appendChild(this.pageTitle('🏆 Stats', 'Your games against the AI. Leaving a game early counts as a loss. QA games are not counted.'));
 
+        const rate = rec => (rec.played ? `${pct(rec.won, rec.played)}%` : '–');
         const tiles = [
             ['Games played', st.played], ['Won', st.won], ['Lost', st.lost], ['Drawn', st.drawn],
             ['Win rate', st.played ? `${pct(st.won, st.played)}%` : '–'],
+            [`Win rate going first (${plural(st.first.played, 'game')})`, rate(st.first)],
+            [`Win rate going second (${plural(st.second.played, 'game')})`, rate(st.second)],
             ['Games left early', st.forfeits],
             ['Current win streak', st.streak], ['Best win streak', st.bestStreak],
             ['Win credits today', `${Profile.winCreditsToday()}/${WIN_CREDITS_PER_DAY}`],
@@ -1004,14 +1220,21 @@ const Hub = {
             tiles.map(([label, value]) => h('div', { class: 'panel stat-tile' },
                 h('div', { class: 'stat-value', text: String(value) }), h('div', { class: 'stat-label', text: label })))));
 
+        host.appendChild(h('p', { class: 'page-sub stat-note', text:
+            'Going first: no draw and no attack on turn 1. Games left before the opening coin flip count in neither first nor second.' }));
+
         host.appendChild(h('h3', { class: 'section-title', text: 'Against each AI deck' }));
         const opp = h('table', { class: 'data-table' },
-            h('thead', {}, h('tr', {}, ['AI deck', 'Played', 'Won', 'Lost', 'Drawn', 'Win rate'].map(t => h('th', { text: t })))));
+            h('thead', {}, h('tr', {}, ['AI deck', 'Type', 'Played', 'Won', 'Lost', 'Drawn', 'Win rate'].map(t => h('th', { text: t })))));
         const tb = h('tbody');
         for (const preset of presetDeckLists) {
             const o = st.byOpponent[preset.name] || { played: 0, won: 0, lost: 0, drawn: 0 };
-            tb.appendChild(h('tr', {},
-                h('td', { text: preset.name }), h('td', { text: String(o.played) }), h('td', { text: String(o.won) }),
+            const set = setById(preset.set || cardSets[0].id);
+            const locked = set && !Profile.isSetUnlocked(set.id);
+            tb.appendChild(h('tr', { class: locked ? 'row-locked' : '', title: locked ? `Joins the AI's decks once ${set.name} is unlocked` : '' },
+                h('td', { text: (locked ? '🔒 ' : '') + preset.name }),
+                h('td', { text: deckPrimaryType(preset.cards) }),
+                h('td', { text: String(o.played) }), h('td', { text: String(o.won) }),
                 h('td', { text: String(o.lost) }), h('td', { text: String(o.drawn) }),
                 h('td', { text: o.played ? `${pct(o.won, o.played)}%` : '–' })));
         }
@@ -1025,9 +1248,10 @@ const Hub = {
             const list = h('div', { class: 'history-list' });
             for (const g of st.history) {
                 const label = g.result === 'win' ? 'Win' : g.result === 'loss' ? (g.forfeit ? 'Loss (left early)' : 'Loss') : 'Draw';
+                const order = g.first === true ? ' · went 1st' : g.first === false ? ' · went 2nd' : '';
                 list.appendChild(h('div', { class: `history-row ${g.result}` },
                     h('span', { class: 'history-result', text: label }),
-                    h('span', { class: 'history-match', text: `${g.deck} vs ${g.opponent}` }),
+                    h('span', { class: 'history-match', text: `${g.deck} vs ${g.opponent}${order}` }),
                     h('span', { class: 'history-score', text: g.score }),
                     h('span', { class: 'history-date', text: g.at ? new Date(g.at).toLocaleString() : '' })));
             }

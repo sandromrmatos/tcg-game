@@ -546,3 +546,181 @@
     .set-name { min-width: 0; font-size: 16px; }
     .memory-grid { gap: 6px; }
 }
+
+/* --------------------------------------------------------------------------
+   Achievements (same pattern as Search and Go: the tile border is the tier,
+   a gold dot is a reward waiting)
+   -------------------------------------------------------------------------- */
+
+:root {
+    --ach-bronze: #cd7f32;
+    --ach-silver: #c9d1e0;
+    --ach-gold: #ffcc4d;
+    --ach-dot: #ffd166;
+}
+
+.ach-legend { text-align: center; font-size: 12.5px; color: var(--text-dim); line-height: 2; margin: 0 auto 10px; max-width: 760px; }
+
+.ach-chip {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    padding: 1px 8px;
+    border-radius: 999px;
+    color: #1a1408;
+}
+.ach-chip.ach-bronze { background: var(--ach-bronze); color: #fff3e6; }
+.ach-chip.ach-silver { background: var(--ach-silver); }
+.ach-chip.ach-gold { background: var(--ach-gold); }
+
+.claim-dot, .ach-dot {
+    min-width: 18px; height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    display: inline-grid;
+    place-items: center;
+    font-size: 10.5px;
+    font-weight: 800;
+    line-height: 1;
+    background: var(--ach-dot);
+    color: #241c00;
+    border: 2px solid #101736;
+}
+.ach-set-nav .set-arrow { position: relative; }
+.ach-set-nav .set-arrow .claim-dot { position: absolute; top: -6px; right: -6px; }
+.ach-set-nav .set-arrow:disabled .claim-dot { display: none; }
+.ach-set-nav .set-name { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.ach-set-nav .set-name .claim-dot { animation: ach-pulse 1.6s ease-in-out infinite; }
+
+.ach-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 10px;
+}
+.ach-cell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 6px 8px;
+    border-radius: 12px;
+    border: 2px solid var(--line);
+    background: var(--panel);
+    transition: transform 0.12s;
+    text-align: center;
+}
+.ach-cell:hover { transform: translateY(-2px); }
+.ach-cell:active { transform: scale(0.97); }
+.ach-cell img { width: 100%; border-radius: 7px; }
+.ach-cell.ach-unowned img { filter: grayscale(1) brightness(0.45); }
+.ach-cell.ach-unowned .ach-nm { color: var(--text-faint); }
+.ach-nm { font-size: 11.5px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
+.ach-sub { font-size: 10.5px; color: var(--text-dim); }
+.ach-rar { position: absolute; top: 10px; left: 10px; font-size: 12px; text-shadow: 0 1px 3px #000; }
+.ach-promo {
+    position: absolute;
+    top: 10px; right: 10px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: #ff6b6b;
+    font-size: 8.5px;
+    font-weight: 800;
+}
+.ach-cell .ach-dot { position: absolute; top: -7px; left: -6px; z-index: 1; }
+
+.ach-cell.ach-bronze { border-color: var(--ach-bronze); box-shadow: 0 0 10px #cd7f3244; }
+.ach-cell.ach-silver { border-color: var(--ach-silver); box-shadow: 0 0 10px #c9d1e055; }
+.ach-cell.ach-gold {
+    border-color: var(--ach-gold);
+    box-shadow: 0 0 14px #ffcc4d66;
+    background: linear-gradient(160deg, #ffcc4d1c, var(--panel));
+}
+.ach-cell.ach-claimable { animation: ach-pulse 1.6s ease-in-out infinite; }
+
+@keyframes ach-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 #ffd16633; }
+    50%      { box-shadow: 0 0 16px 3px #ffd16655; }
+}
+
+/* Sheet */
+.ach-sheet { gap: 12px; }
+.ach-head { display: flex; align-items: center; gap: 16px; }
+.ach-head-art {
+    width: 120px;
+    flex: 0 0 auto;
+    border-radius: 14px;
+    padding: 5px;
+    border: 2px solid var(--line);
+    background: var(--panel);
+}
+.ach-head-art img { width: 100%; border-radius: 9px; }
+.ach-head-art.ach-bronze { border-color: var(--ach-bronze); }
+.ach-head-art.ach-silver { border-color: var(--ach-silver); }
+.ach-head-art.ach-gold { border-color: var(--ach-gold); box-shadow: 0 0 14px #ffcc4d66; }
+.ach-head-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.ach-head-meta h3 { font-size: 20px; color: var(--text); margin: 0; }
+.ach-muted { color: var(--text-dim); font-size: 12.5px; }
+.ach-small { font-size: 11.5px; line-height: 1.35; }
+.ach-cap { color: #ffb066; }
+
+.ach-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.ach-tier {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    text-align: center;
+    padding: 10px 8px;
+    border-radius: 12px;
+    border: 2px solid var(--line);
+    background: var(--panel);
+    opacity: 0.7;
+}
+.ach-tier.reached { opacity: 1; }
+.ach-tier.ach-bronze.reached { border-color: var(--ach-bronze); }
+.ach-tier.ach-silver.reached { border-color: var(--ach-silver); }
+.ach-tier.ach-gold.reached { border-color: var(--ach-gold); }
+.mission-tick { color: var(--good); font-weight: 800; }
+
+.ach-missions { display: flex; flex-direction: column; gap: 8px; }
+.ach-task {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+}
+.ach-task.ach-done { opacity: 0.75; border-color: rgba(62, 207, 142, 0.4); }
+.ach-task-ico { font-size: 22px; flex: 0 0 auto; }
+.ach-task-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ach-task-main b { font-size: 13.5px; }
+.ach-task-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--text-dim); }
+.ach-task-act { flex: 0 0 auto; font-size: 18px; }
+
+/* Stats additions */
+.stat-note { text-align: center; margin: -10px 0 14px; }
+.data-table tr.row-locked td { color: var(--text-faint); }
+
+/* Card image in confirmations */
+.hub-dialog-image {
+    width: min(180px, 50vw);
+    align-self: center;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+}
+
+@media (max-width: 560px) {
+    .ach-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+    .ach-head-art { width: 92px; }
+    .ach-tiers { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .ach-tier { padding: 8px 4px; }
+    .ach-tier .btn { padding: 6px 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ach-cell.ach-claimable { animation: none; box-shadow: 0 0 12px #ffd16655; }
+}

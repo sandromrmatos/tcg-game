@@ -96,6 +96,10 @@ const AbilityRegistry = {
         const def = this.get(card.data.abilityEffect);
         const ctx = makeAbilityContext(card, side, location, index);
 
+        if (side === 'opponent') {
+            await Log.centerBanner(`✨ ${card.data.abilityName}`,
+                `${creatureName(card, side)} uses its ability`, { kind: 'ability', ms: 1500 });
+        }
         await Log.say(
             `${creatureName(card, side)} uses ${card.data.abilityName}.`,
             { kind: 'ability', icon: '✨', side }

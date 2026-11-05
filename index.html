@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Elemental Awakening TCG</title>
 <meta name="theme-color" content="#171232">
+<!-- Installable app: Chrome offers "Add to Home screen", and the installed
+     game opens in its own window (manifest + sw.js). -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EA TCG">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="hub.css">
 </head>
@@ -54,6 +63,7 @@
         <section id="page-draw" class="hub-page"></section>
         <section id="page-store" class="hub-page"></section>
         <section id="page-missions" class="hub-page"></section>
+        <section id="page-achievements" class="hub-page"></section>
         <section id="page-minigames" class="hub-page"></section>
         <section id="page-wheel" class="hub-page"></section>
         <section id="page-guess" class="hub-page"></section>
@@ -166,9 +176,9 @@
                 <label class="speed-control">
                     Pace
                     <select id="speed-select">
-                        <option value="0.35">Fast</option>
+                        <option value="0.55">Fast</option>
                         <option value="1" selected>Normal</option>
-                        <option value="1.8">Slow</option>
+                        <option value="1.7">Slow</option>
                     </select>
                 </label>
             </header>
@@ -183,6 +193,10 @@
     </div>
 
     <div id="turn-banner" class="turn-banner"></div>
+    <!-- Coin flips, dice, the AI's attacks and abilities, in the middle of the screen -->
+    <div id="center-banner" class="center-banner" aria-live="polite"></div>
+    <!-- A card the AI plays (or an item either side uses), shown before it moves into place -->
+    <div id="showcase" class="showcase" aria-live="polite"></div>
 </div>
 
 <!-- Outside both screens so toasts show on the hub and over modals too -->
@@ -199,6 +213,22 @@
         <p class="choice-subtitle"></p>
         <div class="choice-grid"></div>
         <div class="choice-foot"></div>
+    </div>
+</div>
+
+<!-- One of your creatures: its state and its ability, with a button to use it -->
+<div id="creature-modal" class="modal">
+    <div class="modal-panel modal-wide creature-panel">
+        <button class="modal-close" type="button" data-close-modal="creature-modal">×</button>
+        <div id="creature-panel-body" class="creature-panel-body"></div>
+    </div>
+</div>
+
+<!-- Achievements: one card's tasks and rewards -->
+<div id="ach-modal" class="modal">
+    <div class="modal-panel modal-wide modal-scroll ach-sheet">
+        <button class="modal-close" type="button" data-close-modal="ach-modal">×</button>
+        <div id="ach-sheet-body"></div>
     </div>
 </div>
 
@@ -294,9 +324,20 @@
                     <li>Play Stage 1 creatures to empty bench slots</li>
                     <li>Evolve creatures, from turn 3 onwards</li>
                     <li>Attach <strong>one energy</strong> to any creature you control</li>
-                    <li>Use abilities — these must come <em>before</em> attacking</li>
-                    <li>Retreat, or <strong>attack</strong>, which ends your turn</li>
+                    <li>Use abilities — these must come <em>before</em> attacking. A creature whose
+                        ability is ready has a flashing rainbow border: tap it to see and use the ability</li>
+                    <li>Retreat <strong>once</strong>, or <strong>attack</strong>, which ends your turn.
+                        The creature you retreat into can't be retreated again that turn
+                        (moves and abilities that switch creatures still work)</li>
                 </ul>
+            </section>
+
+            <section>
+                <h3>Going first</h3>
+                <p>A coin flip decides who goes first. To make up for moving first, that player
+                   <strong>does not draw</strong> and <strong>cannot attack</strong> on turn 1. They can
+                   still attach energy and play creatures. The other player draws and may attack on
+                   their first turn as normal.</p>
             </section>
 
             <section>
@@ -336,12 +377,16 @@
         <p class="builder-hint">Pick any deck for either side, including the AI presets and test decks built from any card.
            QA games are not counted in stats and never earn credits.</p>
         <div class="debug-grid">
-            <label>Your deck
+            <div class="debug-field">
+                <label for="debug-player-deck">Your deck</label>
                 <select id="debug-player-deck" class="select-input"></select>
-            </label>
-            <label>Opponent deck
+                <button id="debug-preview-player" class="btn btn-ghost btn-sm" type="button">👁 Preview your deck</button>
+            </div>
+            <div class="debug-field">
+                <label for="debug-ai-deck">Opponent deck</label>
                 <select id="debug-ai-deck" class="select-input"></select>
-            </label>
+                <button id="debug-preview-ai" class="btn btn-ghost btn-sm" type="button">👁 Preview opponent deck</button>
+            </div>
         </div>
         <div class="modal-foot">
             <button id="debug-build-btn" class="btn btn-ghost" type="button">Build a test deck (any card)</button>
@@ -384,6 +429,7 @@
 <div id="hub-dialog" class="modal hub-dialog" data-dismissable="false">
     <div class="modal-panel modal-narrow">
         <h2 id="hub-dialog-title"></h2>
+        <img id="hub-dialog-image" class="hub-dialog-image" alt="" style="display:none">
         <p id="hub-dialog-message" class="hub-dialog-message"></p>
         <input id="hub-dialog-input" class="text-input" type="text" autocomplete="off">
         <div id="hub-dialog-buttons" class="modal-foot"></div>
@@ -410,6 +456,7 @@
                     <li><strong>🎰 Draw a Card</strong>: spend 1 credit for a random card from an unlocked set.</li>
                     <li><strong>🛒 Store</strong>: buy any specific card with gems.</li>
                     <li><strong>📋 Missions</strong>: objectives that pay credits and gems.</li>
+                    <li><strong>🏅 Achievements</strong>: tasks for every single card, with credits, gems and promo cards as rewards.</li>
                     <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, each free once a day for credits and gems. Each game shows whether you've played it today and what you earned.</li>
                     <li><strong>📈 Collection</strong>: your progress through each set.</li>
                     <li><strong>🏆 Stats</strong>: games played, won and lost against the AI.</li>
@@ -429,7 +476,8 @@
                 <summary>⚔️ Decks and games against the AI</summary>
                 <ul>
                     <li>A deck is 20 cards you own: one main type plus any Neutral and Item cards, at least one Stage 1 creature, at most 2 copies of a card (and no more than you own).</li>
-                    <li>The AI plays one of its own preset decks, picked at random.</li>
+                    <li>The AI plays one of its own preset decks, picked at random: Mystic, Wind, Celestial, Mechanic and Neutral decks. Once you unlock Galactic Adventures, 14 more AI decks built around that set join the pool.</li>
+                    <li>Whoever goes first doesn't draw and can't attack on turn 1. Your Stats show your win rate going first and going second.</li>
                     <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>. If your credits are full when you start, a win earns nothing, and the game warns you first.</li>
                     <li>Leaving a game before it ends, or closing the page mid-game, counts as a loss.</li>
                 </ul>
@@ -467,9 +515,19 @@
             <details>
                 <summary>📋 Missions</summary>
                 <ul>
-                    <li>Collect cards (overall, by rarity, by type, with an ability, Promo and Item cards), complete sets, log in on different days, play the mini-games, and play and win games against the AI.</li>
+                    <li>Collect cards (overall, by rarity, by type, with an ability, Promo and Item cards), complete sets, log in on different days, play the mini-games, and play and win games against the AI: beat every deck of a set, and win against each deck type.</li>
                     <li>Claim only lights up once a mission is complete and there's room under the 12-credit cap for its credits. Gems never block a claim.</li>
                     <li>Claimed missions move to the bottom and grey out.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🏅 Achievements</summary>
+                <ul>
+                    <li>Every card in every set has its own tasks: own 2 copies, win 3 games against each type of AI deck (Mystic, Wind, Neutral, Celestial, Mechanic), win 20 games, attack 5 times with it, and still have it in play at the end of 3 wins.</li>
+                    <li>A win only counts for a card you put into play that game: placed during setup, played to the bench, evolved into, or used as an item. Winning on points at turn 30 counts. QA games don't.</li>
+                    <li>Items have 7 tasks (no attack and no "still in play" task).</li>
+                    <li>🥉 Bronze, 5 tasks: +1 credit and a 10% chance of a gem. 🥈 Silver, 7 tasks: another credit and a 25% chance of a gem. 🥇 Gold, all 9: a random promo card from the set you choose, at the normal rarity odds.</li>
+                    <li>Credit rewards wait until you have room under the 12-credit cap.</li>
                 </ul>
             </details>
             <details>
@@ -506,6 +564,7 @@
 <!-- data -->
 <script src="src/data/sets.js"></script>
 <script src="src/data/cards.js"></script>
+<script src="src/data/card-text.js"></script>
 <script src="src/data/preset-decks.js"></script>
 
 <!-- core -->
@@ -519,6 +578,7 @@
 <script src="src/data/collection-data.js"></script>
 <script src="src/meta/codec.js"></script>
 <script src="src/meta/persist.js"></script>
+<script src="src/meta/achievements.js"></script>
 <script src="src/meta/profile.js"></script>
 <script src="src/meta/missions.js"></script>
 

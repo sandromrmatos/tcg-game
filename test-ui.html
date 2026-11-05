@@ -134,6 +134,11 @@ async function runTests() {
     check('setup: no move buttons', el('move-buttons').children.length, 0);
     check('setup: hand rendered', el('player-hand').children.length > 0, true);
 
+    // The AI's opening board stays face down until Ready.
+    const oppActive = () => document.querySelector('.active-slot[data-player="opponent"]');
+    check('setup: opponent active is face down',
+        !!oppActive().querySelector('.creature-facedown') && !oppActive().querySelector('.creature'), true);
+
     // This is the regression that shipped: Ready must enable once an active
     // creature is placed, even though currentTurn is still null in setup.
     placePlayerActive();
@@ -145,12 +150,53 @@ async function runTests() {
     check('play: phase is playing', gameState.phase, 'playing');
     check('play: player has an active creature', !!gameState.player.active, true);
     check('play: opponent has an active creature', !!gameState.opponent.active, true);
+    check('play: opponent revealed after Ready', !!oppActive().querySelector('.creature'), true);
     check('play: energy button visible', energyBtn().style.display !== 'none', true);
     check('play: retreat button visible', retreatBtn().style.display !== 'none', true);
+    check('play: a starter was recorded', gameState.firstTurnSide === 'player' || gameState.firstTurnSide === 'opponent', true);
+
+    // ---- first-turn rule: the starter can't attack on turn 1 ------------
+    gameState.firstTurnSide = 'player';
+    gameState.currentTurn = 'player';
+    gameState.turnNumber = 1;
+    gameState.player.hasAttacked = false;
+    gameState.player.energyAttachedThisTurn = false;
+    gameState.player.active.energy = 10;
+    Render.all();
+    check('first turn: starter cannot attack', canAttackWith('player', 1).ok, false);
+    check('first turn: move button disabled', el('move-buttons').children[0].disabled, true);
+    check('first turn: tooltip explains the rule', /goes first/.test(el('move-buttons').children[0].title), true);
+    check('first turn: starter can still attach energy', energyBtn().disabled, false);
+    gameState.firstTurnSide = 'opponent';
+    gameState.turnNumber = 2;
+    check('second player on turn 2: can attack', canAttackWith('player', 1).ok, true);
+
+    // ---- first-turn rule: the starter skips the turn-1 draw -------------
+    {
+        const saved = { turn: gameState.turnNumber, first: gameState.firstTurnSide, current: gameState.currentTurn };
+        // beginTurn hands the opponent's turn to the AI; keep it on the player.
+        gameState.firstTurnSide = 'player';
+        gameState.currentTurn = 'player';
+        gameState.turnNumber = 1;
+        const before = gameState.player.hand.length;
+        await beginTurn();
+        check('first turn: starter draws no card', gameState.player.hand.length, before);
+        gameState.turnNumber = 3;
+        const before3 = gameState.player.hand.length;
+        const canDraw = gameState.player.deck.length > 0 ? 1 : 0;
+        await beginTurn();
+        check('later turn: the normal draw happens', gameState.player.hand.length, before3 + canDraw);
+        gameState.turnNumber = saved.turn;
+        gameState.firstTurnSide = saved.first;
+        gameState.currentTurn = saved.current;
+    }
 
     // startGame may have handed the first turn to the AI, which then plays and
-    // passes back, so force a known state rather than assuming.
+    // passes back, so force a known state rather than assuming. Turn 2 keeps
+    // the first-turn rule out of the way.
     gameState.currentTurn = 'player';
+    gameState.firstTurnSide = 'opponent';
+    gameState.turnNumber = 2;
     gameState.player.hasAttacked = false;
     gameState.player.energyAttachedThisTurn = false;
     Render.all();
@@ -190,6 +236,32 @@ async function runTests() {
     check('after attacking: energy disabled', energyBtn().disabled, true);
     check('after attacking: retreat disabled', retreatBtn().disabled, true);
     check('after attacking: End turn still enabled', readyBtn().disabled, false);
+
+    // ---- one voluntary retreat per turn --------------------------------
+    gameState.player.hasAttacked = false;
+    {
+        const s = gameState.player;
+        const benchCard = s.hand.find(c => c.data.stage === 'Stage 1') ||
+            makeCardInstance(s.active.id);
+        if (s.hand.includes(benchCard)) s.hand.splice(s.hand.indexOf(benchCard), 1);
+        s.bench[0] = s.bench[0] || benchCard;
+        s.active.energy = 10;
+        s.active.flags.cantRetreatUntil = null;
+        s.retreatedThisTurn = false;
+        Render.all();
+        check('retreat: enabled before retreating', retreatBtn().disabled, false);
+        const before = s.active;
+        await performRetreat('player', 0);
+        check('retreat: the active creature changed', s.active !== before, true);
+        s.active.energy = 10;
+        Render.all();
+        check('retreat: second retreat this turn refused', creatureCanRetreat(s.active, 'player').ok, false);
+        check('retreat: button disabled after retreating', retreatBtn().disabled, true);
+        await swapActiveWithBench('player', 0, { free: true });
+        check('retreat: forced switches still work after a retreat', s.active === before, true);
+        resetTurnBudget('player');
+        check('retreat: allowed again next turn', creatureCanRetreat(s.active, 'player').ok, true);
+    }
 
     // ---- restrictions surface on the buttons ---------------------------
     gameState.player.hasAttacked = false;

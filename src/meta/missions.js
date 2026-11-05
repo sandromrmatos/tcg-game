@@ -104,8 +104,15 @@ const Missions = (() => {
         });
     }
 
-    // ---- New: games against the AI ----
-    const aiDeckCount = typeof presetDeckLists !== 'undefined' ? presetDeckLists.length : 8;
+    // ---- Games against the AI ----
+    // AI decks are grouped by the set that has to be unlocked before the AI
+    // can pick them, so "beat every deck" missions only ask for decks the
+    // player can actually meet.
+    const presets = typeof presetDeckLists !== 'undefined' ? presetDeckLists : [];
+    const presetSet = d => d.set || cardSets[0].id;
+    const aiDeckCount = presets.length || 8;
+    const aiDecksInSet = setId => presets.filter(d => presetSet(d) === setId).length;
+    const AI_TYPES = ['Mystic', 'Wind', 'Celestial', 'Mechanic', 'Neutral'];
     const GAME_MISSIONS = [
         { id: 'play_1',  cat: 'games', description: 'Play your first game against the AI', type: 'games_played', target: 1,  reward: r(2, 0) },
         { id: 'play_10', cat: 'games', description: 'Play 10 games against the AI',         type: 'games_played', target: 10, reward: r(3, 1) },
@@ -119,8 +126,31 @@ const Missions = (() => {
         { id: 'streak_3', cat: 'games', description: 'Win 3 games in a row', type: 'win_streak', target: 3, reward: r(3, 1) },
         { id: 'streak_5', cat: 'games', description: 'Win 5 games in a row', type: 'win_streak', target: 5, reward: r(5, 2) },
         { id: 'beat_4',   cat: 'games', description: 'Beat 4 different AI decks', type: 'opponents_beaten', target: Math.min(4, aiDeckCount), reward: r(3, 1) },
-        { id: 'beat_all', cat: 'games', description: `Beat every AI deck at least once (${aiDeckCount})`, type: 'opponents_beaten', target: aiDeckCount, reward: r(5, 3) }
+        { id: 'beat_10',  cat: 'games', description: 'Beat 10 different AI decks', type: 'opponents_beaten', target: Math.min(10, aiDeckCount), reward: r(3, 2) },
+        // Kept as `beat_all` so a claim made when there were 8 AI decks stands.
+        { id: 'beat_all', cat: 'games', description: `Beat every ${cardSets[0].name} AI deck at least once (${aiDecksInSet(cardSets[0].id)})`,
+          type: 'opponents_beaten_set', setId: cardSets[0].id, target: aiDecksInSet(cardSets[0].id), reward: r(5, 3) }
     ];
+    for (const set of cardSets.slice(1)) {
+        const n = aiDecksInSet(set.id);
+        if (!n) continue;
+        GAME_MISSIONS.push({
+            id: `beat_all_${set.id}`, cat: 'games',
+            description: `Beat every ${set.name} AI deck at least once (${n}). They join the AI's decks once ${set.name} is unlocked.`,
+            type: 'opponents_beaten_set', setId: set.id, target: n, reward: r(5, 5)
+        });
+    }
+    GAME_MISSIONS.push({
+        id: 'beat_every_deck', cat: 'games', description: `Beat every AI deck at least once (${aiDeckCount})`,
+        type: 'opponents_beaten', target: aiDeckCount, reward: r(5, 5)
+    });
+    for (const type of AI_TYPES) {
+        GAME_MISSIONS.push({
+            id: `beat_type_${type.toLowerCase()}`, cat: 'games',
+            description: `Win 5 games against ${type} AI decks`,
+            type: 'wins_vs_type', deckType: type, target: 5, reward: r(2, 1)
+        });
+    }
 
     const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS);
 
@@ -144,8 +174,20 @@ const Missions = (() => {
             played: s.stats.played,
             won: s.stats.won,
             bestStreak: s.stats.bestStreak,
-            opponentsBeaten: Object.values(s.stats.byOpponent).filter(o => o.won > 0).length
+            opponentsBeaten: 0,
+            beatenBySet: {},
+            winsByType: {}
         };
+        // Only the current AI decks count: a renamed or retired deck in old
+        // stats is ignored rather than inflating the totals.
+        for (const deck of presets) {
+            const o = s.stats.byOpponent[deck.name];
+            if (!o || !(o.won > 0)) continue;
+            p.opponentsBeaten++;
+            p.beatenBySet[presetSet(deck)] = (p.beatenBySet[presetSet(deck)] || 0) + 1;
+            const type = typeof deckPrimaryType === 'function' ? deckPrimaryType(deck.cards) : null;
+            if (type) p.winsByType[type] = (p.winsByType[type] || 0) + o.won;
+        }
         for (const [id, qty] of Object.entries(s.cards)) {
             if (!(qty > 0)) continue;
             const c = getCardData(id);
@@ -185,6 +227,8 @@ const Missions = (() => {
             case 'games_won':        return numeric(p.won, m.target);
             case 'win_streak':       return numeric(p.bestStreak, m.target);
             case 'opponents_beaten': return numeric(p.opponentsBeaten, m.target);
+            case 'opponents_beaten_set': return numeric(p.beatenBySet[m.setId] || 0, m.target);
+            case 'wins_vs_type':     return numeric(p.winsByType[m.deckType] || 0, m.target);
             default:                 return flag(false);
         }
     }

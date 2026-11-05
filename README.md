@@ -151,10 +151,17 @@ Also useful:
 
 Both use two-digit numbering. Cards from different sets mix freely in a deck.
 
-Note: the AI picks its deck from `preset-decks.js`, and all 8 presets are
-Elemental Awakening only, so the AI does not currently play Galactic Adventures
-cards in a normal game. Adding presets that use them is a data-only change. The
-fuzzer already exercises every card via random decks.
+The AI picks its deck from `preset-decks.js`: 9 Elemental Awakening decks (two
+per type plus a Neutral-only deck) and 14 Galactic Adventures decks (three per
+type plus two Neutral-only). A preset's `set` field is the set the player must
+have unlocked before the AI can pick it. Promo cards never appear in AI decks.
+
+## Turn rules worth knowing
+
+- The player who goes first skips their turn-1 draw and cannot attack on
+  turn 1 (`isStarterFirstTurn` in `state.js`).
+- One voluntary retreat per turn (`retreatedThisTurn`); forced switches from
+  moves and abilities are not limited.
 
 ---
 

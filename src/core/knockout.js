@@ -170,10 +170,28 @@ async function endGame(winner, reason) {
     // real games have an active match; QA games and test harnesses don't.
     let reward = null;
     if (typeof Profile !== 'undefined' && Profile.hasActiveMatch()) {
-        reward = Profile.finishMatch(winner, `${gameState.player.points}-${gameState.opponent.points}`);
+        reward = Profile.finishMatch(winner, `${gameState.player.points}-${gameState.opponent.points}`,
+            playerMatchReport(winner === 'player'));
     }
     Screens.showGameOver(winner, message, reason, reward);
     reportResultToArcade(winner);
+}
+
+/**
+ * What the player did this match, for the per-card achievements: the cards
+ * they put into play, attacks per card, the cards still standing at a win, and
+ * the primary type of the AI's deck.
+ */
+function playerMatchReport(won) {
+    const t = gameState.track.player;
+    const opponentDeck = DeckLibrary.get(gameState.opponent.selectedDeck);
+    return {
+        won: !!won,
+        played: Array.from(t.played),
+        attacks: Object.assign({}, t.attacks),
+        survivors: won ? Array.from(cardsStillInPlay('player')) : [],
+        opponentType: opponentDeck ? deckPrimaryType(opponentDeck.cards) : null
+    };
 }
 
 /** Reports the result to the surrounding arcade shell, if there is one. */

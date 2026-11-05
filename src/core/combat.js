@@ -150,6 +150,9 @@ function canAttackWith(side, moveNumber) {
     if (gameState.phase !== 'playing') return { ok: false, reason: 'Not in play.' };
     if (gameState.currentTurn !== side) return { ok: false, reason: 'Not your turn.' };
     if (s.hasAttacked) return { ok: false, reason: 'You have already attacked this turn.' };
+    if (isStarterFirstTurn(side)) {
+        return { ok: false, reason: 'The player who goes first cannot attack on turn 1.' };
+    }
     if (!attacker) return { ok: false, reason: 'No active creature.' };
     if (!defender) return { ok: false, reason: 'No target.' };
 
@@ -196,7 +199,12 @@ async function resolveAttack(side, moveNumber) {
 
     const move = moveOf(attacker.data, moveNumber);
     me.hasAttacked = true;
+    trackAttack(side, attacker.id);
 
+    if (side === 'opponent') {
+        await Log.centerBanner(`⚔️ ${move.name}`, `${creatureName(attacker, side)} attacks`,
+            { kind: 'attack', ms: 1400 });
+    }
     await Log.say(
         `${subject(side)} ${verb(side, 'uses', 'use')} ${move.name}.`,
         { kind: 'attack', icon: '⚔️', side }

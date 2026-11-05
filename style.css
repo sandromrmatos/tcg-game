@@ -898,7 +898,7 @@ img { display: block; }
     z-index: 2500;
     text-shadow: 0 6px 34px rgba(0, 0, 0, 0.85);
 }
-.turn-banner-show { animation: banner-sweep 0.95s ease-out; }
+.turn-banner-show { animation: banner-sweep var(--banner-ms, 1.3s) ease-out; }
 .turn-banner-player   { color: #7bf0b6; }
 .turn-banner-opponent { color: #ff9aa2; }
 
@@ -1102,11 +1102,22 @@ img { display: block; }
 }
 .card-zoom-show { opacity: 1; }
 .card-zoom img {
-    width: 310px;
+    width: min(310px, 82vw);
     border-radius: 14px;
     box-shadow: 0 26px 64px rgba(0, 0, 0, 0.85);
     border: 1px solid var(--line-strong);
 }
+
+/* Anything that zooms on press-and-hold: no text selection, no "save image"
+   callout, and taps that don't wait for a double-tap zoom. */
+.zoomable {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+}
+.zoomable img { -webkit-user-drag: none; pointer-events: none; }
+img.zoomable { pointer-events: auto; }
 
 /* --------------------------------------------------------------------------
    Deck builder
@@ -1286,4 +1297,199 @@ img { display: block; }
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
+}
+
+/* --------------------------------------------------------------------------
+   Opponent setup, face down until you press Ready
+   -------------------------------------------------------------------------- */
+
+.creature-facedown {
+    width: 100%; height: 100%;
+    border-radius: var(--radius-sm);
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    background:
+        repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 6px, transparent 6px 12px),
+        linear-gradient(150deg, var(--violet-deep), #2a1f5c);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.creature-facedown::after { content: '?'; font-size: 28px; font-weight: 800; color: rgba(255, 255, 255, 0.35); }
+
+/* --------------------------------------------------------------------------
+   Abilities: a rainbow border when ready, a small badge otherwise
+   -------------------------------------------------------------------------- */
+
+.creature-has-ability { cursor: pointer; }
+/* Own stacking context, so the rainbow ring (z-index -1) sits behind the art
+   and the HP bar, energy and chips, but in front of the slot. */
+.creature { isolation: isolate; }
+
+.ability-badge {
+    position: absolute;
+    left: 50%;
+    top: -9px;
+    transform: translateX(-50%);
+    z-index: 3;
+    font-size: 11px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: rgba(18, 14, 38, 0.92);
+    border: 1px solid var(--line-strong);
+    pointer-events: none;
+}
+
+.creature-ability-ready::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    z-index: -1;
+    border-radius: calc(var(--radius-sm) + 4px);
+    background: conic-gradient(#ff4d4d, #ffb84d, #fff04d, #4dff88, #4dc3ff, #9b6bff, #ff4dd2, #ff4d4d);
+    animation: rainbow-hue 1.6s linear infinite, rainbow-pulse 1.6s ease-in-out infinite;
+}
+.creature-ability-ready .ability-badge {
+    border-color: #fff04d;
+    box-shadow: 0 0 10px rgba(255, 240, 77, 0.7);
+}
+@keyframes rainbow-hue { to { filter: hue-rotate(360deg); } }
+@keyframes rainbow-pulse {
+    0%, 100% { opacity: 0.85; box-shadow: 0 0 10px rgba(255, 255, 255, 0.25); }
+    50%      { opacity: 1;    box-shadow: 0 0 22px rgba(255, 255, 255, 0.55); }
+}
+
+/* --------------------------------------------------------------------------
+   Creature panel (your creature's state and ability)
+   -------------------------------------------------------------------------- */
+
+.creature-panel-body { display: flex; gap: 20px; align-items: flex-start; overflow-y: auto; min-height: 0; }
+.creature-panel-img { width: min(240px, 40vw); border-radius: 12px; border: 1px solid var(--line-strong); flex-shrink: 0; }
+.creature-panel-info { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.creature-panel-info h2 { font-size: 22px; }
+.creature-panel-meta { font-size: 13px; color: var(--text-dim); }
+.creature-panel-status { font-size: 12.5px; color: #ffe4c0; }
+.creature-panel-move { font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
+.creature-panel-ability {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(244, 195, 90, 0.5);
+    background: rgba(244, 195, 90, 0.08);
+}
+.creature-panel-ability-name { font-size: 16px; font-weight: 750; color: var(--gold); overflow-wrap: anywhere; }
+.creature-panel-ability-text { font-size: 13.5px; line-height: 1.5; }
+.creature-panel-ability-where { font-size: 12px; color: var(--text-faint); }
+.creature-panel-ability-why { font-size: 12.5px; color: #ffc0c5; }
+.creature-panel-ability .btn { align-self: flex-start; white-space: normal; text-align: left; }
+
+/* --------------------------------------------------------------------------
+   Middle-of-the-screen banner: coins, dice, the AI's attacks and abilities
+   -------------------------------------------------------------------------- */
+
+.center-banner {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2550;
+    pointer-events: none;
+    opacity: 0;
+    text-align: center;
+    padding: 18px 34px;
+    border-radius: 20px;
+    background: rgba(14, 10, 32, 0.9);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow);
+    max-width: 90vw;
+}
+.center-banner-show { animation: center-pop var(--banner-ms, 1.3s) ease-out forwards; }
+.center-banner-main {
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-shadow: 0 6px 30px rgba(0, 0, 0, 0.8);
+}
+.center-banner-sub { font-size: 14px; color: var(--text-dim); margin-top: 6px; font-weight: 650; }
+.center-banner-coin .center-banner-main { color: var(--gold); }
+.center-banner-tails .center-banner-main { color: #c9cfe6; }
+.center-banner-dice .center-banner-main { color: #7fd4ff; }
+.center-banner-attack .center-banner-main { color: #ff9aa2; }
+.center-banner-ability .center-banner-main { color: #ffeec4; }
+
+@keyframes center-pop {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
+    25%  { transform: translate(-50%, -50%) scale(1); }
+    85%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* --------------------------------------------------------------------------
+   Card showcase: the AI's played card, big in the middle, then into place
+   -------------------------------------------------------------------------- */
+
+.showcase {
+    position: fixed;
+    inset: 0;
+    z-index: 2700;
+    pointer-events: none;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 4, 16, 0.55);
+}
+.showcase-show { display: flex; animation: fade-in 0.18s ease-out; }
+.showcase-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    animation: showcase-in 0.32s cubic-bezier(0.2, 1.2, 0.4, 1);
+    transition: transform 0.5s cubic-bezier(0.5, 0, 0.3, 1), opacity 0.5s;
+}
+.showcase-card img {
+    width: min(260px, 58vw);
+    border-radius: 14px;
+    border: 2px solid var(--line-strong);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8);
+}
+.showcase-opponent img { border-color: rgba(239, 95, 107, 0.7); }
+.showcase-player img { border-color: rgba(62, 207, 142, 0.7); }
+.showcase-caption {
+    max-width: 80vw;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(14, 10, 32, 0.92);
+    border: 1px solid var(--line-strong);
+    font-size: 14.5px;
+    font-weight: 700;
+    text-align: center;
+}
+.showcase-fly .showcase-caption { opacity: 0; transition: opacity 0.15s; }
+.showcase-fade { opacity: 0; transition: opacity 0.3s; }
+
+@keyframes showcase-in {
+    from { opacity: 0; transform: scale(0.7) translateY(30px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* QA deck preview opens on top of the QA launcher. */
+#deck-preview-modal { z-index: 3050; }
+
+.debug-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+.debug-field .btn { align-self: flex-start; }
+
+@media (max-width: 620px) {
+    .creature-panel-body { flex-direction: column; align-items: center; }
+    .creature-panel-img { width: min(220px, 70vw); }
+    .center-banner-main { font-size: 30px; }
+    .center-banner { padding: 14px 22px; }
 }

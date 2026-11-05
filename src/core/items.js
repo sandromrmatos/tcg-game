@@ -70,6 +70,12 @@ const ItemRegistry = {
         const def = this.get(card.data.itemEffect);
         const ctx = makeItemContext(card, side, handIndex);
 
+        // Items are shown in the middle of the screen for both sides.
+        await showcaseCard(side, card.id, {
+            label: `${subject(side)} ${verb(side, 'uses', 'use')} ${card.data.name}`,
+            target: { discard: side }
+        });
+
         await Log.say(
             `${subject(side)} ${verb(side, 'plays', 'play')} ${card.data.name}.`,
             { kind: 'item', icon: '🎴', side }
@@ -106,6 +112,7 @@ const ItemRegistry = {
         s.discardPile.push(card);
         s.itemUsedThisTurn = true;
         s.flags.usedItemOnTurn = gameState.turnNumber;
+        trackPlayed(side, card.id);
 
         Render.all();
 

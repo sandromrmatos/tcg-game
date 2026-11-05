@@ -46,6 +46,10 @@ const DeckBuilder = {
         if (nameInput) nameInput.value = existingName || '';
 
         this.buildControls();
+        // The controls are built once and keep their DOM value between
+        // openings, so they have to be put back to match the reset filters.
+        // Otherwise the dropdown still said "Mechanic" while every card showed.
+        this.syncControls();
         this.renderPool();
         this.renderDeck();
 
@@ -54,7 +58,18 @@ const DeckBuilder = {
 
     close() {
         Screens.closeModal('builder-modal');
+        CardZoom.hide();
         this.cards = [];
+    },
+
+    /** Makes the filter controls show the filters actually in use. */
+    syncControls() {
+        const typeSelect = document.getElementById('builder-type-filter');
+        if (typeSelect) typeSelect.value = this.typeFilter;
+        const stageSelect = document.getElementById('builder-stage-filter');
+        if (stageSelect) stageSelect.value = this.stageFilter;
+        const searchInput = document.getElementById('builder-search');
+        if (searchInput) searchInput.value = this.search;
     },
 
     // -----------------------------------------------------------------------
@@ -237,8 +252,7 @@ const DeckBuilder = {
                 tile.appendChild(own);
             }
 
-            tile.addEventListener('mouseenter', () => CardZoom.show(card.id));
-            tile.addEventListener('mouseleave', () => CardZoom.hide());
+            CardZoom.bind(tile, card.id);
             tile.addEventListener('click', () => this.add(card.id));
 
             host.appendChild(tile);
@@ -296,8 +310,7 @@ const DeckBuilder = {
                 const img = document.createElement('img');
                 img.src = cardImage(id);
                 img.alt = data.name;
-                img.addEventListener('mouseenter', () => CardZoom.show(id));
-                img.addEventListener('mouseleave', () => CardZoom.hide());
+                CardZoom.bind(img, id);
                 row.appendChild(img);
 
                 const label = document.createElement('span');

@@ -141,7 +141,9 @@ const Profile = {
             drawSet: cardSets[0].id,
             winCredits: { date: null, count: 0 },
             activeMatch: null,           // set while a real game is in progress
-            stats: this.blankStats()
+            stats: this.blankStats(),
+            cardAch: {},                 // cardId -> per-card achievement counters
+            cardAchClaimed: {}           // cardId -> { bronze, silver, gold } claimed-at timestamps
         };
     },
 
@@ -150,9 +152,24 @@ const Profile = {
             played: 0, won: 0, lost: 0, drawn: 0, forfeits: 0,
             streak: 0, bestStreak: 0,
             winCreditsEarned: 0,
+            // Results split by who took the first turn. Games where the match
+            // ended before the opening flip (left during setup) are in neither.
+            first: this.blankRecord(),
+            second: this.blankRecord(),
             byOpponent: {},              // deck name -> { played, won, lost, drawn }
-            history: []                  // newest first: { at, deck, opponent, result, score, forfeit }
+            history: []                  // newest first: { at, deck, opponent, result, score, forfeit, first }
         };
+    },
+
+    blankRecord() {
+        return { played: 0, won: 0, lost: 0, drawn: 0 };
+    },
+
+    /** One card's achievement counters, created on first use. */
+    blankCardAch() {
+        const vs = {};
+        for (const type of CARD_ACH_OPPONENT_TYPES) vs[type] = 0;
+        return { vs, wins: 0, attacks: 0, survived: 0 };
     },
 
     /** Fills defaults and coerces types, so old or hand-edited saves load safely. */
@@ -252,13 +269,45 @@ const Profile = {
 
         const am = raw.activeMatch;
         s.activeMatch = am && typeof am === 'object'
-            ? { startedAt: Number(am.startedAt) || Date.now(), deck: String(am.deck || 'Unknown deck'), opponent: String(am.opponent || 'AI') }
+            ? {
+                startedAt: Number(am.startedAt) || Date.now(),
+                deck: String(am.deck || 'Unknown deck'),
+                opponent: String(am.opponent || 'AI'),
+                wentFirst: typeof am.wentFirst === 'boolean' ? am.wentFirst : null
+            }
             : null;
 
         const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};
         s.stats = this.blankStats();
         for (const k of ['played', 'won', 'lost', 'drawn', 'forfeits', 'streak', 'bestStreak', 'winCreditsEarned']) {
             s.stats[k] = int(st[k]);
+        }
+        for (const k of ['first', 'second']) {
+            const rec = st[k] && typeof st[k] === 'object' ? st[k] : {};
+            s.stats[k] = { played: int(rec.played), won: int(rec.won), lost: int(rec.lost), drawn: int(rec.drawn) };
+        }
+
+        // Per-card achievements: only known card ids, only numeric counters.
+        s.cardAch = {};
+        if (raw.cardAch && typeof raw.cardAch === 'object') {
+            for (const [id, rec] of Object.entries(raw.cardAch)) {
+                if (!getCardData(id) || !rec || typeof rec !== 'object') continue;
+                const clean = this.blankCardAch();
+                for (const type of CARD_ACH_OPPONENT_TYPES) clean.vs[type] = int(rec.vs && rec.vs[type]);
+                clean.wins = int(rec.wins);
+                clean.attacks = int(rec.attacks);
+                clean.survived = int(rec.survived);
+                s.cardAch[id] = clean;
+            }
+        }
+        s.cardAchClaimed = {};
+        if (raw.cardAchClaimed && typeof raw.cardAchClaimed === 'object') {
+            for (const [id, rec] of Object.entries(raw.cardAchClaimed)) {
+                if (!getCardData(id) || !rec || typeof rec !== 'object') continue;
+                const clean = {};
+                for (const tier of CARD_ACH_TIERS) if (Number(rec[tier.id]) > 0) clean[tier.id] = Number(rec[tier.id]);
+                if (Object.keys(clean).length) s.cardAchClaimed[id] = clean;
+            }
         }
         if (st.byOpponent && typeof st.byOpponent === 'object') {
             for (const [name, o] of Object.entries(st.byOpponent)) {
@@ -270,7 +319,8 @@ const Profile = {
             .filter(h => h && typeof h === 'object' && ['win', 'loss', 'draw'].includes(h.result))
             .map(h => ({
                 at: Number(h.at) || 0, deck: String(h.deck || ''), opponent: String(h.opponent || ''),
-                result: h.result, score: String(h.score || ''), forfeit: !!h.forfeit
+                result: h.result, score: String(h.score || ''), forfeit: !!h.forfeit,
+                first: typeof h.first === 'boolean' ? h.first : null
             }));
 
         s.app = SAVE_APP_ID;
@@ -323,7 +373,7 @@ const Profile = {
         // the same as leaving it with the button.
         if (this.s.activeMatch) {
             const m = this.s.activeMatch;
-            this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true });
+            this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst });
             this.s.activeMatch = null;
             this.bootNotices.push(`Your last game (${m.deck} vs ${m.opponent}) was left unfinished, so it counted as a loss.`);
         }
@@ -840,9 +890,16 @@ const Profile = {
     },
 
     startMatch(deckName, opponentName) {
-        this.s.activeMatch = { startedAt: Date.now(), deck: deckName, opponent: opponentName };
+        this.s.activeMatch = { startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null };
         // Immediate: closing the page mid-game must still count as a loss.
         this.touch('match-start', { immediate: true });
+    },
+
+    /** Called once the opening coin flip has decided who goes first. */
+    setMatchStarter(playerWentFirst) {
+        if (!this.s || !this.s.activeMatch) return;
+        this.s.activeMatch.wentFirst = !!playerWentFirst;
+        this.touch('match-starter', { immediate: true });
     },
 
     hasActiveMatch() {
@@ -854,12 +911,13 @@ const Profile = {
      * @param {'player'|'opponent'|'tie'} winner
      * @returns {{type, message}|null} the reward line for the game-over panel
      */
-    finishMatch(winner, score) {
+    finishMatch(winner, score, report = null) {
         const m = this.s && this.s.activeMatch;
         if (!m) return null;
         const result = winner === 'player' ? 'win' : winner === 'opponent' ? 'loss' : 'draw';
         this.s.activeMatch = null;
-        this._recordResult(result, { deck: m.deck, opponent: m.opponent, score });
+        this._recordResult(result, { deck: m.deck, opponent: m.opponent, score, wentFirst: m.wentFirst });
+        if (report) this.recordCardAchievements(report);
 
         let reward;
         if (result === 'win') {
@@ -884,16 +942,17 @@ const Profile = {
         return reward;
     },
 
-    /** The player left a running match: it counts as a loss. */
-    forfeitMatch() {
+    /** The player left a running match: it counts as a loss. Attacks made still count. */
+    forfeitMatch(report = null) {
         const m = this.s && this.s.activeMatch;
         if (!m) return;
         this.s.activeMatch = null;
-        this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true });
+        this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst });
+        if (report) this.recordCardAchievements(Object.assign({}, report, { won: false, survivors: [] }));
         this.touch('match-end', { immediate: true });
     },
 
-    _recordResult(result, { deck, opponent, score, forfeit = false }) {
+    _recordResult(result, { deck, opponent, score, forfeit = false, wentFirst = null }) {
         const st = this.s.stats;
         st.played++;
         if (result === 'win') { st.won++; st.streak++; st.bestStreak = Math.max(st.bestStreak, st.streak); }
@@ -901,13 +960,113 @@ const Profile = {
         else { st.drawn++; st.streak = 0; }
         if (forfeit) st.forfeits++;
 
-        const o = st.byOpponent[opponent] || (st.byOpponent[opponent] = { played: 0, won: 0, lost: 0, drawn: 0 });
-        o.played++;
-        if (result === 'win') o.won++;
-        else if (result === 'loss') o.lost++;
-        else o.drawn++;
+        const bump = rec => {
+            rec.played++;
+            if (result === 'win') rec.won++;
+            else if (result === 'loss') rec.lost++;
+            else rec.drawn++;
+        };
+        bump(st.byOpponent[opponent] || (st.byOpponent[opponent] = this.blankRecord()));
+        if (wentFirst === true) bump(st.first);
+        else if (wentFirst === false) bump(st.second);
 
-        st.history.unshift({ at: Date.now(), deck, opponent, result, score: score || '', forfeit });
+        st.history.unshift({ at: Date.now(), deck, opponent, result, score: score || '', forfeit, first: wentFirst });
         if (st.history.length > 30) st.history.length = 30;
+    },
+
+    // -----------------------------------------------------------------------
+    // Per-card achievements (definitions and progress in achievements.js)
+    // -----------------------------------------------------------------------
+
+    cardAchRecord(cardId) {
+        return this.s.cardAch[cardId] || (this.s.cardAch[cardId] = this.blankCardAch());
+    },
+
+    /**
+     * Credits one finished match. A card only counts towards the win tasks if
+     * the player put it into play (setup, bench, evolution, or using the item);
+     * attacks count whatever the result.
+     */
+    recordCardAchievements(report) {
+        const won = !!report.won;
+        const type = CARD_ACH_OPPONENT_TYPES.includes(report.opponentType) ? report.opponentType : null;
+        if (won) {
+            for (const id of new Set(report.played || [])) {
+                if (!getCardData(id)) continue;
+                const rec = this.cardAchRecord(id);
+                rec.wins++;
+                if (type) rec.vs[type]++;
+            }
+            for (const id of new Set(report.survivors || [])) {
+                if (!getCardData(id)) continue;
+                this.cardAchRecord(id).survived++;
+            }
+        }
+        for (const [id, n] of Object.entries(report.attacks || {})) {
+            if (!getCardData(id) || !(n > 0)) continue;
+            this.cardAchRecord(id).attacks += n;
+        }
+    },
+
+    /**
+     * Pays out one achievement tier for a card.
+     * Bronze and silver pay a credit and a chance of a gem, so they wait for
+     * room under the credit cap, the same as missions. Gold pays a random promo
+     * card from the set the player picks, at the usual rarity odds.
+     */
+    claimCardAchievement(cardId, tierId, { setId = null } = {}) {
+        const st = CardAchievements.state(cardId);
+        if (!st) return { error: 'Card not found' };
+        const tier = st.tiers.find(t => t.id === tierId);
+        if (!tier) return { error: 'This card has no such reward.' };
+        if (tier.claimed) return { error: 'Already claimed.' };
+        if (!tier.reached) return { error: `Complete ${tier.tasks} tasks first.` };
+
+        this.regen();
+        const reward = { credits: 0, gems: 0, card: null };
+        if (tier.reward.credits) {
+            if (MAX_CREDITS - this.s.credits < tier.reward.credits) {
+                return { error: `Not enough room for ${tier.reward.credits} credit (${this.s.credits}/${MAX_CREDITS}). Spend some credits first.` };
+            }
+            reward.credits = this._addCredits(tier.reward.credits);
+            if (Math.random() < tier.reward.gemChance) {
+                this.s.gems += 1;
+                reward.gems = 1;
+            }
+        }
+        if (tier.reward.promo) {
+            const set = setById(setId);
+            if (!set || !this.isSetUnlocked(setId)) return { error: 'Choose an unlocked set.' };
+            const card = this.rollPromo(setId);
+            if (!card) return { error: `${set.name} has no promo cards.` };
+            const { isNew, quantity } = this._addCard(card.id);
+            reward.card = card;
+            reward.isNew = isNew;
+            reward.quantity = quantity;
+            this.checkUnlocks();
+        }
+
+        const rec = this.s.cardAchClaimed[cardId] || (this.s.cardAchClaimed[cardId] = {});
+        rec[tierId] = Date.now();
+        this.touch('card-achievement', { immediate: true });
+        return { success: true, reward };
+    },
+
+    /** Promo cards of a set that a reward can hand out. */
+    promoPool(setId) {
+        return Collection.setCards(setId).filter(c => c.promo);
+    },
+
+    /** A random promo card, weighted by rarity with the normal draw odds. */
+    rollPromo(setId) {
+        const pool = this.promoPool(setId);
+        if (pool.length === 0) return null;
+        const roll = Math.random() * 100;
+        const rarity = (DRAW_ODDS.find(o => roll < o.upTo) || DRAW_ODDS[DRAW_ODDS.length - 1]).rarity;
+        let tier = pool.filter(c => c.rarity === rarity);
+        // A missing rarity falls back to the nearest one below, then to any promo.
+        for (let r = rarity - 1; tier.length === 0 && r >= 1; r--) tier = pool.filter(c => c.rarity === r);
+        if (tier.length === 0) tier = pool;
+        return tier[randInt(tier.length)];
     }
 };

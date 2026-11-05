@@ -33,6 +33,10 @@ async function runAiTurn(side = 'opponent') {
     if (gameState.currentTurn !== side) return;
 
     try {
+        // A moment to take in the board before the AI starts acting. Each
+        // step below also pauses (Log.aiPause), so its turn can be followed.
+        await Log.aiPause(side, 0.6);
+
         await aiConsiderRetreat(side);
         assertRunning();
 
@@ -51,6 +55,7 @@ async function runAiTurn(side = 'opponent') {
         await aiUseAbilities(side);
         assertRunning();
 
+        await Log.aiPause(side, 0.8);
         await aiAttackOrPass(side);
     } catch (err) {
         if (err instanceof GameOverSignal) return;
@@ -91,6 +96,7 @@ async function aiConsiderRetreat(side) {
     }
 
     await performRetreat(side, replacement.index);
+    await Log.aiPause(side, 0.6);
 }
 
 /** Moves this creature could pay for right now, ignoring turn state. */
@@ -135,6 +141,7 @@ async function aiPlayCreatures(side) {
 
         await playCreatureToBench(side, stage1[0].index, slot);
         assertRunning();
+        await Log.aiPause(side, 0.4);
     }
 }
 
@@ -219,6 +226,7 @@ async function aiUseAbilities(side) {
 
         await AbilityRegistry.use(card, side, spot.location, spot.index);
         assertRunning();
+        await Log.aiPause(side, 0.6);
     }
 }
 
@@ -236,7 +244,75 @@ async function aiAttackOrPass(side) {
     await resolveAttack(side, choice.number);
 }
 
-/** Picks the best legal move, or null if it cannot attack. */
+/**
+ * A bounded, read-only tactical estimate for effects whose value is not direct
+ * damage. Combat remains authoritative in the effect registry: this only helps
+ * the AI choose between legal moves and must never mutate state or roll RNG.
+ */
+function estimateMoveTacticalValue(move, side) {
+    const attacker = gameState[side].active;
+    const defender = gameState[foeOf(side)].active;
+    if (!attacker || !defender || !move.effect) return 0;
+
+    const missingHp = card => Math.max(0, (card.data.hp || 0) - remainingHp(card));
+    const ownBench = gameState[side].bench.filter(Boolean);
+    const foeBench = gameState[foeOf(side)].bench.filter(Boolean);
+    const defenderHas = status => defender.status?.has(status);
+    const statusValue = (status, value, chance = 1) => defenderHas(status) ? 0 : value * chance;
+
+    switch (move.effect) {
+        // Disruption is valuable only while it can land on a fresh active target.
+        case 'mindMirage': case 'phantomPulse': case 'brainFreeze':
+            return statusValue('Hallucination', 18);
+        case 'dreamwave': case 'dreamBooster': case 'mindPulse':
+            return statusValue('Hallucination', 18, 0.5);
+        case 'fluxWave': case 'psychicProwl':
+            return statusValue('Flux', 12);
+        case 'spectralSlice': return statusValue('Flux', 12, 0.5);
+        case 'forestFury': return statusValue('Lock', 10);
+        case 'chaosDice':
+            return defender.status?.size ? 0 : 13; // expected value of one of three conditions
+        case 'cantRetreat': return foeBench.length ? 10 : 0;
+
+        // Reward actual recoverable health rather than a fixed maximum heal.
+        case 'healingRoots': case 'minorMend': case 'planetBurst': case 'healingSap':
+            return Math.min(20, missingHp(attacker)) * 0.8;
+        case 'majorMend': return Math.min(20, missingHp(attacker)) * 0.9;
+        case 'coffeeHeal':
+            return ownBench.length ? Math.min(10, Math.max(...ownBench.map(missingHp))) * 0.7 : 0;
+        case 'beanBlast':
+            return ownBench.length ? Math.min(20, Math.max(...ownBench.map(missingHp))) * 0.7 : 0;
+        case 'berryBurst': case 'laughingLeaves':
+            return ownBench.reduce((sum, card) => sum + Math.min(20, missingHp(card)) * 0.35, 0);
+        case 'chillRecharge': return Math.min(10, missingHp(attacker)) * 0.7 + 14;
+
+        // Board pressure and future resources; values are intentionally lower
+        // than a clean active hit so they cannot eclipse a real knockout.
+        case 'mysticBlaze': return foeBench.reduce((sum, card) => sum + Math.min(30, remainingHp(card)) * 0.45, 0);
+        case 'solarAscend': return foeBench.reduce((sum, card) => sum + Math.min(10, remainingHp(card)) * 0.25, 0);
+        case 'metallicWing': return 13;
+        case 'skyDraw': return gameState[side].deck.length ? 9 : 0;
+        case 'energySnatch':
+            return gameState[foeOf(side)].active.energy > 0 || foeBench.some(card => card.energy > 0) ? 11 : 0;
+        case 'creamyConfection': return ownBench.length ? 4 : -10;
+        case 'sproutBoost': return 20;
+        case 'mindRipple': case 'cottonGuard': return 12;
+        case 'monksFury': return 6;
+        case 'spectralBurst': return 8;
+        case 'tidalIllusion': return 13;
+
+        // Put a cost on effects whose downside is not reflected in printed damage.
+        case 'recoil20': case 'infernoWing': return -Math.min(20, remainingHp(attacker)) * 0.35;
+        case 'recoil40': return -Math.min(40, remainingHp(attacker)) * 0.35;
+        case 'discard2Energy': return attacker.energy >= 2 ? -12 : 0;
+        case 'overdriveSmash': case 'wingSlap': return -14;
+        case 'tempestHold': return -5;
+        case 'invincibleGambit': return -80;
+        default: return 0;
+    }
+}
+
+/** Picks the best legal move, prioritising a real knockout over tactical value. */
 function aiChooseMove(side) {
     const legal = usableMoves(side);
     if (legal.length === 0) return null;
@@ -249,10 +325,11 @@ function aiChooseMove(side) {
     const defenderHp = defender ? remainingHp(defender) : 0;
 
     const scored = legal.map(move => {
-        const estimate = estimateMoveDamage(move, side);
-        // A knockout is worth far more than raw damage.
-        const lethal = defender && estimate >= defenderHp;
-        return { move, score: estimate + (lethal ? 1000 : 0) };
+        const damage = estimateMoveDamage(move, side);
+        const tactical = estimateMoveTacticalValue(move, side);
+        // A knockout is worth far more than any tactical upside.
+        const lethal = defender && damage >= defenderHp;
+        return { move, score: damage + tactical + (lethal ? 1000 : 0) };
     });
 
     scored.sort((a, b) => b.score - a.score);

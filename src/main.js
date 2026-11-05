@@ -12,6 +12,7 @@ async function bootstrap() {
 
     // 2. UI surfaces.
     Log.init();
+    Showcase.init();
     Prompt.init();
     CardZoom.init();
     Screens.init();
@@ -60,6 +61,19 @@ if (document.readyState === 'loading') {
 } else {
     bootstrap();
 }
+
+/**
+ * The service worker is what makes Chrome offer to install the game to the
+ * home screen. Only over http(s): opened from the filesystem, or inside the
+ * arcade's iframe, the game keeps working exactly as before without it.
+ */
+function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    if (!/^https?:$/.test(location.protocol)) return;
+    if (window.top !== window.self) return;
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('[sw] registration failed', err));
+}
+window.addEventListener('load', registerServiceWorker);
 
 // ---------------------------------------------------------------------------
 // Test surface, used by test.html. Keeping it explicit means the harness does
@@ -110,7 +124,8 @@ const TCG = {
     Profile,
     Persist,
     Missions,
-    Collection
+    Collection,
+    CardAchievements
 };
 
 window.TCG = TCG;

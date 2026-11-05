@@ -6,6 +6,20 @@
 // ============================================================================
 
 /**
+ * UI bridge: shows a card that was just played in the middle of the screen,
+ * then flies it to where it is going. A no-op in the headless harnesses (no
+ * Showcase loaded, or Log.speed 0), so the rules never wait on it there.
+ *
+ * @param {object} opts { label, target: {side, location, index} | {discard: side}, creatureOnly }
+ *   creatureOnly: only the opponent's creatures are shown; your own you just placed.
+ */
+async function showcaseCard(side, cardId, opts = {}) {
+    if (typeof Showcase === 'undefined' || !Showcase.enabled()) return;
+    if (opts.creatureOnly && side !== 'opponent') return;
+    await Showcase.play(cardId, Object.assign({ side }, opts));
+}
+
+/**
  * Draws cards from the deck into hand.
  * @returns {number} how many were actually drawn (the deck may run dry)
  */
@@ -78,6 +92,7 @@ async function performRetreat(side, benchIndex) {
     }
     if (!s.bench[benchIndex]) return false;
 
+    s.retreatedThisTurn = true;
     await swapActiveWithBench(side, benchIndex);
     return true;
 }
@@ -158,9 +173,18 @@ async function playCreatureToBench(side, handIndex, benchIndex) {
     if (!card || card.data.stage !== 'Stage 1') return false;
     if (s.bench[benchIndex]) return false;
 
+    // The opponent's card is shown in the middle of the screen first, then
+    // flies to its bench slot.
+    await showcaseCard(side, card.id, {
+        label: `${subject(side)} ${verb(side, 'plays', 'play')} ${card.data.name} to the bench`,
+        target: { side, location: 'bench', index: benchIndex },
+        creatureOnly: true
+    });
+
     s.bench[benchIndex] = card;
     s.hand.splice(handIndex, 1);
     turnTracker.playedThisTurn.add(card.evolutionId);
+    trackPlayed(side, card.id);
 
     Render.all();
     await Log.say(
@@ -217,6 +241,12 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
         return false;
     }
 
+    await showcaseCard(side, evolution.id, {
+        label: `${possessive(side)} ${target.data.name} evolves into ${evolution.data.name}`,
+        target: { side, location, index: benchIndex },
+        creatureOnly: true
+    });
+
     evolution.damage = target.damage;
     evolution.energy = target.energy;
     evolution.evolutionId = target.evolutionId;
@@ -241,6 +271,7 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
 
     s.hand.splice(handIndex, 1);
     turnTracker.evolvedThisTurn.add(evolution.evolutionId);
+    trackPlayed(side, evolution.id);
     // Stamped rather than a boolean, so Thunder Rush can ask "did they evolve
     // on the immediately preceding turn?" without any clearing logic.
     s.flags.evolvedOnTurn = gameState.turnNumber;
