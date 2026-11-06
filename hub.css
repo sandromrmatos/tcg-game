@@ -724,3 +724,98 @@
 @media (prefers-reduced-motion: reduce) {
     .ach-cell.ach-claimable { animation: none; box-shadow: 0 0 12px #ffd16655; }
 }
+
+/* ------------------------------------------------------------------------
+   Full art and Raid Bosses
+   ------------------------------------------------------------------------ */
+
+/* Raid messages on the game-over panel go on their own lines. */
+.game-over-reward { white-space: pre-line; }
+
+/* The ✦ badge on cards the player owns in full art. */
+.full-art-badge {
+    position: absolute;
+    top: 6px; left: 6px;
+    width: 28px; height: 28px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    background: linear-gradient(135deg, #ffe08a, #f4c35a 45%, #b07cff);
+    color: #2a1850;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 26px;
+    text-align: center;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(244, 195, 90, 0.7);
+}
+.full-art-badge:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.card-modal-full-art { box-shadow: 0 0 22px rgba(244, 195, 90, 0.55); }
+
+/* Deck builder: a pool card with a full-art version, and full-art deck rows. */
+.full-art-mark {
+    position: absolute;
+    top: 3px; left: 3px;
+    padding: 0 5px;
+    border-radius: 6px;
+    background: rgba(20, 12, 40, 0.8);
+    color: var(--gold);
+    font-size: 12px;
+    font-weight: 900;
+}
+.deck-row-full-art { border-color: rgba(244, 195, 90, 0.6) !important; background: rgba(244, 195, 90, 0.08); }
+.deck-row-full-art .deck-row-name { color: #ffe7a6; }
+.preview-card.full-art img { border-color: var(--gold); box-shadow: 0 0 10px rgba(244, 195, 90, 0.55); }
+
+/* In play: a thin gold edge so a full-art card reads as special. */
+.creature.full-art .creature-art,
+.hand-card.full-art img { box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(244, 195, 90, 0.6); }
+.showcase-full-art img { box-shadow: 0 0 0 3px var(--gold), 0 0 30px rgba(244, 195, 90, 0.7); }
+
+/* Raid Bosses page */
+.raid-rules { margin: 0 0 16px; padding-left: 20px; color: var(--text-dim); font-size: 13.5px; line-height: 1.55; }
+.raid-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
+.raid-card { display: flex; gap: 14px; padding: 14px; align-items: flex-start; }
+.raid-card.raid-cleared { border-color: rgba(244, 195, 90, 0.55); }
+.raid-art-wrap { position: relative; flex: 0 0 140px; }
+.raid-art { width: 140px; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.raid-cleared .raid-art { box-shadow: 0 0 0 2px var(--gold), 0 0 14px rgba(244, 195, 90, 0.5); }
+.raid-locked .raid-art { filter: grayscale(1) brightness(0.35) blur(2px); }
+.raid-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.raid-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.raid-head h3 { margin: 0; font-size: 18px; }
+.raid-type { font-size: 12px; color: var(--text-dim); padding: 2px 8px; border-radius: 999px; background: var(--panel-2); }
+.raid-type[data-type="Mystic"] { color: #e3c2f2; background: rgba(155, 89, 182, 0.25); }
+.raid-type[data-type="Wind"] { color: #c3e6fa; background: rgba(74, 168, 224, 0.25); }
+.raid-type[data-type="Celestial"] { color: #c2f2d6; background: rgba(62, 201, 122, 0.25); }
+.raid-type[data-type="Mechanic"] { color: #f7d6b5; background: rgba(224, 139, 60, 0.25); }
+.raid-type[data-type="Neutral"] { color: #e0e4e8; background: rgba(141, 152, 165, 0.25); }
+.raid-progress { display: flex; align-items: center; gap: 8px; }
+.raid-progress .progress-track { flex: 1; }
+.raid-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.raid-tasks li { display: flex; gap: 7px; align-items: baseline; color: var(--text-dim); }
+.raid-tasks li.done { color: var(--text); }
+.raid-task-mark { width: 14px; flex: 0 0 14px; font-weight: 900; color: var(--text-faint); }
+.raid-tasks li.done .raid-task-mark { color: var(--good); }
+.raid-task-label { flex: 1; }
+.raid-task-progress { font-variant-numeric: tabular-nums; color: var(--text-faint); }
+.raid-reward { margin: 2px 0 0; font-size: 13px; color: #ffe7a6; }
+.raid-record { margin: 0; font-size: 12.5px; color: var(--text-faint); }
+.raid-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.raid-controls .page-notice { margin: 0; flex: 1 1 100%; }
+.raid-deck-select {
+    flex: 1 1 200px;
+    min-width: 0;
+    font: inherit;
+    font-size: 13.5px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-strong);
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--text);
+}
+@media (max-width: 560px) {
+    .raid-card { flex-direction: column; align-items: stretch; }
+    .raid-art-wrap { flex: none; align-self: center; }
+    .raid-art { width: 180px; }
+}

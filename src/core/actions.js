@@ -28,7 +28,7 @@ function drawCards(side, count) {
     let drawn = 0;
     for (let i = 0; i < count; i++) {
         if (s.deck.length === 0) break;
-        s.hand.push(makeCardInstance(s.deck.pop()));
+        s.hand.push(instanceFromDeck(side, s.deck.pop()));
         drawn++;
     }
     if (drawn > 0) Render.all();
@@ -102,14 +102,16 @@ async function performRetreat(side, benchIndex) {
 // ---------------------------------------------------------------------------
 
 /**
- * The Flux check. Runs at most once per turn per side; once failed, energy
- * attachment stays blocked for the rest of that turn.
+ * The Flux check. Only applies when the energy is going onto the active
+ * creature that has Flux: attaching to a bench creature never flips. Runs at
+ * most once per turn; a failed check uses up the turn's energy.
+ * @param {object} target the creature the energy is going onto
  * @returns {Promise<boolean>} true if attachment may proceed
  */
-async function passesFluxCheck(side) {
+async function passesFluxCheck(side, target) {
     const s = gameState[side];
     const active = s.active;
-    if (!Status.has(active, 'flux')) return true;
+    if (!active || target !== active || !Status.has(active, 'flux')) return true;
 
     if (s.flags.fluxCheckDone) return s.flags.fluxCheckPassed;
 
@@ -154,12 +156,19 @@ async function attachTurnEnergy(side, card) {
         Log.warn(check.reason);
         return false;
     }
-    if (!(await passesFluxCheck(side))) return false;
+    if (!(await passesFluxCheck(side, card))) return false;
 
     s.energyAttachedThisTurn = true;
-    await attachEnergyTo(card, 1, { side });
+    await attachEnergyTo(card, 1, { side, type: turnEnergyType(side) });
     Render.all();
     return true;
+}
+
+/** This turn's energy type for a side, rolled once at the start of its turn. */
+function turnEnergyType(side) {
+    const s = gameState[side];
+    if (!s.turnEnergyType) s.turnEnergyType = rollEnergyType(side);
+    return s.turnEnergyType;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +187,8 @@ async function playCreatureToBench(side, handIndex, benchIndex) {
     await showcaseCard(side, card.id, {
         label: `${subject(side)} ${verb(side, 'plays', 'play')} ${card.data.name} to the bench`,
         target: { side, location: 'bench', index: benchIndex },
-        creatureOnly: true
+        creatureOnly: true,
+        fullArt: card.fullArt
     });
 
     s.bench[benchIndex] = card;
@@ -244,15 +254,17 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
     await showcaseCard(side, evolution.id, {
         label: `${possessive(side)} ${target.data.name} evolves into ${evolution.data.name}`,
         target: { side, location, index: benchIndex },
-        creatureOnly: true
+        creatureOnly: true,
+        fullArt: evolution.fullArt
     });
 
     evolution.damage = target.damage;
-    evolution.energy = target.energy;
+    evolution.energyUnits = Object.assign(emptyEnergyUnits(), target.energyUnits);
     evolution.evolutionId = target.evolutionId;
     evolution.evolutionChain = (target.evolutionChain || []).concat([{
         id: target.id,
-        data: target.data
+        data: target.data,
+        fullArt: !!target.fullArt
     }]);
 
     // Status carries over — it is a condition on the creature in the active
@@ -293,6 +305,8 @@ function buildDecks() {
     for (const side of SIDES) {
         const deck = DeckLibrary.get(gameState[side].selectedDeck);
         gameState[side].deck = Rng.shuffle(deck.cards.slice());
+        gameState[side].energyTypes = deckEnergyTypes(deck);
+        gameState[side].fullArtLeft = cleanFullArt(deck.fullArt, deck.cards);
     }
 }
 
@@ -306,11 +320,11 @@ function drawOpeningHands() {
         for (let attempt = 0; attempt < 200; attempt++) {
             s.hand = [];
             for (let i = 0; i < HAND_SIZE && s.deck.length > 0; i++) {
-                s.hand.push(makeCardInstance(s.deck.pop()));
+                s.hand.push(instanceFromDeck(side, s.deck.pop()));
             }
             if (s.hand.some(c => c.data.stage === 'Stage 1')) break;
             // Put them back and reshuffle.
-            s.deck.push(...s.hand.map(c => c.id));
+            returnToDeck(side, s.hand);
             s.deck = Rng.shuffle(s.deck);
         }
     }

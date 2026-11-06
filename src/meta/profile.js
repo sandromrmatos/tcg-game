@@ -143,7 +143,9 @@ const Profile = {
             activeMatch: null,           // set while a real game is in progress
             stats: this.blankStats(),
             cardAch: {},                 // cardId -> per-card achievement counters
-            cardAchClaimed: {}           // cardId -> { bronze, silver, gold } claimed-at timestamps
+            cardAchClaimed: {},          // cardId -> { bronze, silver, gold } claimed-at timestamps
+            fullArt: {},                 // cardId -> full-art copies owned (raid rewards)
+            raids: {}                    // bossId -> raid record (see raids.js)
         };
     },
 
@@ -209,8 +211,24 @@ const Profile = {
             const name = d.name.trim().slice(0, 40);
             if (!name || names.has(name)) continue;
             names.add(name);
-            s.decks.push({ name, cards: d.cards.filter(id => typeof id === 'string' && getCardData(id)) });
+            const cards = d.cards.filter(id => typeof id === 'string' && getCardData(id));
+            // Decks saved before energy types existed get their main type.
+            const energyTypes = cleanEnergyTypes(d.energyTypes);
+            s.decks.push({
+                name, cards,
+                energyTypes: energyTypes.length ? energyTypes : defaultDeckEnergyTypes(cards),
+                fullArt: cleanFullArt(d.fullArt, cards)
+            });
         }
+
+        s.fullArt = {};
+        if (raw.fullArt && typeof raw.fullArt === 'object') {
+            for (const [id, qty] of Object.entries(raw.fullArt)) {
+                const n = int(qty);
+                if (n > 0 && getCardData(id) && hasFullArt(id)) s.fullArt[id] = n;
+            }
+        }
+        s.raids = Raids.sanitize(raw.raids);
 
         s.unlockedSets = Object.assign({}, base.unlockedSets);
         if (raw.unlockedSets && typeof raw.unlockedSets === 'object') {
@@ -273,7 +291,10 @@ const Profile = {
                 startedAt: Number(am.startedAt) || Date.now(),
                 deck: String(am.deck || 'Unknown deck'),
                 opponent: String(am.opponent || 'AI'),
-                wentFirst: typeof am.wentFirst === 'boolean' ? am.wentFirst : null
+                wentFirst: typeof am.wentFirst === 'boolean' ? am.wentFirst : null,
+                raid: am.raid && typeof am.raid === 'object' && raidBossById(am.raid.bossId)
+                    ? { bossId: am.raid.bossId, types: (Array.isArray(am.raid.types) ? am.raid.types : []).filter(t => RAID_TYPES.includes(t)) }
+                    : null
             }
             : null;
 
@@ -374,6 +395,7 @@ const Profile = {
         if (this.s.activeMatch) {
             const m = this.s.activeMatch;
             this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst });
+            if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
             this.s.activeMatch = null;
             this.bootNotices.push(`Your last game (${m.deck} vs ${m.opponent}) was left unfinished, so it counted as a loss.`);
         }
@@ -492,6 +514,11 @@ const Profile = {
 
     owned(cardId) {
         return this.s.cards[cardId] || 0;
+    },
+
+    /** Full-art copies owned. They are separate from the normal copies. */
+    ownedFullArt(cardId) {
+        return (this.s && this.s.fullArt[cardId]) || 0;
     },
 
     _addCard(cardId) {
@@ -835,10 +862,15 @@ const Profile = {
         return this.decks().find(d => d.name === name) || null;
     },
 
-    saveDeck(name, cards, previousName = null) {
+    saveDeck(name, cards, previousName = null, energyTypes = null, fullArt = null) {
         const keep = this.s.decks.filter(d => d.name !== name && d.name !== previousName);
         const index = this.s.decks.findIndex(d => d.name === (previousName || name));
-        const entry = { name, cards: cards.slice() };
+        const types = cleanEnergyTypes(energyTypes);
+        const entry = {
+            name, cards: cards.slice(),
+            energyTypes: types.length ? types : defaultDeckEnergyTypes(cards),
+            fullArt: cleanFullArt(fullArt, cards)
+        };
         if (index >= 0) keep.splice(Math.min(index, keep.length), 0, entry);
         else keep.push(entry);
         this.s.decks = keep;
@@ -850,15 +882,31 @@ const Profile = {
         this.touch('decks', { immediate: true });
     },
 
-    /** Checks the deck only uses cards the player owns, in the quantities owned. */
-    checkOwnership(cardIds) {
+    /**
+     * Checks the deck only uses cards the player owns, in the quantities owned.
+     * Full-art copies are checked against the full-art copies owned, the rest
+     * against the normal ones.
+     */
+    checkOwnership(cardIds, fullArt = null) {
         const counts = new Map();
         for (const id of cardIds) counts.set(id, (counts.get(id) || 0) + 1);
-        for (const [id, n] of counts) {
+        const fa = cleanFullArt(fullArt, cardIds);
+        for (const [id, total] of counts) {
+            const data = getCardData(id);
+            const name = data ? data.name : id;
+            const f = fa[id] || 0;
+            const haveFa = this.ownedFullArt(id);
+            if (f > haveFa) {
+                return {
+                    valid: false,
+                    error: haveFa === 0
+                        ? `You don't own the full-art ${name}.`
+                        : `The deck uses ${f} full-art ${name}, but you own ${haveFa}.`
+                };
+            }
+            const n = total - f;
             const have = this.owned(id);
             if (have < n) {
-                const data = getCardData(id);
-                const name = data ? data.name : id;
                 return {
                     valid: false,
                     error: have === 0
@@ -889,8 +937,15 @@ const Profile = {
         };
     },
 
-    startMatch(deckName, opponentName) {
-        this.s.activeMatch = { startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null };
+    /**
+     * @param {object} [opts] { raid: { bossId, types } } for a raid game: the
+     *   boss, and the types the player's deck counts for (raidQualifyingTypes)
+     */
+    startMatch(deckName, opponentName, { raid = null } = {}) {
+        this.s.activeMatch = {
+            startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null,
+            raid: raid ? { bossId: raid.bossId, types: (raid.types || []).slice() } : null
+        };
         // Immediate: closing the page mid-game must still count as a loss.
         this.touch('match-start', { immediate: true });
     },
@@ -938,6 +993,11 @@ const Profile = {
         } else {
             reward = { type: 'none', message: 'Win a game to earn a credit.' };
         }
+        if (m.raid) {
+            const raid = Raids.onResult(m.raid, result);
+            if (raid.lines.length) reward.message += '\n' + raid.lines.join('\n');
+            reward.raid = raid;
+        }
         this.touch('match-end', { immediate: true });
         return reward;
     },
@@ -948,6 +1008,7 @@ const Profile = {
         if (!m) return;
         this.s.activeMatch = null;
         this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst });
+        if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
         if (report) this.recordCardAchievements(Object.assign({}, report, { won: false, survivors: [] }));
         this.touch('match-end', { immediate: true });
     },

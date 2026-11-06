@@ -27,6 +27,7 @@ const Validate = {
         this.checkNameConsistency();
         this.checkRegistries();
         this.checkPresetDecks();
+        this.checkRaidBosses();
 
         this.report(options);
         return { errors: this.errors, warnings: this.warnings };
@@ -303,20 +304,54 @@ const Validate = {
             for (const warning of deckWarnings(deck.cards)) {
                 this.warn(`Preset deck "${deck.name}": ${warning}`);
             }
+            // A move the AI can never pay for is a deck-building mistake.
+            for (const problem of energyTypeWarnings(deck.cards, deckEnergyTypes(deck))) {
+                this.error(`Preset deck "${deck.name}": ${problem}`);
+            }
+            for (const problem of presetCompositionProblems(deck.cards)) {
+                this.warn(`Preset deck "${deck.name}": ${problem}`);
+            }
+        }
+    },
+
+    /** Raid bosses: known cards, unique ids, and a boss deck can be built. */
+    checkRaidBosses() {
+        if (typeof RAID_BOSSES === 'undefined') return;
+        const ids = new Set();
+        for (const boss of RAID_BOSSES) {
+            if (ids.has(boss.id)) this.error(`Duplicate raid boss id "${boss.id}".`);
+            ids.add(boss.id);
+            const card = getCardData(boss.cardId);
+            if (!card) {
+                this.error(`Raid boss "${boss.id}" references unknown card "${boss.cardId}".`);
+                continue;
+            }
+            if (!isCreature(card)) this.error(`Raid boss "${boss.id}" (${card.name}) is not a creature.`);
+            if (typeof Raids !== 'undefined' && !Raids.generateDeck(Object.assign({ card }, boss), { isSetOpen: () => true })) {
+                this.error(`No legal raid deck can be built for ${card.name}.`);
+            }
+        }
+        for (const id of Object.keys(typeof RAID_STRONG_CARDS === 'undefined' ? {} : RAID_STRONG_CARDS)) {
+            if (!getCardData(id)) this.warn(`RAID_STRONG_CARDS lists unknown card "${id}".`);
         }
     },
 
     /**
-     * Confirms every card id has a matching image file. Async, because it has
-     * to actually request them; opt in with ?validate=images.
+     * Confirms every card id has a matching image file, and every full-art
+     * card its full-art image. Async, because it has to actually request
+     * them; opt in with ?validate=images.
      */
     async checkImages() {
         const missing = [];
-        await Promise.all(cardDatabase.map(card => new Promise(resolve => {
+        const sources = cardDatabase.map(card => ({ id: card.id, src: cardImage(card.id) }));
+        for (const boss of typeof RAID_BOSSES === 'undefined' ? [] : RAID_BOSSES) {
+            sources.push({ id: `${boss.cardId} (full art)`, src: fullArtImage(boss.cardId) });
+        }
+        await Promise.all(sources.map(entry => new Promise(resolve => {
             const img = new Image();
             img.onload = () => resolve();
-            img.onerror = () => { missing.push(card.id); resolve(); };
-            img.src = cardImage(card.id);
+            img.onerror = () => { missing.push(entry.id); resolve(); };
+            img.src = entry.src;
         })));
 
         if (missing.length > 0) {

@@ -91,9 +91,14 @@ const Screens = {
         document.getElementById('deck-screen').classList.add('screen-show');
         document.getElementById('game-screen').classList.remove('screen-show');
 
-        if (typeof Hub !== 'undefined') Hub.showPage('play');
+        // After a raid game the player goes back to the Raid Bosses page.
+        const page = this.returnPage || 'play';
+        this.returnPage = null;
+        if (typeof Hub !== 'undefined') Hub.showPage(page);
         else this.renderDeckList();
     },
+
+    returnPage: null,
 
     /** The player's own decks (built from owned cards). Presets are the AI's. */
     renderDeckList() {
@@ -173,6 +178,11 @@ const Screens = {
         meta.textContent = `${deck.cards.length} cards · ${Array.from(setsUsed).join(' + ')}`;
         tile.appendChild(meta);
 
+        const energy = document.createElement('p');
+        energy.className = 'deck-meta deck-energy';
+        energy.textContent = 'Energy: ' + deckEnergyTypes(deck).map(t => `${ENERGY_ICONS[t]} ${t}`).join(' · ');
+        tile.appendChild(energy);
+
         const problem = this._deckProblem(deck);
         if (problem) {
             const warn = document.createElement('p');
@@ -236,44 +246,44 @@ const Screens = {
 
         const tag = deck.type === 'preset'
             ? ` · AI deck (${deckPrimaryType(deck.cards)})`
-            : deck.type === 'test' ? ' · QA test deck' : '';
-        setText('deck-preview-title', deck.name + tag);
+            : deck.type === 'test' ? ' · QA test deck'
+            : deck.type === 'raid' ? ' · Raid boss' : '';
+        const energy = deckEnergyTypes(deck).map(t => `${ENERGY_ICONS[t]} ${t}`).join(' · ');
+        setText('deck-preview-title', `${deck.name}${tag} · Energy: ${energy}`);
 
         const grid = document.getElementById('deck-preview-grid');
         grid.innerHTML = '';
 
-        const counts = new Map();
-        for (const id of deck.cards) counts.set(id, (counts.get(id) || 0) + 1);
-
-        const ordered = Array.from(counts.keys()).sort((a, b) => {
-            const setA = setForCardId(a), setB = setForCardId(b);
+        const ordered = deckEntries(deck.cards, deck.fullArt).sort((a, b) => {
+            const setA = setForCardId(a.id), setB = setForCardId(b.id);
             const nameA = setA ? setA.name : '', nameB = setB ? setB.name : '';
             if (nameA !== nameB) return nameA.localeCompare(nameB);
-            return cardNumber(a) - cardNumber(b);
+            return cardNumber(a.id) - cardNumber(b.id) || (b.fullArt ? 1 : 0) - (a.fullArt ? 1 : 0);
         });
 
-        for (const id of ordered) {
+        for (const entry of ordered) {
+            const id = entry.id;
             const data = getCardData(id);
             if (!data) continue;
 
             const tile = document.createElement('div');
-            tile.className = 'preview-card';
+            tile.className = 'preview-card' + (entry.fullArt ? ' full-art' : '');
 
             const img = document.createElement('img');
-            img.src = cardImage(id);
-            img.alt = data.name;
-            CardZoom.bind(img, id);
+            img.src = cardArt(id, entry.fullArt);
+            img.alt = data.name + (entry.fullArt ? ' (full art)' : '');
+            CardZoom.bind(img, id, entry.fullArt);
             tile.appendChild(img);
 
             const count = document.createElement('span');
             count.className = 'preview-count';
-            count.textContent = `×${counts.get(id)}`;
+            count.textContent = `${entry.fullArt ? '✦ ' : ''}×${entry.count}`;
             tile.appendChild(count);
 
             grid.appendChild(tile);
         }
 
-        const warnings = deckWarnings(deck.cards);
+        const warnings = deckWarnings(deck.cards).concat(energyTypeWarnings(deck.cards, deckEnergyTypes(deck)));
         const warnEl = document.getElementById('deck-preview-warnings');
         if (warnEl) {
             warnEl.innerHTML = '';
@@ -316,7 +326,7 @@ const Screens = {
         };
 
         const img = el('img', 'creature-panel-img');
-        img.src = cardImage(card.id);
+        img.src = cardArt(card.id, card.fullArt);
         img.alt = data.name;
         body.appendChild(img);
 
@@ -324,8 +334,11 @@ const Screens = {
         info.appendChild(el('h2', null, data.name));
         info.appendChild(el('p', 'creature-panel-meta',
             `${data.type} · ${data.stage} · ${location === 'active' ? 'Active' : 'Bench'}`));
+        const energyText = card.energy
+            ? ENERGY_TYPES.filter(t => card.energyUnits[t]).map(t => `${ENERGY_ICONS[t]} ${card.energyUnits[t]} ${t}`).join(', ')
+            : 'no energy';
         info.appendChild(el('p', 'creature-panel-meta',
-            `HP ${hp}/${data.hp} · ⚡ ${card.energy} energy · Retreat ${data.retreat}`));
+            `HP ${hp}/${data.hp} · ${energyText} · Retreat ${data.retreat} (any type)`));
 
         for (const status of Status.list(card)) {
             const c = STATUS_CONDITIONS[status];
@@ -361,7 +374,7 @@ const Screens = {
         for (const move of movesOf(data)) {
             const text = typeof cardText === 'function' ? cardText(card.id, `move${move.number}`) : '';
             const line = el('p', 'creature-panel-move',
-                `⚔️ ${move.name} · ${move.costCount}⚡ · ${move.damage || '—'}${text ? ' · ' + text : ''}`);
+                `⚔️ ${move.name} · needs ${describeEnergyCost(move.cost)} · ${move.damage || '—'}${text ? ' · ' + text : ''}`);
             info.appendChild(line);
         }
 
@@ -374,7 +387,7 @@ const Screens = {
         const check = validateDeck(deck.cards);
         if (!check.valid) return check.error;
         if (deck.type === 'custom' && typeof Profile !== 'undefined' && Profile.s) {
-            const own = Profile.checkOwnership(deck.cards);
+            const own = Profile.checkOwnership(deck.cards, deck.fullArt);
             if (!own.valid) return own.error;
         }
         return null;
@@ -395,23 +408,7 @@ const Screens = {
         }
 
         const hasProfile = typeof Profile !== 'undefined' && !!Profile.s;
-        if (hasProfile && typeof Hub !== 'undefined') {
-            const notice = Profile.preMatchNotice();
-            const lines = [];
-            if (notice.creditsFull) {
-                lines.push(`Your credits are full (${MAX_CREDITS}/${MAX_CREDITS}). Even if you win, you won't get a credit. Spend some credits first if you want the reward.`);
-            } else if (notice.dailyLimitReached) {
-                lines.push(`You've already earned your ${WIN_CREDITS_PER_DAY} win credits today, so a win won't earn a credit until tomorrow.`);
-            }
-            if (lines.length) {
-                const go = await Hub.dialog({
-                    title: 'No credit for this game',
-                    message: lines.join(' '),
-                    buttons: [{ label: 'Cancel', value: false }, { label: 'Play anyway', value: true, kind: 'primary' }]
-                });
-                if (!go || !go.value) return;
-            }
-        }
+        if (!(await this._confirmNoWinCredit())) return;
 
         gameState.player.selectedDeck = index;
 
@@ -423,6 +420,77 @@ const Screens = {
         this.closeModal('deck-preview-modal');
         if (hasProfile) Profile.startMatch(deck.name, aiDeck.name);
         this.beginGame();
+    },
+
+    /** Warns when a win can't pay a credit. Resolves false if the player backs out. */
+    async _confirmNoWinCredit(extra = '') {
+        if (typeof Profile === 'undefined' || !Profile.s || typeof Hub === 'undefined') return true;
+        const notice = Profile.preMatchNotice();
+        const lines = [];
+        if (notice.creditsFull) {
+            lines.push(`Your credits are full (${MAX_CREDITS}/${MAX_CREDITS}). Even if you win, you won't get a credit. Spend some credits first if you want the reward.`);
+        } else if (notice.dailyLimitReached) {
+            lines.push(`You've already earned your ${WIN_CREDITS_PER_DAY} win credits today, so a win won't earn a credit until tomorrow.`);
+        }
+        if (!lines.length) return true;
+        if (extra) lines.push(extra);
+        const go = await Hub.dialog({
+            title: 'No credit for this game',
+            message: lines.join(' '),
+            buttons: [{ label: 'Cancel', value: false }, { label: 'Play anyway', value: true, kind: 'primary' }]
+        });
+        return !!(go && go.value);
+    },
+
+    /**
+     * Starts a raid game: one of the player's decks against a freshly built
+     * deck for the boss. Like any real game it is recorded at once, so leaving
+     * it counts as a loss (and breaks the raid streak).
+     */
+    async startRaid(bossId, index) {
+        if (typeof Raids === 'undefined' || typeof Profile === 'undefined' || !Profile.s) return;
+        const boss = Raids.find(bossId);
+        const deck = DeckLibrary.get(index);
+        if (!boss || !deck || deck.type !== 'custom') return;
+        if (!Raids.isUnlocked(boss)) {
+            Log.warn(`Own ${RAID_NORMAL_COPIES} ${boss.card.name} to challenge this boss.`);
+            return;
+        }
+        const problem = this._deckProblem(deck);
+        if (problem) {
+            Log.warn(`That deck can't be played: ${problem}`);
+            return;
+        }
+        if (!(await this._confirmNoWinCredit('Raid progress still counts.'))) return;
+
+        const bossDeck = Raids.generateDeck(boss);
+        if (!bossDeck) {
+            Log.warn(`The ${boss.card.name} boss deck couldn't be built. Please try again.`);
+            return;
+        }
+
+        const types = raidQualifyingTypes(deck.cards);
+        const st = Raids.status(boss);
+        const streak = st.rec.cycle.streakDone ? 'done' : `${st.rec.cycle.streak}/${RAID_STREAK_TARGET}`;
+        const energy = bossDeck.energyTypes.length === ENERGY_TYPES.length ? 'any' : bossDeck.energyTypes.join(', ');
+        const counts = types.length
+            ? `"${deck.name}" counts for the ${types.join(' and ')} task${types.length > 1 ? 's' : ''}.`
+            : `"${deck.name}" has fewer than ${RAID_TYPE_TARGET} creature cards of any one type, so a win only counts for the streak.`;
+        const intro = await Hub.dialog({
+            title: `🐉 Raid Boss: ${boss.card.name}`,
+            image: fullArtImage(boss.cardId),
+            message: `This time the boss leads a ${bossDeck.mainType} deck (energy: ${energy}), with 2 full-art ${boss.card.name}. ` +
+                `${counts} Raid tasks ${st.done}/${st.total} · streak ${streak}. Losing or leaving resets the streak.`,
+            buttons: [{ label: 'Not now', value: false }, { label: 'Fight!', value: true, kind: 'primary' }]
+        });
+        if (!intro || !intro.value) return;
+
+        gameState.player.selectedDeck = index;
+        gameState.opponent.selectedDeck = DeckLibrary.setRaidDeck(bossDeck);
+        Profile.startMatch(deck.name, bossDeck.name, { raid: { bossId: boss.id, types } });
+        this.returnPage = 'raids';
+        this.beginGame();
+        Log.write(`🐉 Raid boss battle: ${boss.card.name}!`, { kind: 'turn', icon: '🐉' });
     },
 
     /** "Leave game": a running real match counts as a loss, so confirm first. */
@@ -486,9 +554,9 @@ const Screens = {
             for (const card of pile) {
                 const img = document.createElement('img');
                 img.className = 'discard-card';
-                img.src = cardImage(card.id);
+                img.src = cardArt(card.id, card.fullArt);
                 img.alt = card.data.name;
-                CardZoom.bind(img, card.id);
+                CardZoom.bind(img, card.id, card.fullArt);
                 grid.appendChild(img);
             }
         }
@@ -590,6 +658,19 @@ const Screens = {
         if (rewardEl) {
             rewardEl.textContent = reward ? reward.message : 'QA game: not counted in stats or credits.';
             rewardEl.dataset.kind = reward ? reward.type : 'qa';
+        }
+
+        // Beating a raid for the first time: show the full-art card won.
+        const won = reward && reward.raid && reward.raid.fullArt;
+        if (won && typeof Hub !== 'undefined') {
+            const data = getCardData(won);
+            setTimeout(() => Hub.dialog({
+                title: `✦ Full art unlocked: ${data ? data.name : ''}`,
+                message: 'Raid complete! The full-art card is in your collection. In the deck builder you can choose it instead of a normal copy, ' +
+                    'and it shows in your games and the Card Dex.',
+                image: fullArtImage(won),
+                buttons: [{ label: 'Awesome!', value: true, kind: 'primary' }]
+            }), 400);
         }
 
         const panel = document.getElementById('game-over-modal');

@@ -187,11 +187,12 @@ AbilityRegistry.register('resourcefulRecovery', {
             await ctx.say('No energy attached.', { kind: 'info', pace: 0.5 });
             return;
         }
+        const type = rollEnergyType(ctx.side);
         const target = await ctx.chooseMyCreature({
-            title: 'Attach 1 energy to any of your creatures',
-            aiPick: candidates => bestEnergyTarget(candidates)
+            title: `Attach 1 ${type} energy to any of your creatures`,
+            aiPick: candidates => bestEnergyTarget(candidates, type)
         });
-        if (target) await ctx.energy(target.card, 1);
+        if (target) await ctx.energy(target.card, 1, ctx.side, type);
     }
 });
 
@@ -398,12 +399,13 @@ AbilityRegistry.register('extraCharge', {
         return { ok: true };
     },
     async use(ctx) {
+        const type = rollEnergyType(ctx.side);
         const target = await ctx.chooseMyCreature({
-            title: 'Attach 1 extra energy to a Neutral creature',
+            title: `Attach 1 extra ${type} energy to a Neutral creature`,
             filter: c => getCardType(c.card.data) === 'Neutral',
-            aiPick: candidates => bestEnergyTarget(candidates)
+            aiPick: candidates => bestEnergyTarget(candidates, type)
         });
-        if (target) await ctx.energy(target.card, 1);
+        if (target) await ctx.energy(target.card, 1, ctx.side, type);
     }
 });
 

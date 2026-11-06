@@ -83,6 +83,7 @@ const Hub = {
         { id: 'store',      label: '🛒 Store' },
         { id: 'missions',   label: '📋 Missions' },
         { id: 'achievements', label: '🏅 Achievements' },
+        { id: 'raids',      label: '🐉 Raid Bosses' },
         { id: 'minigames',  label: '🎮 Mini-games' },
         // The games themselves open from the Mini-games page, not the tab bar.
         { id: 'wheel',      label: '🎡 Spin the Wheel',   parent: 'minigames' },
@@ -187,6 +188,7 @@ const Hub = {
         };
         setBadge('missions', Missions.claimableCount());
         setBadge('achievements', CardAchievements.claimableCount());
+        setBadge('raids', Raids.pendingCount());
         setBadge('minigames', this.minigameList().filter(g => g.status.canPlay || g.status.active).length);
     },
 
@@ -320,6 +322,7 @@ const Hub = {
             store: () => this.renderStore(),
             missions: () => this.renderMissions(),
             achievements: () => this.renderAchievements(),
+            raids: () => this.renderRaids(),
             minigames: () => this.renderMinigames(),
             wheel: () => this.renderWheel(),
             guess: () => this.renderGuess(),
@@ -405,16 +408,23 @@ const Hub = {
         const grid = h('div', { class: 'cards-grid' + (locked ? ' grid-locked' : '') });
         for (const card of Collection.setCards(setId)) {
             const qty = Profile.owned(card.id);
+            const fa = Profile.ownedFullArt(card.id);
             const rarity = Collection.rarity(card.rarity);
             grid.appendChild(h('div', {
-                class: `card-item ${qty === 0 ? 'not-owned' : ''}`,
-                title: qty > 0 ? card.name : 'Not collected yet',
-                on: { click: () => { if (qty > 0) this.showCardModal(card); } }
+                class: `card-item ${qty === 0 && fa === 0 ? 'not-owned' : ''}`,
+                title: qty > 0 || fa > 0 ? card.name : 'Not collected yet',
+                on: { click: () => { if (qty > 0 || fa > 0) this.showCardModal(card); } }
             },
-                h('img', { src: cardImage(card.id), alt: qty > 0 ? card.name : 'Unknown card', loading: 'lazy' }),
+                h('img', { src: cardImage(card.id), alt: qty > 0 || fa > 0 ? card.name : 'Unknown card', loading: 'lazy' }),
                 qty > 0 ? h('div', { class: 'card-quantity', text: String(qty) }) : null,
                 h('span', { class: 'card-rarity', title: rarity.name, text: rarity.icon }),
-                card.promo ? h('span', { class: 'card-promo', text: 'PROMO' }) : null));
+                card.promo ? h('span', { class: 'card-promo', text: 'PROMO' }) : null,
+                // Full art owned: a badge that opens the full-art image.
+                fa > 0 ? h('button', {
+                    class: 'full-art-badge', type: 'button', text: '✦',
+                    title: `Full art owned (${fa}). Tap to view.`, 'aria-label': `View the full-art ${card.name}`,
+                    on: { click: e => { e.stopPropagation(); this.showFullArt(card); } }
+                }) : null));
         }
         host.appendChild(grid);
     },
@@ -423,13 +433,29 @@ const Hub = {
         const body = document.getElementById('hub-card-body');
         body.innerHTML = '';
         const rarity = Collection.rarity(card.rarity);
+        const fa = Profile.ownedFullArt(card.id);
         body.appendChild(h('img', { class: 'card-modal-img', src: cardImage(card.id), alt: card.name }));
         body.appendChild(h('div', { class: 'card-details' },
             h('h3', { text: card.name }),
             h('p', { class: 'card-type', style: { color: rarity.color } }, `${card.type} • ${rarity.icon} ${rarity.name}${card.promo ? ' • Promo' : ''}`),
             h('p', { text: `${card.stage}${card.hp ? ` · HP ${card.hp}` : ''}` }),
             card.abilityName ? h('p', { text: `Ability: ${card.abilityName}` }) : null,
-            h('p', { class: 'owned-count', text: `You own: ${Profile.owned(card.id)}` })));
+            h('p', { class: 'owned-count', text: `You own: ${Profile.owned(card.id)}${fa ? ` · ✦ Full art: ${fa}` : ''}` }),
+            fa > 0 ? h('button', {
+                class: 'btn btn-primary', type: 'button', text: '✦ View full art',
+                on: { click: () => this.showFullArt(card) }
+            }) : null));
+        Screens.openModal('hub-card-modal');
+    },
+
+    showFullArt(card) {
+        const body = document.getElementById('hub-card-body');
+        body.innerHTML = '';
+        body.appendChild(h('img', { class: 'card-modal-img card-modal-full-art', src: fullArtImage(card.id), alt: `${card.name} (full art)` }));
+        body.appendChild(h('div', { class: 'card-details' },
+            h('h3', { text: `✦ ${card.name}` }),
+            h('p', { class: 'owned-count', text: `Full art · you own ${Profile.ownedFullArt(card.id)}` }),
+            h('button', { class: 'btn btn-ghost', type: 'button', text: 'Normal art', on: { click: () => this.showCardModal(card) } })));
         Screens.openModal('hub-card-modal');
     },
 
@@ -616,6 +642,114 @@ const Hub = {
                         this.renderMissions();
                     } }
                 })));
+        }
+        host.appendChild(list);
+    },
+
+    // -----------------------------------------------------------------------
+    // Raid Bosses: one tile per boss, with its tasks, record and a deck
+    // picker to challenge it. Rules in raids.js.
+    // -----------------------------------------------------------------------
+
+    raidChoice: {},
+
+    renderRaids(error = '') {
+        const host = this.pageHost('raids');
+        host.appendChild(this.pageTitle('🐉 Raid Bosses',
+            `Beat a raid boss to win the full-art version of its card. A boss opens once you own ${RAID_NORMAL_COPIES} normal copies of its card, ` +
+            'and only games against that boss count towards its tasks.'));
+        host.appendChild(h('ul', { class: 'raid-rules' },
+            h('li', { text: `Win ${RAID_STREAK_TARGET} games in a row against the boss. Losing to it, or leaving a game against it, resets the streak; games elsewhere don't.` }),
+            h('li', { text: `Win once with a deck of at least ${RAID_TYPE_TARGET} creature cards of each type: ${RAID_TYPES.join(', ')}. One win can tick the streak and a type at the same time.` }),
+            h('li', { text: 'The boss deck is built at random every game from strong cards of the sets you have unlocked.' }),
+            h('li', { text: 'The first clear wins 1 full-art card. After that the tasks start over, and clearing them again pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for your daily win credits.' })));
+        if (error) host.appendChild(this.notice(error, 'bad'));
+
+        DeckLibrary.load();
+        const decks = DeckLibrary.playerDecks()
+            .map(d => ({ deck: d, index: DeckLibrary.indexOf(d), problem: Screens._deckProblem(d), types: raidQualifyingTypes(d.cards) }));
+        const playable = decks.filter(d => !d.problem);
+
+        const list = h('div', { class: 'raid-list' });
+        for (const boss of Raids.bosses()) {
+            const st = Raids.status(boss);
+            const rec = st.rec;
+            const card = boss.card;
+
+            const art = h('img', {
+                class: 'raid-art', src: fullArtImage(boss.cardId),
+                alt: st.unlocked ? `${card.name} (full art)` : 'Locked raid boss', loading: 'lazy'
+            });
+            if (st.unlocked) CardZoom.bind(art, boss.cardId, true);
+
+            const tasks = h('ul', { class: 'raid-tasks' });
+            for (const t of st.tasks) {
+                tasks.appendChild(h('li', { class: t.done ? 'done' : '' },
+                    h('span', { class: 'raid-task-mark', text: t.done ? '✓' : '○', 'aria-hidden': 'true' }),
+                    h('span', { class: 'raid-task-label', text: t.label }),
+                    h('span', { class: 'raid-task-progress', text: t.progress })));
+            }
+
+            let reward;
+            if (!st.completed) {
+                reward = `Reward: 1 full-art ${card.name}`;
+            } else {
+                reward = `✦ Full art won · cleared ${plural(rec.completions, 'time')} · ` +
+                    (st.creditThisWeek ? "this week's rematch credit earned (next from Monday)" : 'clear it again this week for 🪙 1 credit');
+            }
+
+            const controls = h('div', { class: 'raid-controls' });
+            if (!st.unlocked) {
+                controls.appendChild(this.notice(
+                    `🔒 Own ${RAID_NORMAL_COPIES} normal ${card.name} to challenge this boss. You have ${st.owned}.`, 'locked'));
+            } else if (!playable.length) {
+                controls.appendChild(this.notice(decks.length
+                    ? 'None of your decks can be played right now. Fix them on the Play tab.'
+                    : 'Build a deck on the Play tab to challenge this boss.'));
+            } else {
+                let chosen = this.raidChoice[boss.id];
+                if (!playable.some(d => d.deck.name === chosen)) chosen = playable[0].deck.name;
+                this.raidChoice[boss.id] = chosen;
+                const select = h('select', {
+                    class: 'raid-deck-select', 'aria-label': `Deck to challenge ${card.name} with`,
+                    on: { change: e => { this.raidChoice[boss.id] = e.target.value; this.renderRaids(); } }
+                });
+                for (const d of playable) {
+                    const label = d.deck.name + (d.types.length ? ` (counts for ${d.types.join(', ')})` : ' (streak only)');
+                    select.appendChild(h('option', { value: d.deck.name, text: label, selected: d.deck.name === chosen }));
+                }
+                const pick = playable.find(d => d.deck.name === chosen);
+                controls.appendChild(select);
+                controls.appendChild(h('button', {
+                    class: 'btn btn-primary', type: 'button', text: '⚔️ Challenge',
+                    on: { click: () => Screens.startRaid(boss.id, pick.index) }
+                }));
+            }
+            if (rec.pendingCredit) {
+                controls.appendChild(h('button', {
+                    class: 'btn btn-primary', type: 'button', text: 'Claim 🪙 1 rematch credit',
+                    on: { click: () => {
+                        const res = Raids.claimCredit(boss.id);
+                        if (res.error) { this.renderRaids(res.error); return; }
+                        this.toast('Claimed 🪙 +1', 'gold');
+                        this.renderRaids();
+                    } }
+                }));
+            }
+
+            list.appendChild(h('div', { class: `panel raid-card ${st.unlocked ? '' : 'raid-locked'} ${st.completed ? 'raid-cleared' : ''}` },
+                h('div', { class: 'raid-art-wrap' }, art, st.completed ? h('span', { class: 'full-art-badge', text: '✦', title: 'Full art won' }) : null),
+                h('div', { class: 'raid-body' },
+                    h('div', { class: 'raid-head' },
+                        h('h3', { text: card.name }),
+                        h('span', { class: 'raid-type', dataset: { type: getCardType(card) }, text: `${getCardType(card)} · ${card.stage}` })),
+                    h('div', { class: 'raid-progress' }, progressBar(st.done, st.total),
+                        h('span', { class: 'progress-label', text: `${st.done}/${st.total} tasks` })),
+                    tasks,
+                    h('p', { class: 'raid-reward', text: reward }),
+                    h('p', { class: 'raid-record', text:
+                        `Record: ${rec.won} won · ${rec.lost} lost · ${rec.drawn} drawn · best streak ${rec.bestStreak}` }),
+                    controls)));
         }
         host.appendChild(list);
     },
@@ -1240,6 +1374,26 @@ const Hub = {
         }
         opp.appendChild(tb);
         host.appendChild(h('div', { class: 'table-container' }, opp));
+
+        host.appendChild(h('h3', { class: 'section-title', text: 'Against each raid boss' }));
+        const raids = h('table', { class: 'data-table' },
+            h('thead', {}, h('tr', {}, ['Raid boss', 'Type', 'Played', 'Won', 'Lost', 'Drawn', 'Win rate', 'Best streak', 'Cleared']
+                .map(t => h('th', { text: t })))));
+        const rb = h('tbody');
+        for (const boss of Raids.bosses()) {
+            const r = Raids.peek(boss.id);
+            const locked = !Raids.isUnlocked(boss);
+            rb.appendChild(h('tr', { class: locked ? 'row-locked' : '', title: locked ? `Opens once you own ${RAID_NORMAL_COPIES} ${boss.card.name}` : '' },
+                h('td', { text: (locked ? '🔒 ' : '') + boss.card.name }),
+                h('td', { text: getCardType(boss.card) }),
+                h('td', { text: String(r.played) }), h('td', { text: String(r.won) }),
+                h('td', { text: String(r.lost) }), h('td', { text: String(r.drawn) }),
+                h('td', { text: r.played ? `${pct(r.won, r.played)}%` : '–' }),
+                h('td', { text: String(r.bestStreak) }),
+                h('td', { text: r.completions ? `✦ ${r.completions}` : '–' })));
+        }
+        raids.appendChild(rb);
+        host.appendChild(h('div', { class: 'table-container' }, raids));
 
         host.appendChild(h('h3', { class: 'section-title', text: 'Recent games' }));
         if (st.history.length === 0) {

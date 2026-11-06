@@ -106,10 +106,11 @@ function makeContext(side, extra = {}) {
             healCreature(card, amount, Object.assign({ side: locateSideOf(card, side) }, opts)),
         hit: (card, amount, opts = {}) =>
             damageCreature(card, amount, opts),
-        energy: (card, count = 1, ownerSide) =>
-            attachEnergyTo(card, count, { side: ownerSide || locateSideOf(card, side) }),
-        unenergy: (card, count = 1, ownerSide) =>
-            discardEnergyFrom(card, count, { side: ownerSide || locateSideOf(card, side) }),
+        // `type` is optional: without it the energy is one of the owner's deck types.
+        energy: (card, count = 1, ownerSide, type) =>
+            attachEnergyTo(card, count, { side: ownerSide || locateSideOf(card, side), type }),
+        unenergy: (card, count = 1, ownerSide, removedTypes) =>
+            discardEnergyFrom(card, count, { side: ownerSide || locateSideOf(card, side), removedTypes }),
 
         // --- status, always gated by Status.apply -------------------------
         status: (card, statusName) => Status.apply(card, statusName, {

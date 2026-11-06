@@ -101,7 +101,7 @@ async function aiConsiderRetreat(side) {
 
 /** Moves this creature could pay for right now, ignoring turn state. */
 function affordableMoves(card) {
-    return movesOf(card.data).filter(m => card.energy >= m.costCount);
+    return movesOf(card.data).filter(m => canPayMove(card, m));
 }
 
 // ---------------------------------------------------------------------------
@@ -190,24 +190,26 @@ async function aiAttachEnergy(side) {
     if (!canAttachEnergy(side).ok) return;
 
     const active = gameState[side].active;
-
-    // Charge the active creature until it can pay for its most expensive move,
-    // then start building up the bench.
-    if (active) {
-        const costs = movesOf(active.data).map(m => m.costCount);
-        const mostExpensive = costs.length ? Math.max(...costs) : 0;
-        if (active.energy < mostExpensive) {
-            await attachTurnEnergy(side, active);
-            return;
-        }
-    }
-
+    const type = turnEnergyType(side);
     const bench = boardCandidates(side, c => c.location === 'bench');
-    const target = bench.length ? bestEnergyTarget(bench) : null;
-    if (target) {
-        await attachTurnEnergy(side, target.card);
-    } else if (active) {
+    const benchTarget = bench.length ? bestEnergyTarget(bench, type) : null;
+    const benchHelps = !!benchTarget && energyHelpScore(benchTarget.card, type) > 0;
+
+    // Charge the active creature while this energy still gets it closer to a
+    // move, then build up the bench. A Flux active risks losing the energy, so
+    // a bench creature it helps is taken first.
+    const activeHelps = !!active && energyHelpScore(active, type) > 0;
+    const activeInFlux = !!active && Status.has(active, 'flux');
+    if (activeHelps && !(activeInFlux && benchHelps)) {
         await attachTurnEnergy(side, active);
+        return;
+    }
+    if (benchTarget && (benchHelps || !active)) {
+        await attachTurnEnergy(side, benchTarget.card);
+    } else if (active && !activeInFlux) {
+        await attachTurnEnergy(side, active);
+    } else if (benchTarget) {
+        await attachTurnEnergy(side, benchTarget.card);
     }
 }
 
@@ -300,6 +302,10 @@ function estimateMoveTacticalValue(move, side) {
         case 'monksFury': return 6;
         case 'spectralBurst': return 8;
         case 'tidalIllusion': return 13;
+        // Half the time the opponent's next energy is Celestial: only a
+        // nuisance if their deck doesn't use Celestial energy.
+        case 'starfallStrike':
+            return (gameState[foeOf(side)].energyTypes || []).includes('Celestial') ? 0 : 6;
 
         // Put a cost on effects whose downside is not reflected in printed damage.
         case 'recoil20': case 'infernoWing': return -Math.min(20, remainingHp(attacker)) * 0.35;

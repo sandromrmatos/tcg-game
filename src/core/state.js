@@ -42,6 +42,16 @@ function createSide() {
         // go through performRetreat, so they never read or set this.
         retreatedThisTurn: false,
 
+        // The energy types this side's deck uses (set by buildDecks), and the
+        // type of this turn's energy, rolled at the start of the turn so the
+        // player can see it before attaching.
+        energyTypes: ENERGY_TYPES.slice(),
+        turnEnergyType: null,
+
+        // Full-art copies still in the deck, by card id (set by buildDecks).
+        // The deck itself only holds ids; see instanceFromDeck / returnToDeck.
+        fullArtLeft: {},
+
         // Everything else. Cleared wholesale between games and selectively in
         // endTurn(). See turn.js for the lifecycle.
         flags: createSideFlags()
@@ -75,6 +85,8 @@ function createSideFlags() {
         cantDealDamageUntil: null,  // Tidal Illusion
         cantUseItemsUntil: null,    // Mirage Shield
         invincibleLockUntil: null,  // Invincible Gambit
+        forcedEnergyType: null,     // Starfall Strike: next turn's energy is this type
+        forcedEnergyUntil: null,
 
         // --- Misc -----------------------------------------------------------
         rainbowStrike: false,       // this turn's attack also hits the bench
@@ -152,23 +164,105 @@ function consumeShield(bag, key) {
 /** The one place a playable creature/item instance is created. */
 function makeCardInstance(cardId) {
     const data = getCardData(cardId);
-    return {
+    const card = {
         id: cardId,
         data,
         damage: 0,
-        energy: 0,
+        // Energy attached, per type. Change it only through addEnergyUnits /
+        // takeEnergyUnits (or attachEnergyTo / discardEnergyFrom in heal.js).
+        energyUnits: emptyEnergyUnits(),
         status: new Set(),
         abilityUsedThisTurn: false,
         evolutionId: newEvolutionId(),
         evolutionChain: [],
+        // Shown with its full-art image. Cosmetic only.
+        fullArt: false,
         flags: createCreatureFlags()
     };
+    // `energy` stays the total, which is what retreat costs and the
+    // "N damage per energy" moves count. Setting it (test pages only) adds or
+    // removes energy of the creature's owner's deck type.
+    Object.defineProperty(card, 'energy', {
+        enumerable: true,
+        get() { return energyUnitsTotal(this.energyUnits); },
+        set(n) {
+            const diff = Math.max(0, Math.floor(Number(n) || 0)) - energyUnitsTotal(this.energyUnits);
+            if (diff > 0) addEnergyUnits(this, defaultEnergyTypeFor(this), diff);
+            else if (diff < 0) takeEnergyUnits(this, -diff);
+        }
+    });
+    return card;
+}
+
+/**
+ * An instance for a card leaving `side`'s deck (draw, opening hand, search).
+ * The deck's full-art copies of that card are handed out first.
+ */
+function instanceFromDeck(side, cardId) {
+    const card = makeCardInstance(cardId);
+    const left = gameState[side] && gameState[side].fullArtLeft;
+    if (left && left[cardId] > 0) {
+        left[cardId]--;
+        card.fullArt = true;
+    }
+    return card;
+}
+
+/** Puts instances back into `side`'s deck as ids, keeping full-art counts right. */
+function returnToDeck(side, cards) {
+    const s = gameState[side];
+    for (const card of cards) {
+        s.deck.push(card.id);
+        if (card.fullArt) s.fullArtLeft[card.id] = (s.fullArtLeft[card.id] || 0) + 1;
+    }
+}
+
+/** Adds energy of one type to a creature, with no side effects. */
+function addEnergyUnits(card, type, count = 1) {
+    if (!card || !ENERGY_TYPES.includes(type) || count <= 0) return;
+    card.energyUnits[type] += count;
+}
+
+/**
+ * Removes `count` energy and returns the types removed. Takes the energy the
+ * creature's own moves need least: types its moves never name first, then
+ * whichever type it holds most of.
+ */
+function takeEnergyUnits(card, count = 1) {
+    const removed = [];
+    if (!card) return removed;
+    const wanted = energyTypesUsedBy(card.data);
+    for (let i = 0; i < count; i++) {
+        const held = ENERGY_TYPES.filter(t => card.energyUnits[t] > 0);
+        if (held.length === 0) break;
+        held.sort((a, b) =>
+            (wanted.has(a) ? 1 : 0) - (wanted.has(b) ? 1 : 0) ||
+            card.energyUnits[b] - card.energyUnits[a]);
+        card.energyUnits[held[0]]--;
+        removed.push(held[0]);
+    }
+    return removed;
+}
+
+/** The energy type a side's deck hands out, picked at random if it has several. */
+function rollEnergyType(side) {
+    const types = (side && gameState[side] && gameState[side].energyTypes) || ENERGY_TYPES;
+    return types.length === 1 ? types[0] : Rng.pick(types);
+}
+
+/** Fallback type for a creature: its owner's deck type, else its own. */
+function defaultEnergyTypeFor(card) {
+    const spot = typeof locateCard === 'function' ? locateCard(card) : null;
+    const types = spot && gameState[spot.side].energyTypes;
+    if (types && types.length) return types[0];
+    const own = card && card.data && card.data.type;
+    return ENERGY_TYPES.includes(own) ? own : ENERGY_TYPES[0];
 }
 
 /** Restores an instance to pristine condition (Revive Crystal). */
 function resetCardInstance(card) {
     card.damage = 0;
-    card.energy = 0;
+    card.energyUnits = emptyEnergyUnits();
     card.status = new Set();
     card.abilityUsedThisTurn = false;
     card.flags = createCreatureFlags();

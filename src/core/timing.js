@@ -103,8 +103,8 @@ function creatureCanAttack(card, side) {
 /** Is a specific move available (energy, cooldown)? */
 function moveIsUsable(card, move, side) {
     if (!card || !move) return { ok: false, reason: 'No move.' };
-    if (card.energy < move.costCount) {
-        return { ok: false, reason: `Not enough energy for ${move.name} (needs ${move.costCount}).` };
+    if (!canPayMove(card, move)) {
+        return { ok: false, reason: `Not enough energy for ${move.name} (needs ${describeEnergyCost(move.cost)}).` };
     }
     const cooldown = move.effect ? card.flags.cooldowns[move.effect] : null;
     if (Timing.active(cooldown)) {
@@ -125,7 +125,7 @@ function creatureCanRetreat(card, side) {
         return { ok: false, reason: `${creatureName(card, side)} can't retreat for ${Timing.describe(card.flags.cantRetreatUntil)}.` };
     }
     if (card.energy < card.data.retreat) {
-        return { ok: false, reason: `Not enough energy to retreat (needs ${card.data.retreat}).` };
+        return { ok: false, reason: `Not enough energy to retreat (needs ${card.data.retreat} of any type).` };
     }
     if (benchCreatures(side).length === 0) {
         return { ok: false, reason: 'No bench creature to switch with.' };

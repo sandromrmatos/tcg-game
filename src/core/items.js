@@ -225,13 +225,14 @@ ItemRegistry.register('energyAntenna', {
         return { ok: true };
     },
     async use(ctx) {
+        const type = rollEnergyType(ctx.side);
         const target = await ctx.chooseMyCreature({
-            title: 'Attach 1 energy to a Mechanic creature',
+            title: `Attach 1 ${type} energy to a Mechanic creature`,
             filter: c => getCardType(c.card.data) === 'Mechanic',
-            aiPick: candidates => bestEnergyTarget(candidates)
+            aiPick: candidates => bestEnergyTarget(candidates, type)
         });
         if (!target) return false;
-        await ctx.energy(target.card, 1);
+        await ctx.energy(target.card, 1, ctx.side, type);
     }
 });
 
@@ -318,7 +319,7 @@ ItemRegistry.register('disruptor', {
     },
     async use(ctx) {
         const size = ctx.them.hand.length;
-        ctx.them.deck.push(...ctx.them.hand.map(c => c.id));
+        returnToDeck(ctx.foe, ctx.them.hand);
         ctx.them.hand = [];
         Rng.shuffle(ctx.them.deck);
 
@@ -373,7 +374,7 @@ ItemRegistry.register('mysticScroll', {
 
         const cardId = ctx.me.deck[deckIndex];
         ctx.me.deck.splice(deckIndex, 1);
-        const drawn = makeCardInstance(cardId);
+        const drawn = instanceFromDeck(ctx.side, cardId);
         ctx.me.hand.push(drawn);
 
         await ctx.say(`${subject(ctx.side)} searched out ${drawn.data.name}.`,

@@ -25,7 +25,7 @@ const STATUS_CONDITIONS = {
     flux: {
         name: 'Flux',
         icon: '⚡',
-        blurb: 'When attaching energy, flip 2 coins. Both tails: attachment blocked.',
+        blurb: 'When attaching energy to this creature, flip 2 coins. Both tails: that energy is lost. Attaching to the bench is not affected.',
         blockedByClarityAura: false
     },
     lock: {

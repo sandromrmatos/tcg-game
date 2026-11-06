@@ -136,7 +136,16 @@ const Render = {
             energyBtn.style.display = isSetup ? 'none' : '';
             const check = canAttachEnergy('player');
             energyBtn.disabled = !playerTurn || !check.ok;
-            energyBtn.title = check.ok ? "Attach this turn's energy" : check.reason;
+            // This turn's energy type, rolled at the start of the turn.
+            const type = gameState.player.turnEnergyType;
+            energyBtn.textContent = type && gameState.phase === 'playing'
+                ? `Attach ${ENERGY_ICONS[type]} ${type} energy`
+                : 'Attach energy';
+            energyBtn.style.setProperty('--energy', type ? typeColor(type) : '');
+            energyBtn.classList.toggle('btn-energy-typed', !!type);
+            energyBtn.title = check.ok
+                ? `This turn's energy is ${type || 'not rolled yet'}. Attach it to any of your creatures.`
+                : check.reason;
             energyBtn.classList.toggle('btn-armed', UiState.energyMode);
         }
 
@@ -212,12 +221,12 @@ function fillSlot(slot, card, side, location, index) {
 
 function buildCreature(card, side, location, index) {
     const wrap = document.createElement('div');
-    wrap.className = 'creature';
+    wrap.className = 'creature' + (card.fullArt ? ' full-art' : '');
     wrap.dataset.type = getCardType(card.data);
 
     const art = document.createElement('img');
     art.className = 'creature-art';
-    art.src = cardImage(card.id);
+    art.src = cardArt(card.id, card.fullArt);
     art.alt = card.data.name;
     wrap.appendChild(art);
 
@@ -240,20 +249,25 @@ function buildCreature(card, side, location, index) {
     wrap.appendChild(hpText);
 
     if (card.energy > 0) {
+        // One pip per energy, coloured by its type.
         const energy = document.createElement('div');
         energy.className = 'energy-pips';
-        for (let i = 0; i < Math.min(card.energy, 8); i++) {
+        const units = [];
+        for (const type of ENERGY_TYPES) for (let i = 0; i < card.energyUnits[type]; i++) units.push(type);
+        for (const type of units.slice(0, 8)) {
             const pip = document.createElement('span');
             pip.className = 'energy-pip';
+            pip.style.setProperty('--energy', typeColor(type));
             energy.appendChild(pip);
         }
-        if (card.energy > 8) {
+        if (units.length > 8) {
             const extra = document.createElement('span');
             extra.className = 'energy-extra';
-            extra.textContent = `+${card.energy - 8}`;
+            extra.textContent = `+${units.length - 8}`;
             energy.appendChild(extra);
         }
-        energy.title = `${card.energy} energy attached`;
+        energy.title = ENERGY_TYPES.filter(t => card.energyUnits[t])
+            .map(t => `${card.energyUnits[t]} ${t}`).join(', ') + ' energy attached';
         wrap.appendChild(energy);
     }
 
@@ -262,7 +276,7 @@ function buildCreature(card, side, location, index) {
         wrap.appendChild(buildChipRow(chips, 'creature-chips'));
     }
 
-    CardZoom.bind(art, card.id);
+    CardZoom.bind(art, card.id, card.fullArt);
 
     // Abilities no longer sit on the card as a button that overlapped
     // everything. A creature whose ability can be used right now gets a
@@ -315,13 +329,8 @@ function buildMoveButton(move, enabled) {
 
     const cost = document.createElement('span');
     cost.className = 'move-cost';
-    const active = gameState.player.active;
-    const paid = active ? Math.min(active.energy, move.costCount) : 0;
-    for (let i = 0; i < move.costCount; i++) {
-        const pip = document.createElement('i');
-        pip.className = i < paid ? 'cost-pip cost-paid' : 'cost-pip';
-        cost.appendChild(pip);
-    }
+    cost.title = `Needs ${describeEnergyCost(move.cost)}`;
+    for (const pip of costPips(gameState.player.active, move.cost)) cost.appendChild(pip);
     meta.appendChild(cost);
 
     const damage = document.createElement('span');
@@ -342,6 +351,36 @@ function buildMoveButton(move, enabled) {
     return btn;
 }
 
+/**
+ * One pip per energy in a cost. Typed pips are coloured by their type; "any"
+ * pips are white-ringed. A pip is filled when the creature's energy covers it:
+ * typed pips from that type, then "any" pips from whatever is left.
+ */
+function costPips(card, costString) {
+    const units = Object.assign(emptyEnergyUnits(), card && card.energyUnits);
+    const cost = parseEnergyCost(costString);
+    const pips = [];
+    let spare = 0;
+    for (const type of ENERGY_TYPES) {
+        const paid = Math.min(cost.specific[type], units[type]);
+        spare += units[type] - paid;
+        for (let i = 0; i < cost.specific[type]; i++) {
+            const pip = document.createElement('i');
+            pip.className = 'cost-pip cost-typed' + (i < paid ? ' cost-paid' : '');
+            pip.style.setProperty('--energy', typeColor(type));
+            pip.title = `${type} energy`;
+            pips.push(pip);
+        }
+    }
+    for (let i = 0; i < cost.any; i++) {
+        const pip = document.createElement('i');
+        pip.className = 'cost-pip cost-any' + (i < spare ? ' cost-paid' : '');
+        pip.title = 'Any energy';
+        pips.push(pip);
+    }
+    return pips;
+}
+
 function buildHandCard(card, index) {
     const el = document.createElement('div');
     el.className = 'hand-card';
@@ -351,15 +390,16 @@ function buildHandCard(card, index) {
     el.classList.toggle('hand-card-selected', !!selected);
 
     const art = document.createElement('img');
-    art.src = cardImage(card.id);
+    art.src = cardArt(card.id, card.fullArt);
     art.alt = card.data.name;
     el.appendChild(art);
+    el.classList.toggle('full-art', !!card.fullArt);
 
     const playable = handCardPlayability(card);
     el.classList.toggle('hand-card-dim', !playable.ok);
     el.title = playable.ok ? card.data.name : `${card.data.name} — ${playable.reason}`;
 
-    CardZoom.bind(el, card.id);
+    CardZoom.bind(el, card.id, card.fullArt);
     el.addEventListener('click', () => onHandCardClick(card, index));
 
     return el;

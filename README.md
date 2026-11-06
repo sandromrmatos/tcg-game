@@ -34,8 +34,14 @@ src/
   data/
     sets.js             THE set registry — one entry per card set
     cards.js            all 170 card definitions
-    preset-decks.js     the 8 preset deck lists
+    preset-decks.js     the 23 AI preset deck lists
+    raid-bosses.js      raid bosses, full-art cards, the strong lines boss decks use
     decks.js            deck library, persistence, deck validation
+  meta/
+    profile.js          the save: collection, currencies, decks, stats
+    missions.js         missions
+    achievements.js     per-card achievements
+    raids.js            raid tasks, rewards and boss deck generation
   core/
     util.js             randomness, side naming, type chart, card helpers
     cards-index.js      id lookups, evolution links resolved to ids
@@ -158,6 +164,13 @@ have unlocked before the AI can pick it. Promo cards never appear in AI decks.
 
 ## Turn rules worth knowing
 
+- Energy is typed. In a cost, M/W/C/K need Mystic/Wind/Celestial/Mechanic and
+  N accepts any type (`parseEnergyCost`, `energyNeeded` in `util.js`). A
+  creature's energy lives in `card.energyUnits`; `card.energy` is the total.
+- Each deck has `energyTypes`; a turn's energy is rolled from them at the
+  start of the turn (`turnEnergyType`), so the player sees it before attaching.
+- Flux only flips when energy is attached to the Flux creature itself.
+
 - The player who goes first skips their turn-1 draw and cannot attack on
   turn 1 (`isStarterFirstTurn` in `state.js`).
 - One voluntary retreat per turn (`retreatedThisTurn`); forced switches from
@@ -173,6 +186,32 @@ type plus any number of Neutral and Item cards. Custom decks are saved to
 
 The builder generates its set tabs from the set registry, so a new set appears
 without any code change, and flags evolutions whose pre-evolution is missing.
+
+A deck's full-art copies are stored as `fullArt: { cardId: count }` next to
+`cards`. When both versions of a card are available, the builder asks which one
+to add.
+
+---
+
+## Raid Bosses and full art
+
+Full-art images live in `Full art/`, named like the normal card image. Each one
+has a boss in `RAID_BOSSES` (`src/data/raid-bosses.js`); adding a boss is one
+line there plus the image.
+
+- A boss opens once the player owns 2 normal copies of its card.
+- Tasks, counted only in games against that boss: win 5 in a row (a loss or
+  leaving resets it, a draw doesn't), and one win with a deck of at least 14
+  creature cards of each type.
+- First clear: 1 full-art copy, no credits. Later clears: 1 credit per boss per
+  week (Monday to Sunday), held on the raid page if credits are full.
+- The boss deck is generated every game (`Raids.generateDeck`): 2 full-art boss
+  cards, 2 of each card in its line, lines from `RAID_STRONG_CARDS` weighted by
+  their simulated win rate, 2 Card Draw, items for its type, only unlocked sets,
+  one energy type, and the same composition rules as the AI presets.
+- In a game, `fullArtLeft` on each side counts the full-art copies still in the
+  deck; `instanceFromDeck` / `returnToDeck` keep it right, and `card.fullArt`
+  picks the image through `cardArt()`.
 
 ---
 

@@ -64,6 +64,7 @@
         <section id="page-store" class="hub-page"></section>
         <section id="page-missions" class="hub-page"></section>
         <section id="page-achievements" class="hub-page"></section>
+        <section id="page-raids" class="hub-page"></section>
         <section id="page-minigames" class="hub-page"></section>
         <section id="page-wheel" class="hub-page"></section>
         <section id="page-guess" class="hub-page"></section>
@@ -269,6 +270,9 @@
             </div>
         </div>
 
+        <!-- The energy types this deck gets; several means one of them at random each turn -->
+        <div id="builder-energy" class="builder-energy"></div>
+
         <div id="builder-set-tabs" class="set-tabs"></div>
 
         <div class="builder-filters">
@@ -323,13 +327,23 @@
                     <li>Play <strong>one item</strong> card</li>
                     <li>Play Stage 1 creatures to empty bench slots</li>
                     <li>Evolve creatures, from turn 3 onwards</li>
-                    <li>Attach <strong>one energy</strong> to any creature you control</li>
+                    <li>Attach <strong>one energy</strong> to any creature you control. Its type
+                        (Mystic, Wind, Celestial or Mechanic) is shown on the button before you attach it:
+                        one of your deck's energy types, picked at random if the deck uses several</li>
                     <li>Use abilities — these must come <em>before</em> attacking. A creature whose
                         ability is ready has a flashing rainbow border: tap it to see and use the ability</li>
                     <li>Retreat <strong>once</strong>, or <strong>attack</strong>, which ends your turn.
                         The creature you retreat into can't be retreated again that turn
                         (moves and abilities that switch creatures still work)</li>
                 </ul>
+            </section>
+
+            <section>
+                <h3>Energy types</h3>
+                <p>Each letter in a move's cost is one energy: <strong>M</strong> Mystic, <strong>W</strong> Wind,
+                   <strong>C</strong> Celestial, <strong>K</strong> Mechanic, and <strong>N</strong> any type.
+                   A cost of MN needs 1 Mystic plus 1 of anything, so a creature holding 2 Celestial energy can't use it.
+                   Retreat costs accept any type. Each deck chooses its energy types in the deck builder.</p>
             </section>
 
             <section>
@@ -457,6 +471,7 @@
                     <li><strong>🛒 Store</strong>: buy any specific card with gems.</li>
                     <li><strong>📋 Missions</strong>: objectives that pay credits and gems.</li>
                     <li><strong>🏅 Achievements</strong>: tasks for every single card, with credits, gems and promo cards as rewards.</li>
+                    <li><strong>🐉 Raid Bosses</strong>: beat a boss deck to win the full-art version of its card.</li>
                     <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, each free once a day for credits and gems. Each game shows whether you've played it today and what you earned.</li>
                     <li><strong>📈 Collection</strong>: your progress through each set.</li>
                     <li><strong>🏆 Stats</strong>: games played, won and lost against the AI.</li>
@@ -476,6 +491,7 @@
                 <summary>⚔️ Decks and games against the AI</summary>
                 <ul>
                     <li>A deck is 20 cards you own: one main type plus any Neutral and Item cards, at least one Stage 1 creature, at most 2 copies of a card (and no more than you own).</li>
+                    <li>Each deck also picks its energy types (Mystic, Wind, Celestial, Mechanic). It starts as the deck's main type. Pick more than one and each turn's energy is one of them at random; you see which before attaching it.</li>
                     <li>The AI plays one of its own preset decks, picked at random: Mystic, Wind, Celestial, Mechanic and Neutral decks. Once you unlock Galactic Adventures, 14 more AI decks built around that set join the pool.</li>
                     <li>Whoever goes first doesn't draw and can't attack on turn 1. Your Stats show your win rate going first and going second.</li>
                     <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>. If your credits are full when you start, a win earns nothing, and the game warns you first.</li>
@@ -531,6 +547,15 @@
                 </ul>
             </details>
             <details>
+                <summary>🐉 Raid Bosses</summary>
+                <ul>
+                    <li>Each raid boss is built around one card. Its raid opens once you own 2 normal copies of that card.</li>
+                    <li>Tasks, counted only in games against that boss: win 5 games in a row, and win once with a deck of at least 14 Mystic creature cards, and the same for Wind, Neutral, Celestial and Mechanic. Losing to the boss or leaving the game resets the streak.</li>
+                    <li>The boss deck changes every game: 2 full-art copies of its card, its whole evolution line, and strong cards from the sets you have unlocked.</li>
+                    <li>The first clear wins 1 full-art copy of the card. After that the tasks start over, and each new clear pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for the daily win credits.</li>
+                    <li>Full-art cards play exactly like the normal ones. They show ✦ in the Card Dex, and the deck builder asks which version you want to add.</li>
+                </ul>
+            </details>            <details>
                 <summary>💾 Saving</summary>
                 <ul>
                     <li>Progress saves automatically in this browser.</li>
@@ -566,6 +591,7 @@
 <script src="src/data/cards.js"></script>
 <script src="src/data/card-text.js"></script>
 <script src="src/data/preset-decks.js"></script>
+<script src="src/data/raid-bosses.js"></script>
 
 <!-- core -->
 <script src="src/core/util.js"></script>
@@ -581,6 +607,7 @@
 <script src="src/meta/achievements.js"></script>
 <script src="src/meta/profile.js"></script>
 <script src="src/meta/missions.js"></script>
+<script src="src/meta/raids.js"></script>
 
 <!-- ui surfaces the core logs and prompts through -->
 <script src="src/ui/log.js"></script>

@@ -251,15 +251,15 @@ const Showcase = {
             `.bench-slot[data-player="${target.side || side}"][data-slot="${target.index}"]`);
     },
 
-    async play(cardId, { label, side, target } = {}) {
+    async play(cardId, { label, side, target, fullArt = false } = {}) {
         if (!this.enabled()) return;
         const host = this._host;
         host.innerHTML = '';
 
         const card = document.createElement('div');
-        card.className = `showcase-card showcase-${side || 'opponent'}`;
+        card.className = `showcase-card showcase-${side || 'opponent'}` + (fullArt ? ' showcase-full-art' : '');
         const img = document.createElement('img');
-        img.src = cardImage(cardId);
+        img.src = cardArt(cardId, fullArt);
         img.alt = (getCardData(cardId) || {}).name || '';
         card.appendChild(img);
         if (label) {

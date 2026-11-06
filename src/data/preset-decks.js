@@ -168,18 +168,27 @@ const presetDeckLists = [
         ]
     },
 
+    // ---- Galactic Adventures --------------------------------------------
+    // Rules for these lists: every card in an evolution line has 2 copies,
+    // and a line is always complete (all three stages of a three-stage line).
+    // Creatures that don't evolve can be single copies. Items only appear in
+    // decks they work for: Energy Antenna (Mechanic creatures), Healing
+    // Crystal (Celestial), Gale Shield (Wind), Mystic Scroll (Mystic Stage 1),
+    // Amulet (Neutral creatures). Every deck uses its main type's energy;
+    // Neutral-only decks can use any.
+
     // ---- Galactic Adventures: Mystic ---------------------------------------
     {
         name: "Galactic Mystic Deck",
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(19), presetGA(20), presetGA(21)),          // Astralin → Aetherin → Mystaeon
-            ...presetTwoOf(presetGA(3), presetGA(4)),                    // Psybella → Fuschioria
-            ...presetTwoOf(presetGA(43)),                          // Mummira
-            ...presetTwoOf(presetGA(64), presetGA(65)),                  // Mangost → Ectomango
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(71), presetEA(67)                          // Disruptor, Booster
+            ...presetTwoOf(presetGA(19), presetGA(20), presetGA(21)),   // Astralin → Aetherin → Mystaeon
+            ...presetTwoOf(presetGA(3), presetGA(4)),                   // Psybella → Fuschioria
+            ...presetTwoOf(presetGA(43)),                               // Mummira
+            ...presetTwoOf(presetGA(64), presetGA(65)),                 // Mangost → Ectomango
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(74), presetEA(67)                                  // Mystic Scroll, Booster
         ]
     },
     {
@@ -187,12 +196,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(40), presetGA(41), presetGA(42)),          // Psychea → Olympis → Oraclyon
-            ...presetTwoOf(presetGA(64), presetGA(65)),                  // Mangost → Ectomango
-            presetGA(5), presetGA(43),                          // Zenethra, Mummira
-            ...presetTwoOf(presetGA(9)),                           // Meerkool (Guardian Mode)
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(74), presetGA(69), presetEA(65), presetEA(68)          // Mystic Scroll, Aura Crystal, Potion, Power-Up
+            ...presetTwoOf(presetGA(40), presetGA(41), presetGA(42)),   // Psychea → Olympis → Oraclyon
+            ...presetTwoOf(presetGA(64), presetGA(65)),                 // Mangost → Ectomango
+            ...presetTwoOf(presetGA(43)),                               // Mummira
+            ...presetTwoOf(presetGA(9)),                                // Meerkool (Guardian Mode)
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(74), presetGA(69), presetEA(65), presetEA(68)      // Mystic Scroll, Aura Crystal, Potion, Power-Up
         ]
     },
     {
@@ -200,12 +209,11 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(40), presetGA(41), presetGA(42)),          // Psychea → Olympis → Oraclyon
-            ...presetTwoOf(presetGA(19), presetGA(20)), presetGA(21),          // Astralin → Aetherin → Mystaeon
-            ...presetTwoOf(presetGA(3)), presetGA(4),                    // Psybella → Fuschioria
-            ...presetTwoOf(presetEA(3)),                           // Harmoniqueon
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(70), presetEA(69)                          // Healing Crystal, Remedy
+            ...presetTwoOf(presetGA(40), presetGA(41), presetGA(42)),   // Psychea → Olympis → Oraclyon
+            ...presetTwoOf(presetGA(19), presetGA(20), presetGA(21)),   // Astralin → Aetherin → Mystaeon
+            ...presetTwoOf(presetGA(3), presetGA(4)),                   // Psybella → Fuschioria
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(74), presetEA(69)                                  // Mystic Scroll, Remedy
         ]
     },
 
@@ -215,12 +223,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(17), presetGA(18)),                  // Skybee → Zephyrbuzz
-            ...presetTwoOf(presetGA(15), presetGA(16)),                  // Airsting → Breezebuzz
-            ...presetTwoOf(presetGA(47), presetGA(48), presetGA(49)),          // Cockeriel → Cockatrike → Cockarion
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            ...presetTwoOf(presetGA(73)),                          // Gale Shield
-            presetEA(67), presetEA(65)                          // Booster, Potion
+            ...presetTwoOf(presetGA(17), presetGA(18)),                 // Skybee → Zephyrbuzz
+            ...presetTwoOf(presetGA(15), presetGA(16)),                 // Airsting → Breezebuzz
+            ...presetTwoOf(presetGA(47), presetGA(48), presetGA(49)),   // Cockeriel → Cockatrike → Cockarion
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetGA(73)),                               // Gale Shield
+            presetEA(67), presetEA(65)                                  // Booster, Potion
         ]
     },
     {
@@ -228,14 +236,14 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(57), presetGA(58)),                  // Eclipso → Astraea
-            ...presetTwoOf(presetGA(22)),                          // Hoatzion
-            ...presetTwoOf(presetGA(33)),                          // Electrogriff
-            ...presetTwoOf(presetGA(53)),                          // Tielzor
-            ...presetTwoOf(presetGA(17), presetGA(18)),                  // Skybee → Zephyrbuzz
-            ...presetTwoOf(presetGA(10)),                          // Meerkool (Warrior Mode)
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(66), presetEA(68)                          // Energy Antenna, Power-Up
+            ...presetTwoOf(presetGA(57), presetGA(58)),                 // Eclipso → Astraea
+            ...presetTwoOf(presetGA(22)),                               // Hoatzion
+            ...presetTwoOf(presetGA(33)),                               // Electrogriff
+            ...presetTwoOf(presetGA(53)),                               // Tielzor
+            ...presetTwoOf(presetGA(17), presetGA(18)),                 // Skybee → Zephyrbuzz
+            ...presetTwoOf(presetGA(10)),                               // Meerkool (Warrior Mode)
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(73), presetEA(68)                                  // Gale Shield, Power-Up
         ]
     },
     {
@@ -243,12 +251,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(47), presetGA(48), presetGA(49)),          // Cockeriel → Cockatrike → Cockarion
-            ...presetTwoOf(presetGA(57), presetGA(58)),                  // Eclipso → Astraea
-            presetGA(53), presetGA(33),                         // Tielzor, Electrogriff
-            ...presetTwoOf(presetEA(22), presetEA(23)),                  // Aeroquatic → Prismarine
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(73), presetGA(67)                          // Gale Shield, Revive Crystal
+            ...presetTwoOf(presetGA(47), presetGA(48), presetGA(49)),   // Cockeriel → Cockatrike → Cockarion
+            ...presetTwoOf(presetGA(57), presetGA(58)),                 // Eclipso → Astraea
+            presetGA(53), presetGA(33),                                 // Tielzor, Electrogriff
+            ...presetTwoOf(presetEA(22), presetEA(23)),                 // Aeroquatic → Prismarine
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(73), presetGA(67)                                  // Gale Shield, Revive Crystal
         ]
     },
 
@@ -258,11 +266,11 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(34), presetGA(35), presetGA(36)),          // Crocasprout → Crocablade → Crocaterra
-            ...presetTwoOf(presetGA(50), presetGA(51), presetGA(52)),          // Beanling → Beanleaf → Beanknight
-            ...presetTwoOf(presetGA(11)),                          // Starraffe
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(70), presetEA(67), presetEA(65), presetEA(68)          // Healing Crystal, Booster, Potion, Power-Up
+            ...presetTwoOf(presetGA(34), presetGA(35), presetGA(36)),   // Crocasprout → Crocablade → Crocaterra
+            ...presetTwoOf(presetGA(50), presetGA(51), presetGA(52)),   // Beanling → Beanleaf → Beanknight
+            ...presetTwoOf(presetGA(11)),                               // Starraffe
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(70), presetEA(67), presetEA(65), presetEA(68)      // Healing Crystal, Booster, Potion, Power-Up
         ]
     },
     {
@@ -270,12 +278,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(12), presetGA(13), presetGA(14)),          // Trunket → Elefeir → Planterdon
-            ...presetTwoOf(presetGA(23), presetGA(24)),                  // Lumifloris → Photosynthra
-            ...presetTwoOf(presetGA(25), presetGA(26)),                  // Nebuleap → Comiscroaker
-            ...presetTwoOf(presetGA(56)),                          // Astrollus
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(66), presetGA(68)                          // Energy Antenna, Shield Barrier
+            ...presetTwoOf(presetGA(12), presetGA(13), presetGA(14)),   // Trunket → Elefeir → Planterdon
+            ...presetTwoOf(presetGA(23), presetGA(24)),                 // Lumifloris → Photosynthra
+            ...presetTwoOf(presetGA(25), presetGA(26)),                 // Nebuleap → Comiscroaker
+            ...presetTwoOf(presetGA(56)),                               // Astrollus
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(70), presetGA(68)                                  // Healing Crystal, Shield Barrier
         ]
     },
     {
@@ -283,12 +291,11 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(34), presetGA(35), presetGA(36)),          // Crocasprout → Crocablade → Crocaterra
-            ...presetTwoOf(presetGA(25), presetGA(26)),                  // Nebuleap → Comiscroaker
-            presetGA(56), presetGA(11),                         // Astrollus, Starraffe
-            ...presetTwoOf(presetGA(37)), presetGA(38), presetGA(39),          // Pangolilly → Pangomancer → Pangodice
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(69), presetEA(69)                          // Aura Crystal, Remedy
+            ...presetTwoOf(presetGA(34), presetGA(35), presetGA(36)),   // Crocasprout → Crocablade → Crocaterra
+            ...presetTwoOf(presetGA(25), presetGA(26)),                 // Nebuleap → Comiscroaker
+            presetGA(56), presetGA(11),                                 // Astrollus, Starraffe
+            ...presetTwoOf(presetGA(37), presetGA(38), presetGA(39)),   // Pangolilly → Pangomancer → Pangodice
+            ...presetTwoOf(presetEA(66))                                // Card Draw
         ]
     },
 
@@ -298,12 +305,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(30), presetGA(31), presetGA(32)),          // Auregear → Mechalumin → Stilflare
-            ...presetTwoOf(presetGA(27), presetGA(28)),                  // Gearpup → Gearstrike
-            ...presetTwoOf(presetGA(29)),                          // Steelspirit
-            ...presetTwoOf(presetGA(54), presetGA(55)),                  // Steellamb → Pigmoat
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetEA(67), presetGA(67)                          // Booster, Revive Crystal
+            ...presetTwoOf(presetGA(30), presetGA(31), presetGA(32)),   // Auregear → Mechalumin → Stilflare
+            ...presetTwoOf(presetGA(27), presetGA(28)),                 // Gearpup → Gearstrike
+            ...presetTwoOf(presetGA(29)),                               // Steelspirit
+            ...presetTwoOf(presetGA(54), presetGA(55)),                 // Steellamb → Pigmoat
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(66), presetGA(67)                                  // Energy Antenna, Revive Crystal
         ]
     },
     {
@@ -311,12 +318,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(61), presetGA(62), presetGA(63)),          // Lithogarde → Gallicore → Notreclast
-            ...presetTwoOf(presetGA(1), presetGA(2)),                    // Gadgetrix → Teklash
-            ...presetTwoOf(presetGA(54)), presetGA(55),                  // Steellamb → Pigmoat
-            presetGA(9), presetGA(10),                          // Meerkool, Meerkool
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(68), presetEA(68), presetEA(65)                  // Shield Barrier, Power-Up, Potion
+            ...presetTwoOf(presetGA(61), presetGA(62), presetGA(63)),   // Lithogarde → Gallicore → Notreclast
+            ...presetTwoOf(presetGA(1), presetGA(2)),                   // Gadgetrix → Teklash
+            ...presetTwoOf(presetGA(54), presetGA(55)),                 // Steellamb → Pigmoat
+            presetGA(9), presetGA(10),                                  // Meerkool (Guardian Mode), Meerkool (Warrior Mode)
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(68), presetGA(66)                                  // Shield Barrier, Energy Antenna
         ]
     },
     {
@@ -324,14 +331,13 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(27), presetGA(28)),                  // Gearpup → Gearstrike
-            ...presetTwoOf(presetGA(61), presetGA(62)), presetGA(63),          // Lithogarde → Gallicore → Notreclast
-            presetGA(29),                                 // Steelspirit
-            ...presetTwoOf(presetEA(62)),                          // Metamonk
-            ...presetTwoOf(presetEA(52)),                          // Voltveil
-            presetGA(30), presetGA(31),                         // Auregear → Mechalumin
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(70), presetGA(71)                          // Healing Crystal, Disruptor
+            ...presetTwoOf(presetGA(27), presetGA(28)),                 // Gearpup → Gearstrike
+            ...presetTwoOf(presetGA(61), presetGA(62), presetGA(63)),   // Lithogarde → Gallicore → Notreclast
+            presetGA(29),                                               // Steelspirit
+            ...presetTwoOf(presetEA(62)),                               // Metamonk
+            ...presetTwoOf(presetEA(52)),                               // Voltveil
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(66), presetGA(71), presetEA(65)                    // Energy Antenna, Disruptor, Potion
         ]
     },
 
@@ -341,12 +347,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(6), presetGA(7), presetGA(8)),             // Anter → Antoro → Antaray
-            ...presetTwoOf(presetGA(44), presetGA(45), presetGA(46)),          // Mousuck → Mousuckler → Mousucklord
-            presetGA(9), presetGA(10),                          // Meerkool, Meerkool
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            ...presetTwoOf(presetGA(72)),                          // Amulet
-            presetEA(67), presetEA(65)                          // Booster, Potion
+            ...presetTwoOf(presetGA(6), presetGA(7), presetGA(8)),      // Anter → Antoro → Antaray
+            ...presetTwoOf(presetGA(44), presetGA(45), presetGA(46)),   // Mousuck → Mousuckler → Mousucklord
+            presetGA(9), presetGA(10),                                  // Meerkool, Meerkool
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetGA(72)),                               // Amulet
+            presetEA(67), presetEA(65)                                  // Booster, Potion
         ]
     },
     {
@@ -354,12 +360,12 @@ const presetDeckLists = [
         type: "preset",
         set: "GA",
         cards: [
-            ...presetTwoOf(presetGA(37), presetGA(38), presetGA(39)),          // Pangolilly → Pangomancer → Pangodice
-            ...presetTwoOf(presetGA(59), presetGA(60)),                  // Platypog → Fluffbill
-            ...presetTwoOf(presetGA(44)), presetGA(45), presetGA(46),          // Mousuck → Mousuckler → Mousucklord
-            ...presetTwoOf(presetEA(28)), presetEA(29),                  // Baklavaff → Galaktikreme
-            ...presetTwoOf(presetEA(66)),                          // Card Draw
-            presetGA(72)                                  // Amulet
+            ...presetTwoOf(presetGA(37), presetGA(38), presetGA(39)),   // Pangolilly → Pangomancer → Pangodice
+            ...presetTwoOf(presetGA(59), presetGA(60)),                 // Platypog → Fluffbill
+            ...presetTwoOf(presetEA(28), presetEA(29)),                 // Baklavaff → Galaktikreme
+            presetGA(9), presetGA(10),                                  // Meerkool, Meerkool
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetGA(72), presetEA(65)                                  // Amulet, Potion
         ]
     }
 ];

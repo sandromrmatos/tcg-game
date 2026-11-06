@@ -21,12 +21,12 @@ function clearSelection() {
  * modal otherwise.
  * @returns {Promise<boolean>}
  */
-async function confirmAction({ title, message = '', okLabel = 'Confirm', cardId = null }) {
+async function confirmAction({ title, message = '', okLabel = 'Confirm', cardId = null, fullArt = false }) {
     CardZoom.hide();
     if (typeof Hub !== 'undefined' && document.getElementById('hub-dialog')) {
         const answer = await Hub.dialog({
             title, message,
-            image: cardId ? cardImage(cardId) : null,
+            image: cardId ? cardArt(cardId, fullArt) : null,
             buttons: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, kind: 'primary' }]
         });
         return !!(answer && answer.value);
@@ -43,6 +43,7 @@ async function confirmAction({ title, message = '', okLabel = 'Confirm', cardId 
 function describeMove(card, move) {
     const parts = [];
     parts.push(move.damage ? `${move.damage} damage` : 'No base damage');
+    parts.push(`costs ${describeEnergyCost(move.cost)} energy`);
     const text = typeof cardText === 'function' ? cardText(card.id, `move${move.number}`) : '';
     if (text) parts.push(text);
     return parts.join('. ').replace(/\.\./g, '.');
@@ -162,7 +163,8 @@ async function onSetupPlace(card, handIndex) {
             message: `Your active creature does the fighting and can only leave by retreating. ` +
                 `${card.data.name} has ${card.data.hp} HP and a retreat cost of ${card.data.retreat}.`,
             okLabel: 'Place as active',
-            cardId: card.id
+            cardId: card.id,
+            fullArt: card.fullArt
         });
         if (!confirmed || s.active || gameState.phase !== 'setup') return;
         const index = s.hand.indexOf(card);
@@ -212,7 +214,8 @@ async function onAttack(moveNumber) {
         message: `${describeMove(attacker, move)}. Attacking ends your turn, so play items, ` +
             'attach energy and use abilities first.',
         okLabel: 'Attack',
-        cardId: attacker.id
+        cardId: attacker.id,
+        fullArt: attacker.fullArt
     });
     if (!confirmed || !canAttackWith('player', moveNumber).ok) return;
 
@@ -262,9 +265,13 @@ async function onEnergyButton() {
     UiState.energyMode = true;
     Render.controls();
 
+    const type = turnEnergyType('player');
+    const active = gameState.player.active;
+    const fluxNote = active && Status.has(active, 'flux')
+        ? ` ${active.data.name} has Flux: attaching to it needs a coin check, the bench doesn't.` : '';
     const choice = await Prompt.chooseCreature({
         candidates: boardCandidates('player'),
-        title: 'Attach energy to which creature?',
+        title: `Attach ${ENERGY_ICONS[type]} ${type} energy to which creature?${fluxNote}`,
         cancellable: true
     });
 

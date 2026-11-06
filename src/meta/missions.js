@@ -152,13 +152,22 @@ const Missions = (() => {
         });
     }
 
-    const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS);
+    // ---- Raid bosses: count the different bosses cleared at least once ----
+    // The higher tiers wait for future bosses.
+    const RAID_MISSIONS = [
+        { id: 'raid_1',  cat: 'raids', description: 'Defeat your first raid boss', type: 'raids_cleared', target: 1,  reward: r(3, 1) },
+        { id: 'raid_5',  cat: 'raids', description: 'Defeat 5 different raid bosses',  type: 'raids_cleared', target: 5,  reward: r(5, 3) },
+        { id: 'raid_10', cat: 'raids', description: 'Defeat 10 different raid bosses', type: 'raids_cleared', target: 10, reward: r(5, 5) }
+    ];
+
+    const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS, RAID_MISSIONS);
 
     const CATEGORIES = [
         { id: 'all', name: 'All' },
         { id: 'collection', name: 'Collection' },
         { id: 'sets', name: 'Sets' },
         { id: 'games', name: 'Games vs AI' },
+        { id: 'raids', name: 'Raids' },
         { id: 'minigames', name: 'Mini-games' },
         { id: 'daily', name: 'Login' }
     ];
@@ -176,7 +185,8 @@ const Missions = (() => {
             bestStreak: s.stats.bestStreak,
             opponentsBeaten: 0,
             beatenBySet: {},
-            winsByType: {}
+            winsByType: {},
+            raidsCleared: typeof Raids !== 'undefined' ? Raids.completedCount() : 0
         };
         // Only the current AI decks count: a renamed or retired deck in old
         // stats is ignored rather than inflating the totals.
@@ -229,6 +239,7 @@ const Missions = (() => {
             case 'opponents_beaten': return numeric(p.opponentsBeaten, m.target);
             case 'opponents_beaten_set': return numeric(p.beatenBySet[m.setId] || 0, m.target);
             case 'wins_vs_type':     return numeric(p.winsByType[m.deckType] || 0, m.target);
+            case 'raids_cleared':    return numeric(p.raidsCleared, m.target);
             default:                 return flag(false);
         }
     }

@@ -61,6 +61,8 @@
 <script src="src/data/sets.js"></script>
 <script src="src/data/cards.js"></script>
 <script src="src/data/preset-decks.js"></script>
+<script src="src/data/raid-bosses.js"></script>
+<script src="src/data/collection-data.js"></script>
 <script src="src/core/util.js"></script>
 <script src="src/core/cards-index.js"></script>
 <script src="src/core/timing.js"></script>
@@ -83,6 +85,10 @@
 <script src="src/ui/interaction.js"></script>
 <script src="src/ui/deckbuilder.js"></script>
 <script src="src/ui/screens.js"></script>
+<script src="src/meta/achievements.js"></script>
+<script src="src/meta/profile.js"></script>
+<script src="src/meta/missions.js"></script>
+<script src="src/meta/raids.js"></script>
 <script src="src/validate.js"></script>
 
 <script>
@@ -263,6 +269,73 @@ async function runTests() {
         check('retreat: allowed again next turn', creatureCanRetreat(s.active, 'player').ok, true);
     }
 
+    // ---- typed energy ---------------------------------------------------
+    {
+        const probe = makeCardInstance('Elemental Awakening_07.png');   // Chimerafluff: Mental Tackle "MN"
+        const mn = moveOf(probe.data, 1);
+        probe.energyUnits = Object.assign(emptyEnergyUnits(), { Celestial: 2 });
+        check('energy: MN not payable with 2 Celestial', canPayMove(probe, mn), false);
+        probe.energyUnits = Object.assign(emptyEnergyUnits(), { Mystic: 1, Celestial: 1 });
+        check('energy: MN payable with 1 Mystic + 1 Celestial', canPayMove(probe, mn), true);
+        probe.energyUnits = Object.assign(emptyEnergyUnits(), { Mystic: 2 });
+        check('energy: MN payable with 2 Mystic', canPayMove(probe, mn), true);
+        check('energy: total still counts every type', probe.energy, 2);
+        check('energy: describes the cost', describeEnergyCost('MMN'), '2 Mystic + 1 any');
+
+        // The turn's energy is rolled from the deck's types.
+        gameState.player.energyTypes = ['Wind'];
+        gameState.player.turnEnergyType = null;
+        check('energy: a single-type deck always gets that type', turnEnergyType('player'), 'Wind');
+        gameState.player.energyTypes = ['Mystic'];
+        gameState.player.turnEnergyType = 'Mystic';
+
+        // Night Strike counts only Wind energy.
+        const bat = makeCardInstance('Elemental Awakening_25.png');
+        bat.energyUnits = Object.assign(emptyEnergyUnits(), { Wind: 2, Mechanic: 3 });
+        const view = { side: 'player', attacker: bat, defender: gameState.opponent.active };
+        check('energy: Night Strike counts only Wind', EffectRegistry.get('nightStrike').expectedDamage(moveOf(bat.data, 1), view), 40);
+    }
+
+    // ---- Flux only checks when charging the Flux creature ---------------
+    {
+        const s = gameState.player;
+        s.hasAttacked = false;
+        s.energyAttachedThisTurn = false;
+        s.flags.fluxCheckDone = false;
+        s.active.status.add('flux');
+        const benchCard = s.bench.find(c => c);
+        const before = benchCard.energy;
+        await attachTurnEnergy('player', benchCard);
+        check('flux: attaching to the bench needs no coin check', s.flags.fluxCheckDone, false);
+        check('flux: the bench creature got its energy', benchCard.energy, before + 1);
+        s.energyAttachedThisTurn = false;
+        await attachTurnEnergy('player', s.active);
+        check('flux: attaching to the Flux creature does check', s.flags.fluxCheckDone, true);
+        s.active.status.delete('flux');
+        s.flags.fluxCheckDone = false;
+        s.energyAttachedThisTurn = false;
+    }
+
+    // ---- Starfall Strike forces next turn's energy to Celestial --------
+    {
+        const saved = gameState.currentTurn;
+        gameState.opponent.flags.forcedEnergyType = 'Celestial';
+        gameState.opponent.flags.forcedEnergyUntil = gameState.turnNumber + 1;
+        gameState.opponent.energyTypes = ['Mechanic'];
+        gameState.turnNumber++;
+        gameState.currentTurn = 'opponent';
+        Automation.playBothSides = false;
+        // beginTurn would run the AI for the opponent; only the roll matters here.
+        const realAi = runAiTurn;
+        runAiTurn = async () => {};
+        await beginTurn();
+        runAiTurn = realAi;
+        check('starfall: forced Celestial energy next turn', gameState.opponent.turnEnergyType, 'Celestial');
+        check('starfall: the restriction lasts one turn', gameState.opponent.flags.forcedEnergyType, null);
+        gameState.currentTurn = saved;
+        gameState.turnNumber--;
+    }
+
     // ---- restrictions surface on the buttons ---------------------------
     gameState.player.hasAttacked = false;
     gameState.player.flags.cantAttackUntil = Timing.opponentTurns(1);
@@ -299,7 +372,203 @@ async function runTests() {
     Render.all();
     check('game over: End turn disabled', readyBtn().disabled, true);
 
+    await raidTests();
+
     report();
+}
+
+// ---- raid bosses and full art ------------------------------------------
+async function raidTests() {
+    const MYST = 'Elemental Awakening_11.png';   // Mystikeon
+    const KID = 'Elemental Awakening_10.png';    // Mystikid
+    const boss = Raids.find('mystikeon');
+
+    // Week keys run Monday to Sunday.
+    check('raid: week of a Wednesday starts Monday', raidWeekKey(new Date(2026, 10, 4)), '2026-11-02');
+    check('raid: Sunday is in the same week', raidWeekKey(new Date(2026, 10, 8)), '2026-11-02');
+    check('raid: next Monday starts a new week', raidWeekKey(new Date(2026, 10, 9)), '2026-11-09');
+
+    // Which types a deck counts for.
+    const preset = name => presetDeckLists.find(d => d.name === name).cards;
+    check('raid: Mystic Deck counts for Mystic', raidQualifyingTypes(preset('Mystic Deck')).join(','), 'Mystic');
+    check('raid: Neutral Deck counts for Neutral', raidQualifyingTypes(preset('Neutral Deck')).join(','), 'Neutral');
+    check('raid: Wind Deck counts for nothing (mixed)', raidQualifyingTypes(preset('Wind Deck')).length, 0);
+
+    // Generated boss decks follow the rules, for every boss.
+    let bad = [];
+    for (const b of Raids.bosses()) {
+        for (let i = 0; i < 15; i++) {
+            const deck = Raids.generateDeck(b, { isSetOpen: id => id === 'EA' });
+            if (!deck) { bad.push(`${b.id}: none`); break; }
+            const why = [];
+            if (!validateDeck(deck.cards).valid) why.push('illegal');
+            if (presetCompositionProblems(deck.cards).length) why.push('composition');
+            if (energyTypeWarnings(deck.cards, deck.energyTypes).length) why.push('energy');
+            if (!deck.cards.includes(RAID_DRAW_ITEM)) why.push('no Card Draw');
+            if (deck.fullArt[b.cardId] !== 2 || deck.cards.filter(id => id === b.cardId).length !== 2) why.push('boss copies');
+            if (deck.cards.some(id => getCardData(id).set !== 'EA')) why.push('locked set');
+            if (why.length) bad.push(`${b.id}: ${why.join(', ')}`);
+        }
+    }
+    check('raid: every generated boss deck is legal' + (bad.length ? ` (${bad.slice(0, 3).join('; ')})` : ''), bad.length, 0);
+
+    // A profile in memory, never written anywhere.
+    const realFlush = Profile.flush;
+    Profile.flush = async () => {};
+    Profile.s = Profile.migrate({});
+    Profile.s.credits = 5;
+
+    Profile.s.cards[MYST] = 1;
+    check('raid: locked with 1 normal copy', Raids.isUnlocked(boss), false);
+    Profile.s.cards[MYST] = 2;
+    check('raid: unlocked with 2 normal copies', Raids.isUnlocked(boss), true);
+
+    const game = (result, types = [], forfeit = false) => {
+        Profile.startMatch('Test deck', 'Raid Boss: Mystikeon', { raid: { bossId: 'mystikeon', types } });
+        if (forfeit) return Profile.forfeitMatch(null);
+        return Profile.finishMatch(result === 'win' ? 'player' : result === 'loss' ? 'opponent' : 'tie', '3-1', null);
+    };
+    const rec = () => Profile.s.raids.mystikeon;
+
+    let reward = game('win', ['Mystic']);
+    check('raid: a win starts the streak', rec().cycle.streak, 1);
+    check('raid: a Mystic win ticks the Mystic task', !!rec().cycle.types.Mystic, true);
+    check('raid: boss wins pay the daily win credit', reward.type, 'credit');
+    check('raid: the reward message mentions the raid', /Raid/.test(reward.message), true);
+    game('draw');
+    check('raid: a draw keeps the streak', rec().cycle.streak, 1);
+    game('loss');
+    check('raid: a loss resets the streak', rec().cycle.streak, 0);
+    check('raid: type tasks survive a loss', !!rec().cycle.types.Mystic, true);
+    game('win'); game('win');
+    game(null, [], true);
+    check('raid: leaving resets the streak', rec().cycle.streak, 0);
+    check('raid: leaving counts as a loss', rec().lost, 2);
+
+    // Clear it: 5 wins in a row, covering the other four types.
+    for (const t of ['Wind', 'Neutral', 'Celestial', 'Mechanic']) game('win', [t]);
+    check('raid: not complete before the 5th win in a row', rec().completions, 0);
+    reward = game('win');
+    check('raid: 5 in a row plus every type completes the raid', rec().completions, 1);
+    check('raid: first clear awards 1 full art', Profile.ownedFullArt(MYST), 1);
+    check('raid: the reward names the full art', reward.raid && reward.raid.fullArt, MYST);
+    check('raid: tasks start over after a clear', rec().cycle.streak + Object.keys(rec().cycle.types).length, 0);
+    check('raid: mission "defeat your first raid boss" is complete',
+        Missions.state(Missions.find('raid_1'), Missions.progress()).completed, true);
+    check('raid: mission "defeat 5 raids" is not', Missions.state(Missions.find('raid_5'), Missions.progress()).completed, false);
+
+    const clear = () => { for (const t of RAID_TYPES) game('win', [t]); };
+    Profile.s.credits = 5;
+    clear();
+    // (The 3 daily win credits were used up above, so only the raid pays here.)
+    check('raid: a second clear pays 1 credit', Profile.s.credits, 6);
+    check('raid: still only 1 full art', Profile.ownedFullArt(MYST), 1);
+    clear();
+    check('raid: a third clear in the same week pays nothing', Profile.s.credits, 6);
+    check('raid: completions counted', rec().completions, 3);
+
+    // Credits full: the rematch credit waits to be claimed.
+    rec().lastCreditWeek = '2000-01-03';
+    Profile.s.credits = MAX_CREDITS;
+    clear();
+    check('raid: with credits full the credit waits', rec().pendingCredit, 1);
+    check('raid: claiming while full fails', !!Raids.claimCredit('mystikeon').error, true);
+    Profile.s.credits = 10;
+    check('raid: claiming with room works', !!Raids.claimCredit('mystikeon').success, true);
+    check('raid: claimed credit added', Profile.s.credits, 11);
+
+    // Ownership with full art: the full-art copy is checked on its own.
+    Profile.s.cards[MYST] = 1;
+    check('full art: 1 normal + 1 full art is owned',
+        Profile.checkOwnership([MYST, MYST], { [MYST]: 1 }).valid, true);
+    check('full art: 2 full art is not', Profile.checkOwnership([MYST, MYST], { [MYST]: 2 }).valid, false);
+    check('full art: 2 normal is not', Profile.checkOwnership([MYST, MYST], {}).valid, false);
+    Profile.s.cards[MYST] = 2;
+
+    // Save round trip keeps raids, full art, deck full art and a raid match.
+    Profile.saveDeck('FA deck', [MYST, MYST], null, ['Mystic'], { [MYST]: 1 });
+    Profile.startMatch('FA deck', 'Raid Boss: Mystikeon', { raid: { bossId: 'mystikeon', types: ['Mystic'] } });
+    const copy = Profile.migrate(JSON.parse(JSON.stringify(Profile.s)));
+    check('save: raid record kept', copy.raids.mystikeon.completions, 4);
+    check('save: full art kept', copy.fullArt[MYST], 1);
+    check('save: deck full art kept', copy.decks[0].fullArt[MYST], 1);
+    check('save: raid match kept', copy.activeMatch.raid && copy.activeMatch.raid.bossId, 'mystikeon');
+    check('save: unknown full art dropped', Profile.migrate({ fullArt: { [KID]: 1 } }).fullArt[KID], undefined);
+    // A raid game still running when the page closed is a raid loss.
+    rec().cycle.streak = 3;
+    Profile.afterLoad({ save: false });
+    check('reload: an unfinished raid game breaks the streak', rec().cycle.streak, 0);
+
+    // Deck builder: asks which version only when both are available.
+    let asked = 0;
+    const realAsk = DeckBuilder.askVersion;
+    DeckBuilder.askVersion = async () => { asked++; return 'full'; };
+    DeckBuilder.qa = false;
+    DeckBuilder.cards = [];
+    DeckBuilder.fullArt = {};
+    Profile.s.cards[MYST] = 1;
+    await DeckBuilder.add(MYST);
+    check('builder: asks normal or full art', asked, 1);
+    check('builder: adds the full-art copy', DeckBuilder.fullArt[MYST], 1);
+    await DeckBuilder.add(MYST);
+    check('builder: only the normal copy left, so no question', asked, 1);
+    check('builder: two copies in the deck', DeckBuilder.cards.length, 2);
+    await DeckBuilder.add(MYST);
+    check('builder: no third copy', DeckBuilder.cards.length, 2);
+    DeckBuilder.remove(MYST, true);
+    check('builder: removing the full-art copy', DeckBuilder.fullArtIn(MYST) + DeckBuilder.cards.length, 1);
+    DeckBuilder.askVersion = realAsk;
+    DeckBuilder.cards = [];
+    DeckBuilder.fullArt = {};
+
+    // In play: full-art copies come out of the deck first and show the art.
+    Profile.s = null;
+    DeckLibrary.load();
+    const bossDeck = Raids.generateDeck(boss, { isSetOpen: id => id === 'EA' });
+    const raidIndex = DeckLibrary.setRaidDeck(bossDeck);
+    resetGameState();
+    gameState.player.selectedDeck = raidIndex;
+    gameState.opponent.selectedDeck = 1;
+    gameState.phase = 'setup';
+    buildDecks();
+    check('play: deck knows its 2 full-art copies', gameState.player.fullArtLeft[MYST], 2);
+    const s = gameState.player;
+    const at = s.deck.lastIndexOf(MYST);
+    s.deck.splice(at, 1);
+    s.deck.push(MYST);
+    drawCards('player', 1);
+    const drawn = s.hand[s.hand.length - 1];
+    check('play: the first Mystikeon drawn is full art', drawn.id === MYST && drawn.fullArt, true);
+    check('play: one full-art copy left in the deck', s.fullArtLeft[MYST], 1);
+    Render.all();
+    const handImgs = [...el('player-hand').querySelectorAll('img')].map(i => decodeURI(i.src));
+    check('play: the hand shows the full-art image', handImgs.some(src => src.includes('Full art/' + MYST)), true);
+    returnToDeck('player', [drawn]);
+    s.hand.pop();
+    check('play: returning it to the deck restores the count', s.fullArtLeft[MYST], 2);
+    // Evolving keeps the full art of the new top card, and the chain remembers.
+    const kid = makeCardInstance(KID);
+    const evo = makeCardInstance(MYST);
+    evo.fullArt = true;
+    s.active = kid;
+    s.hand = [evo];
+    gameState.turnNumber = 5;
+    gameState.phase = 'playing';
+    gameState.currentTurn = 'player';
+    turnTracker.clear();
+    const evolved = await evolveCreature('player', 0, 'active', null);
+    check('play: evolution worked', evolved, true);
+    check('play: evolved creature is full art', s.active.fullArt, true);
+    Render.all();
+    const activeImg = document.querySelector('.active-slot[data-player="player"] .creature-art');
+    check('play: the active creature shows the full art', !!activeImg && decodeURI(activeImg.src).includes('Full art/' + MYST), true);
+    check('play: the chain keeps Mystikid as normal art', s.active.evolutionChain[0].fullArt, false);
+
+    resetGameState();
+    DeckLibrary.raidDeck = null;
+    DeckLibrary.load();
+    Profile.flush = realFlush;
+    Render.all();
 }
 
 function report() {

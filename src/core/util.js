@@ -177,9 +177,82 @@ function isCreature(cardData) {
     return cardData && cardData.stage !== 'Item';
 }
 
-/** Energy cost is generic: the cost string's length is the number required. */
+/** Energy cost: the cost string's length is the number of energy required. */
 function energyCost(costString) {
     return costString ? costString.length : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Typed energy
+//
+// Energy comes in four types. In a move cost, M W C K need that exact type
+// and N accepts any type: "MN" is 1 Mystic + 1 of anything, so a creature
+// holding 2 Celestial cannot use it. A creature's energy is stored as a count
+// per type in `card.energyUnits`; `card.energy` is the total.
+// ---------------------------------------------------------------------------
+
+const ENERGY_TYPES = ['Mystic', 'Wind', 'Celestial', 'Mechanic'];
+const COST_LETTER_TYPES = { M: 'Mystic', W: 'Wind', C: 'Celestial', K: 'Mechanic' };
+const ENERGY_ICONS = { Mystic: '🔮', Wind: '🌪️', Celestial: '🌿', Mechanic: '⚙️' };
+
+function emptyEnergyUnits() {
+    return { Mystic: 0, Wind: 0, Celestial: 0, Mechanic: 0 };
+}
+
+/** { specific: {Mystic: n, ...}, any: n } for a cost string. */
+function parseEnergyCost(costString) {
+    const specific = emptyEnergyUnits();
+    let any = 0;
+    for (const letter of costString || '') {
+        const type = COST_LETTER_TYPES[letter];
+        if (type) specific[type]++;
+        else any++;
+    }
+    return { specific, any };
+}
+
+function energyUnitsTotal(units) {
+    return ENERGY_TYPES.reduce((sum, t) => sum + ((units && units[t]) || 0), 0);
+}
+
+/**
+ * Energy still missing before this creature can pay a cost, given optional
+ * extra units it would have. 0 means the cost can be paid.
+ */
+function energyNeeded(card, costString, extra = null) {
+    const cost = parseEnergyCost(costString);
+    const units = Object.assign(emptyEnergyUnits(), card && card.energyUnits);
+    if (extra) for (const t of ENERGY_TYPES) units[t] += extra[t] || 0;
+    let short = 0, usedForSpecific = 0;
+    for (const t of ENERGY_TYPES) {
+        short += Math.max(0, cost.specific[t] - units[t]);
+        usedForSpecific += Math.min(cost.specific[t], units[t]);
+    }
+    const spare = energyUnitsTotal(units) - usedForSpecific;
+    return short + Math.max(0, cost.any - spare);
+}
+
+/** Can this creature pay for a move right now (ignoring turn rules)? */
+function canPayMove(card, move) {
+    return !!card && !!move && energyNeeded(card, move.cost) === 0;
+}
+
+/** "1 Mystic + 1 any" style description of a cost string. */
+function describeEnergyCost(costString) {
+    const cost = parseEnergyCost(costString);
+    const parts = ENERGY_TYPES.filter(t => cost.specific[t]).map(t => `${cost.specific[t]} ${t}`);
+    if (cost.any) parts.push(`${cost.any} any`);
+    return parts.length ? parts.join(' + ') : 'nothing';
+}
+
+/** Energy types this creature's moves ask for by name. */
+function energyTypesUsedBy(cardData) {
+    const types = new Set();
+    for (const move of movesOf(cardData)) {
+        const cost = parseEnergyCost(move.cost);
+        for (const t of ENERGY_TYPES) if (cost.specific[t]) types.add(t);
+    }
+    return types;
 }
 
 /** Reads move 1 or move 2 off card data into a uniform shape. */

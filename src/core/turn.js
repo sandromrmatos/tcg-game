@@ -101,6 +101,19 @@ async function beginTurn() {
     Render.all();
     await Log.turnBanner(side, gameState.turnNumber);
 
+    // This turn's energy type, rolled now so the player sees it before
+    // attaching. Starfall Strike can force it to Celestial for one turn.
+    const f = gameState[side].flags;
+    if (f.forcedEnergyType && Timing.active(f.forcedEnergyUntil)) {
+        gameState[side].turnEnergyType = f.forcedEnergyType;
+        await Log.say(`Starfall Strike: ${possessive(side).toLowerCase()} energy this turn is ${f.forcedEnergyType}.`,
+            { kind: 'status', icon: ENERGY_ICONS[f.forcedEnergyType] || '⚡', pace: 0.7 });
+    } else {
+        gameState[side].turnEnergyType = rollEnergyType(side);
+    }
+    f.forcedEnergyType = null;
+    f.forcedEnergyUntil = null;
+
     // Draw for the turn. The side going first skips it on turn 1.
     if (isStarterFirstTurn(side)) {
         const who = side === 'player' ? 'you skip' : 'the AI skips';

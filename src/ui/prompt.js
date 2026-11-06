@@ -147,7 +147,8 @@ const Prompt = {
                 tile.type = 'button';
 
                 const img = document.createElement('img');
-                img.src = cardImage(cardId);
+                const fullArt = entry.fullArt === true;
+                img.src = cardArt(cardId, fullArt);
                 img.alt = data.name;
                 tile.appendChild(img);
 
@@ -156,7 +157,7 @@ const Prompt = {
                 caption.textContent = entry.label || data.name;
                 tile.appendChild(caption);
 
-                CardZoom.bind(tile, cardId);
+                CardZoom.bind(tile, cardId, fullArt);
                 tile.addEventListener('click', () => finish(index));
 
                 gridEl.appendChild(tile);
@@ -296,9 +297,9 @@ const CardZoom = {
         document.addEventListener('visibilitychange', () => this.hide());
     },
 
-    show(cardId) {
+    show(cardId, fullArt = false) {
         if (!this._el || !cardId) return;
-        this._img.src = cardImage(cardId);
+        this._img.src = cardArt(cardId, fullArt);
         this._el.classList.add('card-zoom-show');
     },
 
@@ -309,11 +310,13 @@ const CardZoom = {
 
     /**
      * Wires zoom onto one element. `cardId` may be a function, for elements
-     * whose card can change between renders.
+     * whose card can change between renders. `fullArt` (a boolean or a
+     * function) zooms the full-art version.
      */
-    bind(el, cardId) {
+    bind(el, cardId, fullArt = false) {
         if (!el) return el;
-        const id = () => (typeof cardId === 'function' ? cardId() : cardId);
+        const art = () => !!(typeof fullArt === 'function' ? fullArt() : fullArt);
+        const show = () => this.show(typeof cardId === 'function' ? cardId() : cardId, art());
         let timer = null;
         let held = false;
         let start = null;
@@ -329,7 +332,7 @@ const CardZoom = {
         };
 
         el.addEventListener('pointerenter', e => {
-            if (e.pointerType === 'mouse') this.show(id());
+            if (e.pointerType === 'mouse') show();
         });
         el.addEventListener('pointerleave', e => {
             if (e.pointerType === 'mouse') this.hide();
@@ -342,7 +345,7 @@ const CardZoom = {
             cancelHold();
             timer = setTimeout(() => {
                 held = true;
-                this.show(id());
+                show();
             }, this.HOLD_MS);
         });
         el.addEventListener('pointermove', e => {

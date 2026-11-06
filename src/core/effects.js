@@ -286,11 +286,28 @@ EffectRegistry.register('etherealEcho', {
     }
 });
 
+// "20 damage for each Wind energy attached to it": other types don't count.
 EffectRegistry.register('nightStrike', damagePerCount(
     20,
-    n => `${n} energy attached`,
-    ctx => ctx.attacker.energy
+    n => `${n} Wind energy attached`,
+    ctx => ctx.attacker.energyUnits.Wind || 0
 ));
+
+// "Flip a coin. If heads, your opponent can only draw Celestial energy next
+// turn." Their next turn's energy is Celestial, whatever their deck uses.
+EffectRegistry.register('starfallStrike', {
+    async onResolve(ctx) {
+        const flip = await ctx.flip(ctx.move.name);
+        if (flip !== 'heads') {
+            await ctx.say('No effect on their energy.', { kind: 'info', pace: 0.5 });
+            return;
+        }
+        ctx.them.flags.forcedEnergyType = 'Celestial';
+        ctx.them.flags.forcedEnergyUntil = Timing.opponentTurns(1);
+        await ctx.say(`${subject(ctx.foe)} can only draw Celestial energy next turn.`,
+            { kind: 'status', icon: ENERGY_ICONS.Celestial });
+    }
+});
 
 EffectRegistry.register('etherealPulse', damagePerCount(
     20,
@@ -511,16 +528,17 @@ EffectRegistry.register('creamyConfection', {
     async onResolve(ctx) {
         const flip = await ctx.flip(ctx.move.name);
         if (flip === 'heads') {
+            const type = rollEnergyType(ctx.side);
             const target = await ctx.chooseMyCreature({
-                title: 'Attach 1 energy to a bench creature',
+                title: `Attach 1 ${type} energy to a bench creature`,
                 filter: c => c.location === 'bench',
-                aiPick: candidates => bestEnergyTarget(candidates)
+                aiPick: candidates => bestEnergyTarget(candidates, type)
             });
             if (!target) {
                 await ctx.say('No bench creature to charge.', { kind: 'info', pace: 0.5 });
                 return;
             }
-            await ctx.energy(target.card, 1);
+            await ctx.energy(target.card, 1, ctx.side, type);
         } else {
             await ctx.unenergy(ctx.attacker, 2);
         }
@@ -720,8 +738,10 @@ EffectRegistry.register('cloudBounce', {
             await ctx.say('No energy moved.', { kind: 'info', pace: 0.5 });
             return;
         }
-        await ctx.unenergy(from.card, 1);
-        await ctx.energy(to.card, 1);
+        // The same energy moves, so it keeps its type.
+        const moved = [];
+        await ctx.unenergy(from.card, 1, ctx.side, moved);
+        if (moved.length) await ctx.energy(to.card, 1, ctx.side, moved[0]);
     }
 });
 
@@ -907,15 +927,33 @@ function mostHurt(candidates) {
     return candidates.slice().sort((a, b) => b.card.damage - a.card.damage)[0] || null;
 }
 
-/** Prefers a creature that is close to affording a move. */
-function bestEnergyTarget(candidates) {
+/**
+ * How much one energy of `type` would help this creature, for the AI.
+ * Highest when it finishes paying for a move; 0 when it doesn't help any move.
+ * Without a type the energy is treated as one that fits anything.
+ */
+function energyHelpScore(card, type) {
+    const moves = movesOf(card.data);
+    if (moves.length === 0) return -1;
+    const extra = emptyEnergyUnits();
+    if (type) extra[type] = 1;
+    let best = 0;
+    for (const move of moves) {
+        const before = energyNeeded(card, move.cost);
+        const after = type ? energyNeeded(card, move.cost, extra) : Math.max(0, before - 1);
+        if (after >= before) continue;
+        // Finishing a move beats getting closer to one.
+        best = Math.max(best, after === 0 ? 100 : 50 - after);
+    }
+    return best;
+}
+
+/** Prefers a creature that is close to affording a move with this energy. */
+function bestEnergyTarget(candidates, type = null) {
     const score = entry => {
-        const moves = movesOf(entry.card.data);
-        if (moves.length === 0) return -1;
-        const cheapest = Math.min(...moves.map(m => m.costCount));
-        const deficit = cheapest - entry.card.energy;
-        // A creature one energy short is the most valuable target.
-        return deficit === 1 ? 100 : (deficit > 0 ? 50 - deficit : 10);
+        const s = energyHelpScore(entry.card, type);
+        // Nothing helped: fall back to whoever is furthest from a move.
+        return s > 0 ? s : 10 - entry.card.energy;
     };
     return candidates.slice().sort((a, b) => score(b) - score(a))[0] || null;
 }
@@ -925,7 +963,7 @@ function healthiestAttacker(candidates) {
     const score = entry => {
         const hpFraction = remainingHp(entry.card) / entry.card.data.hp;
         const best = movesOf(entry.card.data)
-            .filter(m => entry.card.energy >= m.costCount)
+            .filter(m => canPayMove(entry.card, m))
             .reduce((max, m) => Math.max(max, m.damage || 0), 0);
         return hpFraction * 100 + best;
     };
@@ -985,7 +1023,7 @@ const EXPECTED_DAMAGE = {
     harshFlinch: move => move.damage + 20,
 
     // Board-dependent
-    nightStrike: (move, v) => v.attacker.energy * 20,
+    nightStrike: (move, v) => (v.attacker.energyUnits.Wind || 0) * 20,
     etherealPulse: (move, v) => (v.attacker.energy + v.defender.energy) * 20,
     galacticMeteor: (move, v) => v.defender.energy * 10,
     spectralWrapGA: (move, v) => move.damage + v.defender.energy * 10,

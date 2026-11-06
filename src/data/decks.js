@@ -21,21 +21,42 @@ const DeckLibrary = {
      * Without a Profile (test.html) custom decks are empty.
      */
     load() {
-        this.decks = presetDeckLists.map(d => ({
+        const entry = (d, type) => ({
             name: d.name,
-            type: 'preset',
+            type,
+            cards: d.cards.slice(),
+            energyTypes: deckEnergyTypes(d),
+            fullArt: cleanFullArt(d.fullArt, d.cards)
+        });
+        this.decks = presetDeckLists.map(d => Object.assign(entry(d, 'preset'), {
             // The set that has to be unlocked before the AI may pick this deck.
-            set: d.set || cardSets[0].id,
-            cards: d.cards.slice()
+            set: d.set || cardSets[0].id
         }));
 
-        for (const custom of this.loadCustomDecks()) {
-            this.decks.push({ name: custom.name, type: 'custom', cards: custom.cards.slice() });
-        }
-        for (const test of this.loadTestDecks()) {
-            this.decks.push({ name: test.name, type: 'test', cards: test.cards.slice() });
-        }
+        for (const custom of this.loadCustomDecks()) this.decks.push(entry(custom, 'custom'));
+        for (const test of this.loadTestDecks()) this.decks.push(entry(test, 'test'));
+        // The raid boss deck of the current (or last) raid game, rebuilt at
+        // random for every raid game. Kept last so the other indexes stay put.
+        if (this.raidDeck) this.decks.push(this.raidDeck);
         return this.decks;
+    },
+
+    raidDeck: null,
+
+    /** Puts a freshly generated raid boss deck in the library; returns its index. */
+    setRaidDeck(deck) {
+        if (this.raidDeck) {
+            const old = this.decks.indexOf(this.raidDeck);
+            if (old !== -1) this.decks.splice(old, 1);
+        }
+        this.raidDeck = Object.assign({}, deck, {
+            type: 'raid',
+            cards: deck.cards.slice(),
+            energyTypes: deckEnergyTypes(deck),
+            fullArt: cleanFullArt(deck.fullArt, deck.cards)
+        });
+        this.decks.push(this.raidDeck);
+        return this.decks.length - 1;
     },
 
     all() {
@@ -81,9 +102,9 @@ const DeckLibrary = {
         return this.hasProfile() ? Profile.decks() : [];
     },
 
-    saveCustomDeck(name, cards, previousName = null) {
+    saveCustomDeck(name, cards, previousName = null, energyTypes = null, fullArt = null) {
         if (!this.hasProfile()) return;
-        Profile.saveDeck(name, cards, previousName);
+        Profile.saveDeck(name, cards, previousName, energyTypes, fullArt);
         this.load();
     },
 
@@ -108,9 +129,9 @@ const DeckLibrary = {
         }
     },
 
-    saveTestDeck(name, cards, previousName = null) {
+    saveTestDeck(name, cards, previousName = null, energyTypes = null, fullArt = null) {
         const keep = this.loadTestDecks().filter(d => d.name !== name && d.name !== previousName);
-        keep.push({ name, cards: cards.slice() });
+        keep.push({ name, cards: cards.slice(), energyTypes: cleanEnergyTypes(energyTypes), fullArt: cleanFullArt(fullArt, cards) });
         try { localStorage.setItem(this.TEST_KEY, JSON.stringify(keep)); } catch (err) { console.error(err); }
         this.load();
     },
@@ -197,6 +218,140 @@ function deckPrimaryType(cardIds) {
         if (type !== 'Neutral' && type !== 'Item') return type;
     }
     return 'Neutral';
+}
+
+/**
+ * The energy types a deck starts with when none were chosen: its main type.
+ * A Neutral-only deck's moves accept any energy, so it gets all four.
+ */
+function defaultDeckEnergyTypes(cardIds) {
+    const type = deckPrimaryType(cardIds);
+    return ENERGY_TYPES.includes(type) ? [type] : ENERGY_TYPES.slice();
+}
+
+/** A clean list of energy types: known types, no repeats, in the standard order. */
+function cleanEnergyTypes(types) {
+    const set = new Set(Array.isArray(types) ? types : []);
+    return ENERGY_TYPES.filter(t => set.has(t));
+}
+
+/** The energy types a deck uses in a game. */
+function deckEnergyTypes(deck) {
+    const chosen = cleanEnergyTypes(deck && deck.energyTypes);
+    return chosen.length ? chosen : defaultDeckEnergyTypes(deck ? deck.cards : []);
+}
+
+/**
+ * Creatures whose moves name an energy type the deck doesn't use. Legal, but
+ * those moves (or all of the creature's moves) can never be paid for.
+ */
+function energyTypeWarnings(cardIds, energyTypes) {
+    const have = new Set(energyTypes);
+    const out = [];
+    for (const id of new Set(cardIds)) {
+        const data = getCardData(id);
+        if (!data || !isCreature(data)) continue;
+        const missing = [...energyTypesUsedBy(data)].filter(t => !have.has(t));
+        if (missing.length) out.push(`${data.name} needs ${missing.join(' and ')} energy, which this deck doesn't use.`);
+    }
+    return out;
+}
+
+/**
+ * A deck's full-art copies as a clean map { cardId: count }: only cards that
+ * have a full-art version, and never more full-art copies than the deck holds.
+ */
+function cleanFullArt(fullArt, cardIds) {
+    const out = {};
+    if (!fullArt || typeof fullArt !== 'object') return out;
+    const counts = new Map();
+    for (const id of cardIds || []) counts.set(id, (counts.get(id) || 0) + 1);
+    for (const [id, n] of Object.entries(fullArt)) {
+        const k = Math.min(Math.max(0, Math.floor(Number(n) || 0)), counts.get(id) || 0);
+        if (k > 0 && typeof hasFullArt === 'function' && hasFullArt(id)) out[id] = k;
+    }
+    return out;
+}
+
+/**
+ * A deck list grouped for display: one entry per card and version, e.g.
+ * [{ id, fullArt: true, count: 1 }, { id, fullArt: false, count: 1 }].
+ */
+function deckEntries(cardIds, fullArt) {
+    const fa = cleanFullArt(fullArt, cardIds);
+    const counts = new Map();
+    for (const id of cardIds || []) counts.set(id, (counts.get(id) || 0) + 1);
+    const out = [];
+    for (const [id, n] of counts) {
+        const f = fa[id] || 0;
+        if (f > 0) out.push({ id, fullArt: true, count: f });
+        if (n - f > 0) out.push({ id, fullArt: false, count: n - f });
+    }
+    return out;
+}
+
+/** Items that only work with one creature type, and the type they need. */
+const TYPE_SPECIFIC_ITEMS = {
+    energyAntenna: 'Mechanic',
+    healingCrystal: 'Celestial',
+    galeShield: 'Wind',
+    mysticScroll: 'Mystic',
+    amulet: 'Neutral'
+};
+
+/**
+ * The house rules for the AI's preset decks (player decks are free to break
+ * them): an evolution line is complete, with 2 copies of every stage, and an
+ * item that only works with one creature type is only in decks that have
+ * that type.
+ */
+function presetCompositionProblems(cardIds) {
+    const problems = [];
+    const counts = new Map();
+    for (const id of cardIds) counts.set(id, (counts.get(id) || 0) + 1);
+
+    // Walk each line from every card, in both directions, within the set.
+    const lineOf = data => {
+        const seen = new Set();
+        const stack = [data.id];
+        while (stack.length) {
+            const id = stack.pop();
+            if (seen.has(id)) continue;
+            seen.add(id);
+            const d = getCardData(id);
+            if (!d) continue;
+            stack.push(...(d.prevStageIds || []), ...(d.nextStageIds || []));
+        }
+        return [...seen].map(getCardData).filter(Boolean);
+    };
+    const reported = new Set();
+    for (const id of counts.keys()) {
+        const data = getCardData(id);
+        if (!data || !isCreature(data)) continue;
+        const evolves = (data.prevStageIds || []).length || (data.nextStageIds || []).length;
+        if (!evolves) continue;
+        const line = lineOf(data);
+        const key = line.map(c => c.id).sort().join('|');
+        if (reported.has(key)) continue;
+        // Promo stages can't be in an AI deck, so they don't count towards a line.
+        const stages = line.filter(c => !c.promo);
+        const missing = stages.filter(c => !counts.has(c.id));
+        const single = stages.filter(c => counts.get(c.id) === 1);
+        if (missing.length || single.length) {
+            reported.add(key);
+            const names = stages.map(c => c.name).join(' → ');
+            if (missing.length) problems.push(`${names} is incomplete: no ${missing.map(c => c.name).join(', ')}.`);
+            if (single.length) problems.push(`${names} has only 1 ${single.map(c => c.name).join(', 1 ')} (should be 2 of each stage).`);
+        }
+    }
+
+    const types = new Set([...counts.keys()].map(getCardData).filter(d => d && isCreature(d)).map(getCardType));
+    for (const id of counts.keys()) {
+        const data = getCardData(id);
+        const needs = data && TYPE_SPECIFIC_ITEMS[data.itemEffect];
+        if (needs && !types.has(needs)) problems.push(`${data.name} only works with ${needs} creatures, and the deck has none.`);
+    }
+    return problems;
 }
 
 /**

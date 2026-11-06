@@ -31,10 +31,21 @@ const DeckBuilder = {
         this.typeFilter = 'all';
         this.stageFilter = 'all';
         this.search = '';
+        // Energy types: a new deck follows its main type until the player
+        // picks types themselves.
+        this.energyTypes = [];
+        this.energyAuto = true;
+        // Full-art copies in the deck, by card id. Each one is also in `cards`.
+        this.fullArt = {};
 
         if (existingName) {
             const saved = this.qa ? DeckLibrary.findTest(existingName) : DeckLibrary.findCustom(existingName);
-            if (saved) this.cards = saved.cards.slice();
+            if (saved) {
+                this.cards = saved.cards.slice();
+                this.energyTypes = deckEnergyTypes(saved);
+                this.energyAuto = false;
+                this.fullArt = cleanFullArt(saved.fullArt, this.cards);
+            }
         }
 
         setText('builder-title', this.qa ? 'QA test deck builder (any card)' : 'Deck builder');
@@ -153,6 +164,7 @@ const DeckBuilder = {
             clearBtn.dataset.bound = 'true';
             clearBtn.addEventListener('click', () => {
                 this.cards = [];
+                this.fullArt = {};
                 this.renderPool();
                 this.renderDeck();
             });
@@ -171,16 +183,40 @@ const DeckBuilder = {
         return !this.hasProfile() || Profile.isSetUnlocked(setId);
     },
 
-    /** How many copies of a card this deck may hold: owned, capped at MAX_COPIES. */
+    /**
+     * How many copies of a card this deck may hold: owned (normal and full
+     * art together), capped at MAX_COPIES.
+     */
     limit(cardId) {
         if (this.qa || !this.hasProfile()) return MAX_COPIES;
-        return Math.min(MAX_COPIES, Profile.owned(cardId));
+        return Math.min(MAX_COPIES, Profile.owned(cardId) + Profile.ownedFullArt(cardId));
+    },
+
+    copiesOf(cardId) {
+        return this.cards.filter(id => id === cardId).length;
+    },
+
+    fullArtIn(cardId) {
+        return this.fullArt[cardId] || 0;
+    },
+
+    /** Another normal copy of this card is available to add. */
+    canAddNormal(cardId) {
+        if (this.qa || !this.hasProfile()) return true;
+        return this.copiesOf(cardId) - this.fullArtIn(cardId) < Profile.owned(cardId);
+    },
+
+    /** Another full-art copy of this card is available to add. */
+    canAddFullArt(cardId) {
+        if (typeof hasFullArt !== 'function' || !hasFullArt(cardId)) return false;
+        const have = this.qa || !this.hasProfile() ? MAX_COPIES : Profile.ownedFullArt(cardId);
+        return this.fullArtIn(cardId) < have;
     },
 
     filteredPool() {
         return cardDatabase.filter(card => {
             if (!this.qa && this.hasProfile()) {
-                if (Profile.owned(card.id) <= 0) return false;
+                if (Profile.owned(card.id) + Profile.ownedFullArt(card.id) <= 0) return false;
                 if (!Profile.isSetUnlocked(card.set)) return false;
             }
             if (this.setFilter !== 'all' && card.set !== this.setFilter) return false;
@@ -248,8 +284,18 @@ const DeckBuilder = {
             if (!this.qa && this.hasProfile()) {
                 const own = document.createElement('span');
                 own.className = 'pool-owned';
-                own.textContent = `own ${Profile.owned(card.id)}`;
+                const fa = Profile.ownedFullArt(card.id);
+                own.textContent = `own ${Profile.owned(card.id)}${fa ? ` + ${fa} ✦` : ''}`;
                 tile.appendChild(own);
+            }
+            const showFullArt = this.qa ? hasFullArt(card.id) : this.hasProfile() && Profile.ownedFullArt(card.id) > 0;
+            if (showFullArt) {
+                tile.classList.add('pool-has-full-art');
+                const mark = document.createElement('span');
+                mark.className = 'full-art-mark';
+                mark.textContent = '✦';
+                mark.title = 'Full art available';
+                tile.appendChild(mark);
             }
 
             CardZoom.bind(tile, card.id);
@@ -263,77 +309,182 @@ const DeckBuilder = {
     // Deck contents
     // -----------------------------------------------------------------------
 
-    add(cardId) {
-        if (this.cards.filter(id => id === cardId).length >= this.limit(cardId)) return;
+    /**
+     * Adds a copy. When both a normal and a full-art copy could go in, the
+     * player is asked which one.
+     */
+    async add(cardId) {
+        if (this.copiesOf(cardId) >= this.limit(cardId)) return;
         if (this.cards.length >= DECK_SIZE) {
             Log.warn(`A deck holds ${DECK_SIZE} cards.`);
             return;
         }
+        const normal = this.canAddNormal(cardId);
+        const full = this.canAddFullArt(cardId);
+        if (!normal && !full) return;
+
+        let useFullArt = full && !normal;
+        if (normal && full) {
+            const choice = await this.askVersion(cardId);
+            if (choice === null) return;
+            useFullArt = choice === 'full';
+            // The deck may have changed while the question was open.
+            if (this.copiesOf(cardId) >= this.limit(cardId) || this.cards.length >= DECK_SIZE) return;
+            if (useFullArt ? !this.canAddFullArt(cardId) : !this.canAddNormal(cardId)) return;
+        }
         this.cards.push(cardId);
+        if (useFullArt) this.fullArt[cardId] = this.fullArtIn(cardId) + 1;
         this.renderPool();
         this.renderDeck();
     },
 
-    remove(cardId) {
+    /** Normal or full art? Resolves 'normal', 'full', or null when cancelled. */
+    async askVersion(cardId) {
+        const data = getCardData(cardId);
+        const name = data ? data.name : cardId;
+        CardZoom.hide();
+        if (typeof Hub !== 'undefined' && document.getElementById('hub-dialog')) {
+            const answer = await Hub.dialog({
+                title: `Add which ${name}?`,
+                message: 'You own the full-art version of this card. It plays exactly like the normal one.',
+                image: fullArtImage(cardId),
+                buttons: [
+                    { label: 'Cancel', value: null },
+                    { label: 'Normal', value: 'normal' },
+                    { label: '✦ Full art', value: 'full', kind: 'primary' }
+                ]
+            });
+            return answer && answer.value ? answer.value : null;
+        }
+        const value = await Prompt.chooseOption({
+            title: `Add which ${name}?`,
+            options: [{ label: 'Normal', value: 'normal' }, { label: '✦ Full art', value: 'full' }],
+            cancellable: true
+        });
+        return value === 'normal' || value === 'full' ? value : null;
+    },
+
+    /** Removes one copy; `fullArt` picks the full-art copy. */
+    remove(cardId, fullArt = false) {
         const index = this.cards.indexOf(cardId);
-        if (index !== -1) this.cards.splice(index, 1);
+        if (index === -1) return;
+        if (fullArt) {
+            if (!this.fullArtIn(cardId)) return;
+            this.fullArt[cardId]--;
+            if (!this.fullArt[cardId]) delete this.fullArt[cardId];
+        }
+        this.cards.splice(index, 1);
+        this.fullArt = cleanFullArt(this.fullArt, this.cards);
         this.renderPool();
         this.renderDeck();
+    },
+
+    /** The deck's energy types, following its main type while still automatic. */
+    currentEnergyTypes() {
+        if (this.energyAuto) this.energyTypes = defaultDeckEnergyTypes(this.cards);
+        return this.energyTypes;
+    },
+
+    toggleEnergyType(type) {
+        const current = new Set(this.currentEnergyTypes());
+        if (current.has(type)) {
+            if (current.size === 1) {
+                Log.warn('A deck needs at least one energy type.');
+                return;
+            }
+            current.delete(type);
+        } else {
+            current.add(type);
+        }
+        this.energyTypes = cleanEnergyTypes([...current]);
+        this.energyAuto = false;
+        this.renderDeck();
+    },
+
+    renderEnergyPicker() {
+        const host = document.getElementById('builder-energy');
+        if (!host) return;
+        host.innerHTML = '';
+        const chosen = new Set(this.currentEnergyTypes());
+
+        const label = document.createElement('span');
+        label.className = 'builder-energy-label';
+        label.textContent = 'Energy:';
+        host.appendChild(label);
+
+        for (const type of ENERGY_TYPES) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'energy-toggle' + (chosen.has(type) ? ' energy-toggle-on' : '');
+            btn.style.setProperty('--pill', typeColor(type));
+            btn.textContent = `${ENERGY_ICONS[type]} ${type}`;
+            btn.setAttribute('aria-pressed', chosen.has(type) ? 'true' : 'false');
+            btn.title = chosen.has(type) ? `Stop using ${type} energy` : `Also use ${type} energy`;
+            btn.onclick = () => this.toggleEnergyType(type);
+            host.appendChild(btn);
+        }
+
+        const hint = document.createElement('span');
+        hint.className = 'builder-energy-hint';
+        hint.textContent = chosen.size > 1
+            ? 'Each turn your energy is one of these, at random. You see which before attaching it.'
+            : (this.energyAuto ? 'Set from the deck\'s main type. Tap to change.' : 'Every energy you get is this type.');
+        host.appendChild(hint);
     },
 
     renderDeck() {
         setText('builder-deck-count', this.cards.length);
         setText('builder-deck-target', DECK_SIZE);
+        this.renderEnergyPicker();
 
         const host = document.getElementById('builder-deck');
         if (host) {
             host.innerHTML = '';
 
-            const counts = new Map();
-            for (const id of this.cards) counts.set(id, (counts.get(id) || 0) + 1);
-
-            const ordered = Array.from(counts.keys()).sort((a, b) => {
-                const da = getCardData(a), db = getCardData(b);
+            const ordered = deckEntries(this.cards, this.fullArt).sort((a, b) => {
+                const da = getCardData(a.id), db = getCardData(b.id);
                 if (da.stage !== db.stage) return String(da.stage).localeCompare(String(db.stage));
-                return da.name.localeCompare(db.name);
+                return da.name.localeCompare(db.name) || (b.fullArt ? 1 : 0) - (a.fullArt ? 1 : 0);
             });
 
             if (ordered.length === 0) {
                 host.appendChild(emptyNote('Click cards on the left to add them.'));
             }
 
-            for (const id of ordered) {
+            for (const entry of ordered) {
+                const id = entry.id;
                 const data = getCardData(id);
                 const row = document.createElement('div');
-                row.className = 'deck-row';
+                row.className = 'deck-row' + (entry.fullArt ? ' deck-row-full-art' : '');
 
                 const img = document.createElement('img');
-                img.src = cardImage(id);
-                img.alt = data.name;
-                CardZoom.bind(img, id);
+                img.src = cardArt(id, entry.fullArt);
+                img.alt = data.name + (entry.fullArt ? ' (full art)' : '');
+                CardZoom.bind(img, id, entry.fullArt);
                 row.appendChild(img);
 
                 const label = document.createElement('span');
                 label.className = 'deck-row-name';
-                label.textContent = data.name;
+                label.textContent = entry.fullArt ? `✦ ${data.name}` : data.name;
+                if (entry.fullArt) label.title = 'Full art';
                 row.appendChild(label);
 
                 const stage = document.createElement('span');
                 stage.className = 'deck-row-stage';
-                stage.textContent = data.stage;
+                stage.textContent = entry.fullArt ? `${data.stage} · Full art` : data.stage;
                 row.appendChild(stage);
 
                 const count = document.createElement('span');
                 count.className = 'deck-row-count';
-                count.textContent = `×${counts.get(id)}`;
+                count.textContent = `×${entry.count}`;
                 row.appendChild(count);
 
                 const remove = document.createElement('button');
                 remove.className = 'deck-row-remove';
                 remove.type = 'button';
                 remove.textContent = '−';
-                remove.title = `Remove one ${data.name}`;
-                remove.onclick = () => this.remove(id);
+                remove.title = `Remove one ${entry.fullArt ? 'full-art ' : ''}${data.name}`;
+                remove.onclick = () => this.remove(id, entry.fullArt);
                 row.appendChild(remove);
 
                 host.appendChild(row);
@@ -354,7 +505,7 @@ const DeckBuilder = {
         line.textContent = result.valid ? 'This deck is legal.' : result.error;
         host.appendChild(line);
 
-        for (const warning of deckWarnings(this.cards)) {
+        for (const warning of deckWarnings(this.cards).concat(energyTypeWarnings(this.cards, this.currentEnergyTypes()))) {
             const warn = document.createElement('div');
             warn.className = 'validation-warn';
             warn.textContent = warning;
@@ -373,7 +524,7 @@ const DeckBuilder = {
     check() {
         const result = validateDeck(this.cards);
         if (!result.valid || this.qa || !this.hasProfile()) return result;
-        return Profile.checkOwnership(this.cards);
+        return Profile.checkOwnership(this.cards, this.fullArt);
     },
 
     save() {
@@ -396,15 +547,17 @@ const DeckBuilder = {
             return;
         }
 
+        const energyTypes = this.currentEnergyTypes().slice();
+        const fullArt = cleanFullArt(this.fullArt, this.cards);
         if (this.qa) {
-            DeckLibrary.saveTestDeck(name, this.cards, this.editingName);
+            DeckLibrary.saveTestDeck(name, this.cards, this.editingName, energyTypes, fullArt);
             this.close();
             Screens.showDebug();
             return;
         }
 
         // Saving under a new name replaces the edited deck in place.
-        DeckLibrary.saveCustomDeck(name, this.cards, this.editingName);
+        DeckLibrary.saveCustomDeck(name, this.cards, this.editingName, energyTypes, fullArt);
         this.close();
         Screens.showDeckSelection();
     }
