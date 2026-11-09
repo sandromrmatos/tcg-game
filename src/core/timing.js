@@ -80,9 +80,8 @@ const Timing = {
 /** Can this side attack at all this turn? */
 function sideCanAttack(side) {
     const f = gameState[side].flags;
-    if (Timing.active(f.invincibleLockUntil)) {
-        return { ok: false, reason: `Invincible Gambit stops ${subject(side).toLowerCase()} attacking for ${Timing.describe(f.invincibleLockUntil)}.` };
-    }
+    // Invincible Gambit doesn't stop attacks: it makes them deal no damage
+    // (damage.js), so moves with other effects still do those.
     if (Timing.active(f.cantAttackUntil)) {
         return { ok: false, reason: `Quick Reflexes stops ${subject(side).toLowerCase()} attacking this turn.` };
     }
@@ -139,8 +138,10 @@ function sideCanUseItem(side) {
     if (s.itemUsedThisTurn) {
         return { ok: false, reason: 'Only one item card per turn.' };
     }
-    if (Timing.active(s.flags.cantUseItemsUntil)) {
-        return { ok: false, reason: 'Mirage Shield prevents item use this turn.' };
+    // Mirage Shield (always on): no items while the opponent's Planterdon is active.
+    const foeActive = gameState[foeOf(side)].active;
+    if (hasAbilityAt(foeActive, 'mirageShield', 'active')) {
+        return { ok: false, reason: `${foeActive.data.name}'s Mirage Shield prevents item use.` };
     }
     return { ok: true };
 }

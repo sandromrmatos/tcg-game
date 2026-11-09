@@ -173,6 +173,13 @@ const coverage = {
         return abilityOriginal(card, side, location, index);
     };
 
+    // Always-on abilities are never "used"; they report when they fire.
+    const triggeredOriginal = AbilityRegistry.noteTriggered.bind(AbilityRegistry);
+    AbilityRegistry.noteTriggered = id => {
+        coverage.bump(coverage.abilities, id);
+        return triggeredOriginal(id);
+    };
+
     const itemOriginal = ItemRegistry.use.bind(ItemRegistry);
     ItemRegistry.use = async (card, side, handIndex) => {
         coverage.bump(coverage.items, card.data.itemEffect);

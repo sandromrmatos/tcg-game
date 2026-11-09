@@ -32,9 +32,10 @@ async function healCreature(card, amount, opts = {}) {
         );
     }
 
-    // Absorb Energy (Lumifloris, Photosynthra): continuous while in play, per
-    // the card text "When this creature is healed, it also gains an Energy".
-    if (restored > 0 && card.flags.absorbEnergy) {
+    // Absorb Energy (Lumifloris, Photosynthra), always on: "When this creature
+    // is healed, it also gains an additional Energy card from your deck".
+    if (restored > 0 && cardAbilityOn(card, 'absorbEnergy')) {
+        AbilityRegistry.noteTriggered('absorbEnergy');
         // "An additional Energy card from your deck": one of the deck's types.
         const owner = opts.side || (locateCard(card) || {}).side;
         const type = rollEnergyType(owner);
@@ -69,8 +70,10 @@ async function damageCreature(card, amount, opts = {}) {
     const side = opts.side || (locateCard(card) || {}).side;
     const location = opts.location || (locateCard(card) || {}).location;
 
-    // Camouflage protects the whole bench for a turn.
-    if (location === 'bench' && side && Timing.active(gameState[side].flags.camouflageUntil)) {
+    // Camouflage (always on): while it is in play, its side's bench can't be
+    // damaged. Self-inflicted bench damage (Risky Recoil) is blocked too.
+    if (location === 'bench' && side && sideHasAbility(side, 'camouflage')) {
+        AbilityRegistry.noteTriggered('camouflage');
         if (!opts.silent) {
             await Log.say(
                 `${possessive(side)} Camouflage protected ${card.data.name} on the bench!`,
@@ -78,6 +81,18 @@ async function damageCreature(card, amount, opts = {}) {
             );
         }
         return 0;
+    }
+
+    // Damage from the other side goes through the same always-on rules as an
+    // attack (Guardian Mode, Warrior Mode, Hard as Steel, ...).
+    if (opts.source) {
+        const adjusted = adjustCrossDamage(card, side, amount, opts.source);
+        if (adjusted !== amount && !opts.silent) {
+            await Log.say(`${card.data.name}: ${amount} damage adjusted to ${adjusted} by abilities.`,
+                { kind: 'shield', icon: '🛡️', pace: 0.5 });
+        }
+        amount = adjusted;
+        if (amount <= 0) return 0;
     }
 
     card.damage += amount;
@@ -120,10 +135,12 @@ async function attachEnergyTo(card, count = 1, opts = {}) {
         );
     }
 
-    // Energized Healing (Nebuleap, Comiscroaker): continuous, per the card text
-    // "Every time you attach energy to this creature, heal N HP".
-    const healAmount = card.flags.energizedHealing;
+    // Energized Healing (Nebuleap 10, Comiscroaker 20), always on: "Every time
+    // you attach energy to this creature, heal N HP".
+    const healId = ['energizedHealing1', 'energizedHealing2'].find(id => cardAbilityOn(card, id));
+    const healAmount = healId ? PASSIVE_AMOUNTS[healId] : 0;
     if (healAmount > 0 && card.damage > 0) {
+        AbilityRegistry.noteTriggered(healId);
         await Log.say(
             `${creatureName(card, opts.side)}'s Energized Healing triggered!`,
             { kind: 'ability', icon: '💧', pace: 0.6 }
@@ -141,7 +158,7 @@ async function attachEnergyTo(card, count = 1, opts = {}) {
  */
 async function discardEnergyFrom(card, count, opts = {}) {
     if (!card || count <= 0) return 0;
-    const types = takeEnergyUnits(card, count);
+    const types = takeEnergyUnits(card, count, { random: !!opts.random });
     if (Array.isArray(opts.removedTypes)) opts.removedTypes.push(...types);
     Render.board();
     if (types.length > 0 && !opts.silent) {

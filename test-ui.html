@@ -398,7 +398,10 @@ async function raidTests() {
     let bad = [];
     for (const b of Raids.bosses()) {
         for (let i = 0; i < 15; i++) {
-            const deck = Raids.generateDeck(b, { isSetOpen: id => id === 'EA' });
+            // Only the first set and the boss's own set are open (a Galactic
+            // boss can only be reached once Galactic is unlocked).
+            const open = id => id === 'EA' || id === b.card.set;
+            const deck = Raids.generateDeck(b, { isSetOpen: open });
             if (!deck) { bad.push(`${b.id}: none`); break; }
             const why = [];
             if (!validateDeck(deck.cards).valid) why.push('illegal');
@@ -406,7 +409,7 @@ async function raidTests() {
             if (energyTypeWarnings(deck.cards, deck.energyTypes).length) why.push('energy');
             if (!deck.cards.includes(RAID_DRAW_ITEM)) why.push('no Card Draw');
             if (deck.fullArt[b.cardId] !== 2 || deck.cards.filter(id => id === b.cardId).length !== 2) why.push('boss copies');
-            if (deck.cards.some(id => getCardData(id).set !== 'EA')) why.push('locked set');
+            if (deck.cards.some(id => !open(getCardData(id).set))) why.push('locked set');
             if (why.length) bad.push(`${b.id}: ${why.join(', ')}`);
         }
     }

@@ -1,19 +1,26 @@
 # TCG Game — Behavior Specification
 
-This is the **contract for the refactor**. It records the intended behavior of every
-move effect, ability, item, and status condition, derived from the original
-`script.js` implementation cross-checked against the `Move1 Description` /
-`Move2 Description` / `Ability` columns in the two source CSVs.
+The rules as the code implements them, for every move effect, ability, item and
+status condition. The source of truth for card text is the two CSVs in the repo
+root: `Tcg game - Elemental Awakening.csv` and `Galactic Adventures.csv` (the
+copies in `cards/` are older and not used).
 
-Where the old code and the CSV design intent disagreed, the CSV wins and the
-divergence is recorded in the Bug Ledger at the bottom.
+Rules that apply throughout:
 
-Two rules were confirmed by the project owner and apply throughout:
-
-1. **Attacker-side effects always resolve, even when the attack knocks the defender out.**
-   Only effects that *target the defender* are skipped on a knockout.
-2. **The AI and the player run the same rules.** A move, ability, or item behaves
-   identically regardless of who uses it. There is exactly one implementation of each.
+1. **The AI and the player run the same rules.** There is one implementation of
+   each move, ability and item, and both sides call it.
+2. **Attacker-side effects always resolve, even when the attack knocks the defender
+   out.** Only effects that act on the defender are skipped after a knockout.
+3. **0 damage is always 0.** A move that deals no damage (a utility move, a missed
+   coin flip) gets no bonuses: super effective, Booster, Power-Up, Amulet, Warrior
+   Mode and the rest only add to damage that is actually dealt, and single-use
+   bonuses are not spent on it.
+4. **Always-on abilities are always on.** Only abilities whose card text is a
+   choice have a button (section 4).
+5. **Whoever uses an effect makes its choices.** When the AI uses Gnawing
+   Precision, the AI picks the target, even though it's one of your creatures.
+   The exception is Forceful Flip, where the card says the defender switches, so
+   the defending side chooses.
 
 ---
 
@@ -21,227 +28,274 @@ Two rules were confirmed by the project owner and apply throughout:
 
 | Rule | Value |
 |---|---|
-| Deck size | exactly 20 cards |
-| Max copies of one card | 2 |
+| Deck size | exactly 20 cards, at most 2 copies of a card |
 | Deck must contain | at least 1 Stage 1 creature |
-| Type mixing | one primary type (Mystic / Wind / Celestial / Mechanic) + any number of Neutral and Item cards |
-| Opening hand | 5 cards, redrawn until it contains at least 1 Stage 1 |
+| Type mixing | one main type (Mystic / Wind / Celestial / Mechanic) + any Neutral creatures and items |
+| Opening hand | 5 cards, redrawn until it has a Stage 1 |
 | Board | 1 active slot + 3 bench slots per side |
-| Win conditions | first to 3 points; or most points after turn 30; or opponent has no creature to promote |
-| Points | 1 per knocked-out creature, including bench creatures killed by AoE |
-| Energy | 1 attachment per turn, to any creature in play; generic (cost is a length, not a colour) |
-| Item cards | 1 per turn |
+| Win | first to 3 points; or more points after turn 30 (equal = draw); or the opponent has no creatures left |
+| Points | 1 per knocked-out creature, bench knockouts included |
+| First turn | a coin decides who starts; the starter skips the turn-1 draw and can't attack on turn 1 (energy is allowed) |
+| Energy | typed. Each deck uses one or more energy types; each turn rolls one type and you may attach 1 energy of it to any of your creatures |
+| Move costs | letters: `M` Mystic, `W` Wind, `C` Celestial, `K` Mechanic, `N` any type |
+| Items | 1 per turn |
 | Attacking | ends the turn |
-| Retreat | costs `retreat` energy, discarded from the retreating creature; clears its status |
-| Evolution | not before turn 3; not on a creature played this turn; not twice on the same creature in one turn; damage and energy persist |
-| Turn counter | increments once per side's turn, so a "round" is 2 increments |
+| Retreat | once per turn; costs `retreat` energy (any type) from the retreating creature; clears its status conditions. Forced switches don't count as the retreat |
+| Evolution | from turn 3; not onto a creature played this turn; once per creature per turn; damage, energy, status and attack/retreat locks carry over |
+| Turn counter | +1 per side's turn, so each side acts on every second number |
 
 ### Type effectiveness (+10 damage)
 
-Mystic → Wind → Celestial → Mystic (cycle). Mechanic → Neutral. Neutral attacks
-have no super-effective target. Items have no type interaction.
+Mystic → Wind → Celestial → Mystic, and Mechanic → Neutral. Neutral attackers
+never get the bonus.
+
+### Durations
+
+Every "next turn" effect stores an absolute turn deadline (`timing.js`), so nothing
+is counted down and nothing can drift. With T = the turn it was created:
+
+| Helper | Deadline | Used by |
+|---|---|---|
+| `throughOpponentTurn()` | T + 1 | shields (Shield Barrier, Gale Shield, Mind Ripple, Cotton Guard, Monk's Fury, Spectral Burst), Guardian |
+| `opponentTurns(n)` | T + 2n − 1 | Tidal Illusion, Quick Reflexes, Ethereal Snare, Starfall Strike (n = 1); Invincible Gambit (n = heads) |
+| `myTurns(n)` | T + 2n | Wing Slap, Overdrive Smash (n = 1); Tempest Hold, Amulet (n = 2) |
+
+An `opponentTurns(n)` effect sits on the opposing side and is only read on that
+side's own turns, so the caster's turns in between never use it up.
 
 ---
 
-## 2. Canonical damage pipeline
+## 2. Attack pipeline
 
-Every attack, by either side, resolves in exactly this order. This is the single
-biggest source of the old player/AI divergence, so the order is normative.
+Every attack, by either side, resolves in this order (`combat.js`, `damage.js`).
 
-**Phase A — gating (abort the attack, no turn consumed)**
-1. Attacker's side is under Invincible Gambit → abort
-2. Attacker's side is under Quick Reflexes lock → abort
-3. Attacker creature is under Wing Slap lock → abort
-4. Not enough energy for the chosen move → abort
-5. Move is on cooldown (Overdrive Smash) → abort
+**A. Gating** (the attack doesn't happen and the turn isn't used)
+1. Starter's turn 1
+2. Quick Reflexes on the attacking side
+3. Wing Slap on the attacking creature
+4. Not enough energy of the right types
+5. Move on cooldown (Overdrive Smash)
 
-**Phase B — pre-roll**
-6. If attacker has Hallucination, flip once and store the result for this attack
+Invincible Gambit and Tidal Illusion do **not** stop attacks: the move is used and
+its other effects happen, it just deals 0 damage.
 
-**Phase C — damage calculation**
-7. `damage = move.damage`
-8. Effect hook `onDamageCalc` (may replace or adjust `damage`)
-9. Booster `+20` (consumed)
-10. Power-Up `+10` (while turns remain)
-11. Hallucination heads `+10`
-12. Super effective `+10`
-13. Aura of Strength bonus (consumed)
-14. Sturdy Presence bonus (consumed)
-15. Warrior Mode bonus (consumed)
-16. Amulet `+20` if the attacker is Neutral
-17. Thunder Rush `×2` (consumed)
-18. Chill Recharge `+20` (consumed)
-19. Sprout Boost `+30` (consumed)
+**B. Pre-roll**
+6. Hallucination: flip once now (heads +10, tails 40 self-damage after the attack)
 
-**Phase D — defender-side reduction** (all clamp at 0)
-20. Monk's Fury `−20` (consumed)
-21. Hard as Steel `−30` if attacker is Mechanic or Neutral (consumed)
-22. Spectral Burst shield (consumed)
-23. Defense Aura shield (consumed)
-24. Shield Barrier (consumed)
-25. Gale Shield if defender is Wind (consumed)
-26. Mind Ripple `−20` (consumed)
-27. Cotton Guard `−20` (consumed)
-28. Guardian Mode `−10` (**not** consumed, lasts the turn)
-29. Caprine Guard if attacker is Celestial or Mystic (consumed)
-30. Elemental Fortitude if attacker is Wind or Mechanic (consumed)
-31. Metalic Protection → `damage = 0` if attacker is Mechanic (**not** consumed)
+**C. Damage calculation**
+7. `damage = move.damage`, then the move's `onDamageCalc` (coin flips, counts)
+8. **If the result is 0, it stays 0**: phase D is skipped entirely
 
-**Phase E — application**
-32. Guardian redirect: a bench creature with Guardian takes the damage instead; resolve its knockout; turn ends
-33. Tidal Illusion on the attacker's side → `damage = 0`
-34. Apply `damage` to the defender
-35. Retaliation Stone: defender deals 20 back if it took damage (consumed); may KO the attacker
-36. Rainbow Strike: 30 to a random enemy bench creature (consumed)
-37. Hallucination tails → attacker takes 40 self-damage; may KO the attacker
-38. Mark `hasAttacked`
-39. Phase Shift: attacker must swap to the bench
+**D. Modifiers** (in this order; never below 0)
 
-**Phase F — effect resolution**
-40. Effect hook `onResolve` — runs **always**, including when the defender died
-41. Effect hook `onResolveIfTargetAlive` — runs only if the defender survived
-42. Knockout resolution (active, then bench, both sides), then end of turn
+| # | Modifier | Amount | Notes |
+|---|---|---|---|
+| 9 | Booster | +20 | spent |
+| 10 | Power-Up | +10 | one of 3 attacks spent |
+| 11 | Hallucination heads | +10 | |
+| 12 | Super effective | +10 | |
+| 13 | Aura of Strength | +30 | Equinox in play and your bench is full |
+| 14 | Sturdy Presence | +20 | Reddybara in play |
+| 15 | Warrior Mode | +10 | Meerkool #10 in play |
+| 16 | Amulet | +20 | attacker is Neutral |
+| 17 | Chill Recharge | +20 | spent |
+| 18 | Sprout Boost | +30 | spent |
+| 19 | Thunder Rush | ×2 | this creature, opponent evolved on their last turn |
+| 20 | Monk's Fury | −20 | on the defending creature only; spent |
+| 21 | Hard as Steel | −30 | defender is Strutalon, attacker Mechanic or Neutral |
+| 22 | Spectral Burst | −10 | on the defending creature only; spent |
+| 23 | Defense Aura | −10 | defender is Antheara (Defense Aura) |
+| 24 | Shield Barrier | −20 | whole side; spent |
+| 25 | Gale Shield | −30 | whole side, Wind defenders; spent |
+| 26 | Mind Ripple | −20 | on the defending creature only; spent |
+| 27 | Cotton Guard | −20 | on the defending creature only; spent |
+| 28 | Guardian Mode | −10 | Meerkool #09 on the defending side |
+| 29 | Caprine Guard | −40 | defender is Pigmoat, attacker Celestial or Mystic |
+| 30 | Elemental Fortitude | −20 | defender is Astraea, attacker Wind or Mechanic |
+| 31 | Metalic Protection | → 0 | defender is Steelspirit, attacker Mechanic |
+| 32 | Tidal Illusion | → 0 | attacking side is under it |
+| 33 | Invincible Gambit | → 0 | attacking side is under it |
+
+Always-on bonuses count once per ability, however many copies are in play.
+
+**E. Application**
+34. Guardian: if a benched Aegiscelis used Guardian last turn and is still on the
+    bench, it takes the damage instead (only when there is damage)
+35. Otherwise the defender takes the damage; then Retaliation Stone (20 back)
+36. Rainbow Strike: 30 to a random enemy bench creature
+37. Hallucination tails: 40 to the attacker
+38. Phase Shift: the attacker switches to the bench
+
+**F. Effects and knockouts**
+39. `onResolve` — always runs, including after a knockout
+40. `onResolveIfTargetAlive` — only if the defender survived
+41. Knockouts (bench first, then actives, both sides), then end of turn
+
+### Damage outside the attack
+
+Bench sweeps (Mystic Blaze, Solar Ascend), Rainbow Strike, Gnawing Precision and
+Retaliation Stone are damage from one side to the other, so they get the same
+always-on rules (`adjustCrossDamage`):
+
+- Warrior Mode +10 for the dealing side; Guardian Mode −10 for the receiving side
+- Hard as Steel and Elemental Fortitude by the source creature's type
+- Caprine Guard and Metalic Protection only against moves (their text says "moves" / "attacks"), not abilities
+- Invincible Gambit and Tidal Illusion: a side under them deals 0 of this damage too, on its own turns
+- Camouflage: no damage at all to that side's bench
+
+Self-damage (recoil, Risky Recoil, Hallucination, Metalic Protection) gets none of
+these, except that Camouflage still protects the bench from Risky Recoil.
 
 ---
 
 ## 3. Move effects
 
-`calc` = `onDamageCalc`, `always` = `onResolve`, `alive` = `onResolveIfTargetAlive`.
+`calc` = during damage calculation, `always` = after damage, even on a knockout,
+`alive` = only if the defender survived.
 
-### Damage-calculation effects
-
-| Effect | Card | Phase | Behavior |
-|---|---|---|---|
-| `dizzyShot` | Pheonyx | calc | Flip 1: heads `+20` |
-| `fortuneSmite` | Rosalia | calc | Flip 1: heads `+20` |
-| `foresightBeam` | Psychea | calc | Flip 1: heads `+10` |
-| `gearGrind` | Steelspirit | calc | Flip 1: heads `+20` |
-| `featherBarrage` | Cockarion | calc | Flip 1: heads `+20` |
-| `coinClash` | Dodolet | calc | Flip 1: heads → `30`, tails → `0` |
-| `hurricaneWing` | Tielzor | calc | Flip 1: tails → `0` |
-| `tailDance` | Platypog, Fluffbill | calc | Flip 1: tails → `0` |
-| `verdantStruggle` | Hoatzion | calc | Flip 2: both heads → `50`, else `0` |
-| `toxicToss` | Venomgear | calc | Flip 2: `20` per heads |
-| `pinkGust` | Cerisebat | calc | Flip 2: `30` per heads |
-| `galeFlip` | Aeruffin | calc | Flip 4: `40` per heads |
-| `echoLoop` | Blushbat | calc | Flip until tails: `+10` per heads |
-| `harshFlinch` | Electrogriff | calc | Flip until tails: `+20` per heads |
-| `diceFury` | Dodrift | calc | Roll d6: damage `= roll × 10` |
-| `diceTempest` | Dodoryphon | calc | Roll d6: damage `= roll × 20` |
-| `nightStrike` | Batakaze | calc | `= attacker.energy × 20` |
-| `etherealPulse` | Shadowflit | calc | `= (both actives' energy) × 20` |
-| `galacticMeteor` | Starraffe | calc | `= defender.energy × 10` |
-| `spectralWrapGA` | Mummira | calc | `+= defender.energy × 10` |
-| `neutralSurge` | Dewmo | calc | `= (all Neutral creatures in play, both sides) × 20` |
-| `thornyVines` | Verdanthorn | calc | `= (defender side creature count) × 10` |
-| `scrapStrike` | Envoye | calc | `= (Item cards in defender's discard) × 20` |
-| `alphabetAssault` | Melanchote | calc | `= defender.name.length × 10` |
-| `infernoConstrict` | Metalmagma | calc | `= (Mechanic creatures on attacker's bench) × 30` |
-| `enragedCharge` | Photosynthra | calc | `+30` per energy above 3 |
-| `furySpin` | Hoatzion | calc | `+50` if attacker has ≤30 HP remaining |
-| `shadowWrap` | Fuschioria | calc | `+30` if the defender has any status condition |
-| `metallicWing` | Struto | calc + always | damage `0`; attacker gains 1 energy |
-
-### Attacker-side effects (always resolve, even on a knockout)
+### Damage calculation
 
 | Effect | Card | Behavior |
 |---|---|---|
-| `recoil20` | Blossomgale | Attacker takes 20; may KO itself |
-| `recoil40` | Cockarion | Attacker takes 40; may KO itself |
+| `dizzyShot` | Pheonyx | Flip 1: heads +20 |
+| `fortuneSmite` | Rosalia | Flip 1: heads +20 |
+| `gearGrind` | Steelspirit | Flip 1: heads +20 |
+| `featherBarrage` | Cockarion | Flip 1: heads +20 |
+| `foresightBeam` | Psychea | Flip 1: heads +10 |
+| `coinClash` | Dodolet | Flip 1: heads 30, tails 0 |
+| `hurricaneWing` | Tielzor | Flip 1: tails 0 |
+| `tailDance` | Platypog, Fluffbill | Flip 1: tails 0 |
+| `verdantStruggle` | Hoatzion | Flip 2: both heads 50, else 0 |
+| `toxicToss` | Venomgear | Flip 2: 20 per heads |
+| `pinkGust` | Cerisebat | Flip 2: 30 per heads |
+| `galeFlip` | Aeruffin | Flip 4: 40 per heads |
+| `prismaticDive` | Prismarine | Flip 2: +40 per heads |
+| `echoLoop` | Blushbat | Flip until tails: +10 per heads |
+| `harshFlinch` | Electrogriff | Flip until tails: +20 per heads |
+| `diceFury` | Dodrift | d6 × 10 |
+| `diceTempest` | Dodoryphon | d6 × 20 |
+| `nightStrike` | Batakaze | 20 per **Wind** energy on the attacker |
+| `etherealPulse` | Shadowflit | 20 per energy on both active creatures |
+| `galacticMeteor` | Starraffe | 10 per energy on the defender |
+| `spectralWrapGA` | Mummira | +10 per energy on the defender |
+| `neutralSurge` | Dewmo | 20 per Neutral creature in play (both sides) |
+| `thornyVines` | Verdanthorn | 10 per creature the opponent has in play |
+| `scrapStrike` | Envoye | 20 per item in the opponent's discard pile |
+| `alphabetAssault` | Melanchote | 10 per letter of the defender's name |
+| `infernoConstrict` | Metalmagma | 30 per Mechanic creature on your bench |
+| `enragedCharge` | Photosynthra | +30 per energy above 3 |
+| `furySpin` | Hoatzion | +50 if the attacker has 30 HP or less |
+| `shadowWrap` | Fuschioria | +30 if the defender has a status condition |
+| `etherealEcho` | Zenquaza | Flip 1: heads +30; always Hallucination on the defender |
+| `metallicWing` | Struto | 0 damage; the attacker gets 1 energy |
+| `invincibleGambit` | Zenethra | Always 0 damage (see below) |
+
+### Attacker side (always)
+
+| Effect | Card | Behavior |
+|---|---|---|
+| `recoil20` / `recoil40` | Blossomgale / Cockarion | Attacker takes 20 / 40 |
+| `infernoWing` | Pyrosora | Flip 1: tails, the attacker takes 20 |
 | `discard2Energy` | Chimereal | Attacker loses 2 energy |
-| `healingRoots` | Verdanthorn | Heal attacker 20 |
-| `minorMend` | Floretta | Heal attacker 10 |
-| `majorMend` | Lizaflora | Heal attacker 20 |
-| `planetBurst` | Orbitmelon | Heal attacker 10 |
-| `healingSap` | Aloetide | Heal attacker 20 |
-| `chillRecharge` | Steelspirit | Heal attacker 10; next attack `+20` |
-| `monksFury` | Metamonk | Flip 1: heads → attacker's side gains a 20-point shield next turn |
-| `spectralBurst` | Poltergnet | Attacker's side gains a 10-point shield next turn |
-| `cottonGuard` | Cloudlet, Cloudboss | Attacker takes 20 less damage next turn |
-| `mindRipple` | Aetherin | Attacker takes 20 less damage next turn |
-| `sproutBoost` | Beanling | After 2 turns, attacker's next attack deals `+30` |
-| `tempestHold` | Electrogriff | Attacker cannot retreat for 2 of its own turns |
-| `overdriveSmash` | Stilflare | This move goes on a 2-turn cooldown for this creature |
-| `wingSlap` | Flutterwing | Attacker cannot attack on its next turn |
-| `skyDraw` | Tielzor | Attacker draws 1 card |
-| `scavengeStrike` | Gearstrike | Flip 1: heads → return a chosen Item from discard to hand |
-| `creamyConfection` | Galaktikreme | Flip 1: heads → 1 energy to a chosen bench creature; tails → attacker loses 2 energy |
-| `riskyRecoil` | Reddybara | Flip 1: tails → 50 damage to one random own creature; may KO it |
-| `energySnatch` | Alpakina | Flip 1: heads → remove 1 energy from a random enemy creature that has energy |
-| `heavenlyRetreat` | Serafini | Free swap with a chosen bench creature; turn ends |
-| `coffeeHeal` | Beanleaf | Heal a chosen damaged own bench creature 10 |
-| `beanBlast` | Beanknight | Heal a chosen damaged own bench creature 20 |
-| `berryBurst` | Laugherry | Heal every damaged creature on the attacker's side 10 |
-| `laughingLeaves` | Gigglewood | Heal every damaged creature on the attacker's side 20 |
-| `caffeineAddiction` | Beanknight | Flip 1: heads → heal attacker 20; tails → Lock on the defender (defender-targeting half is skipped on a KO) |
-| `invincibleGambit` | Zenethra | Flip 3: defender's side cannot attack for 1 turn per heads; then the attacker faints |
-| `cloudBounce` | Cloudboss | Move 1 energy between two of the attacker's own creatures (optional) |
-| `gulpSwap` | Goggly | Swap remaining HP with the defender, each capped at its own max HP |
-| `solarAscend` | Pyrosora | Flip 1: heads → 10 to every enemy bench creature (blocked by Camouflage) |
-| `mysticBlaze` | Pheonyx | 30 to every enemy bench creature (blocked by Camouflage) |
-| `prismaticDive` | Prismarine | Flip 2: `+40` damage to the defender per heads |
-| `forcefulFlip` | Envoye | Flip 1: heads → the defender's side must promote a bench creature; the retreating creature's status clears |
+| `healingRoots`, `majorMend` | Verdanthorn, Lizaflora | Heal the attacker 20 |
+| `minorMend`, `planetBurst` | Floretta, Orbitmelon | Heal the attacker 10 |
+| `healingSap` | Aloetide | Heal 30 on each of your damaged creatures |
+| `berryBurst` / `laughingLeaves` | Laugherry / Gigglewood | Heal each of your damaged creatures 10 / 20 |
+| `coffeeHeal` / `beanBlast` | Beanleaf / Beanknight | Heal a chosen damaged bench creature 10 / 20 |
+| `chillRecharge` | Steelspirit | Heal the attacker 10; its next attack +20 |
+| `sproutBoost` | Beanling | Its next attack +30, kept if it evolves first |
+| `monksFury` | Metamonk | Flip 1: heads, **this creature** takes 20 less during the opponent's next turn |
+| `spectralBurst` | Poltergnet | **This creature** takes 10 less during the opponent's next turn |
+| `mindRipple`, `cottonGuard` | Aetherin; Cloudlet, Cloudboss | This creature takes 20 less during the opponent's next turn |
+| `tempestHold` | Electrogriff | The attacker can't retreat for 2 of its turns |
+| `wingSlap` | Flutterwing | The attacker can't attack on its next turn |
+| `overdriveSmash` | Stilflare | Can't be used on its owner's next turn (blocked for 2 turns counting the opponent's), usable again the turn after |
+| `skyDraw` | Tielzor | Draw 1 |
+| `scavengeStrike` | Gearstrike | Flip 1: heads, return a chosen item from the discard pile to hand |
+| `creamyConfection` | Galaktikreme | Flip 1: heads, 1 energy to a chosen bench creature; tails, the attacker loses 2 energy |
+| `riskyRecoil` | Reddybara | Flip 1: tails, 50 to a random creature of yours |
+| `energySnatch` | Alpakina | Flip 1: heads, a random opposing creature with energy loses a **random** one of its energy |
+| `heavenlyRetreat` | Serafini | Free switch with a chosen bench creature |
+| `cloudBounce` | Cloudboss | Optionally move 1 energy from one of your **bench** creatures to another bench creature |
+| `gulpSwap` | Goggly | Swap remaining HP with the defender, each capped at its max |
+| `mysticBlaze` | Pheonyx | 30 to every opposing bench creature |
+| `solarAscend` | Pyrosora | Flip 1: heads, 10 to every opposing bench creature |
+| `starfallStrike` | Starraffe | Flip 1: heads, the opponent's next turn energy is Celestial |
+| `caffeineAddiction` | Beanknight | Flip 1: heads, heal the attacker 20; tails, Lock on the defender |
+| `invincibleGambit` | Zenethra | Flip 3. For each heads the opponent deals no damage on one of **their** turns (their next 1–3 turns; your turns don't count). Their moves still work, only the damage is 0, and that includes bench and ability damage. Zenethra then faints |
 
-### Defender-targeting effects (skipped when the defender is knocked out)
+### Defender side
 
-| Effect | Card | Behavior |
-|---|---|---|
-| `cantRetreat` | Traphex | Defender cannot retreat on its next turn |
-| `mindMirage` | Meditot | Hallucination on the defender |
-| `etherealEcho` | Zenquaza | Flip 1: heads `+30` damage; then Hallucination on the defender |
-| `phantomPulse` | Harmoniqueon | Hallucination on the defender |
-| `brainFreeze` | Psydrake | Hallucination on the defender |
-| `dreamwave` | Mystikid | Flip 1: heads → Hallucination on the defender |
-| `dreamBooster` | Mystikeon, Fuschioria, Oraclyon, Pantheraura | Flip 1: heads → Hallucination on the defender |
-| `mindPulse` | Psybella | Flip 1: heads → Hallucination on the defender |
-| `fluxWave` | Mystaeon, Olympis, Oraclyon, Mummira, Ectomango | Flux on the defender |
-| `spectralSlice` | Mangost | Flip 1: heads → Flux on the defender |
-| `forestFury` | Crocaterra, Astrollus | Lock on the defender |
-| `psychicProwl` | Frostant | Flip 1: heads → Flux, tails → Lock, on the defender |
-| `chaosDice` | Pangodice | Roll d6 → Hallucination (1–2), Flux (3–4), Lock (5–6) on the defender |
-| `tidalIllusion` | Astralin | Flip 1: heads → the defender's side deals no damage for its whole next turn |
-| `tripleThreatFlip` | Teklash | Flip 2: both heads → the defender is knocked out regardless of HP |
+| Effect | Card | When | Behavior |
+|---|---|---|---|
+| `mindMirage` | Meditot, Oraclyon, Pantheraura | always | Hallucination, no coin |
+| `phantomPulse` | Harmoniqueon | always | Hallucination |
+| `brainFreeze` | Psydrake | always | Hallucination |
+| `dreamwave` | Mystikid | always | Flip 1: heads, Hallucination |
+| `dreamBooster` | Mystikeon, Fuschioria | always | Flip 1: heads, Hallucination |
+| `mindPulse` | Psybella | always | Flip 1: heads, Hallucination |
+| `fluxWave` | Mystaeon, Olympis, Oraclyon, Mummira, Ectomango | always | Flux |
+| `spectralSlice` | Mangost | always | Flip 1: heads, Flux |
+| `forestFury` | Crocaterra, Astrollus | always | Lock |
+| `psychicProwl` | Frostant | always | Flip 1: heads Flux, tails Lock |
+| `chaosDice` | Pangodice | always | d6: 1–2 Hallucination, 3–4 Flux, 5–6 Lock |
+| `cantRetreat` | Traphex | alive | The defender can't retreat on its next turn |
+| `tidalIllusion` | Astralin | alive | Flip 1: heads, the opponent deals no damage on their next turn |
+| `tripleThreatFlip` | Teklash | alive | Flip 2: both heads, the defender is knocked out |
+| `forcefulFlip` | Envoye | alive | Flip 1: heads, the defending side must switch (it chooses) |
+
+Status conditions can't land on a knocked-out creature, so "always" status effects
+do nothing after a knockout.
 
 ---
 
 ## 4. Abilities
 
-Each ability is used at most once per turn per creature, and only before attacking.
-`location` is where the creature must be for the ability to be legal.
+### Always on (no button)
 
-| Effect | Card(s) | Location | Behavior |
+They work whenever the creature is in play and standing where the card says
+(`active`, `bench` or `any`). Nothing is "used", nothing expires, and swapping or
+evolving the creature away ends them.
+
+| Effect | Card | Where | Behavior |
 |---|---|---|---|
-| `defenseAura` | Antheara (d) | active | Own side gains a 10-point shield next turn |
-| `resourcefulRecovery` | Serafina | any | Flip 1: heads → 1 energy to a random own creature |
-| `hardAsSteel` | Strutalon | any | Own side takes 30 less from Mechanic/Neutral attackers next turn |
-| `auraOfStrength` | Equinox | any | Requires a full bench; own attacks this turn deal `+30` |
-| `guardiansCall` | Aeglet | any | Requires Aegiscelis in hand; flip 1: heads → evolve into Aegiscelis immediately, preserving damage, energy, evolution chain and evolution id |
-| `guardian` | Aegiscelis | bench | Next turn this creature takes damage in place of the active creature |
-| `energySiphon` | Lumbertail | any | Requires the opponent to have used an item last turn; gain 1 energy |
-| `quickReflexes` | Toxiforge | any | Flip 2: both heads → opponent cannot attack on their next turn |
-| `clarityAura` | Sunbloss | any | Own creatures cannot receive Hallucination during the opponent's next turn |
-| `celestialBlessing` | Rosalia | any | Heal one random damaged Celestial creature 30, either side |
-| `sturdyPresence` | Reddybara | any | Own attacks this turn deal `+20` |
-| `rainbowStrike` | Prismarine | active | This turn's attack also deals 30 to a random enemy bench creature |
-| `camouflage` | Mystikeon | any | Own bench creatures cannot be damaged during the opponent's next turn |
-| `phaseShift` | Pheonyx | active | After attacking, this creature must swap to the bench |
-| `extraCharge` | Antaray | any | Attach 1 extra energy to a chosen Neutral creature |
-| `guardianMode` | Meerkool (a) | any | All own creatures take 10 less damage during the opponent's next turn |
-| `warriorMode` | Meerkool (b) | any | Own attacks this turn deal `+10` |
-| `healingRetreat1` | Trunket | active | Heals 20 when this creature retreats to the bench |
-| `healingRetreat2` | Elefeir | active | Heals 40 when this creature retreats to the bench |
-| `mirageShield` | Planterdon | active | Opponent cannot use items during their next turn |
-| `thunderRush` | Breezebuzz, Zephyrbuzz | active | Requires the opponent to have evolved last turn; this turn's attack damage is doubled |
-| `absorbEnergy` | Lumifloris, Photosynthra | any | While active, any healing of this creature also attaches 1 energy |
-| `energizedHealing1` | Nebuleap | any | While active, attaching energy to this creature also heals it 10 |
-| `energizedHealing2` | Comiscroaker | any | While active, attaching energy to this creature also heals it 20 |
-| `gnawingPrecision` | Mousucklord | any | Deal 20 to a chosen enemy creature |
-| `metalicProtection` | Steelspirit | any | Takes 20 self-damage; immune to Mechanic damage during the opponent's next turn |
-| `caprineGuard` | Pigmoat | any | Takes 40 less from Celestial/Mystic attackers next turn |
-| `elementalFortitude` | Astraea | any | This creature takes 20 less from Wind/Mechanic attackers next turn |
-| `hydration` | Fluffbill | active | Immune to status conditions from the opponent's attacks during their next turn |
-| `retaliationStone` | Notreclast | any | If damaged by an attack next turn, deals 20 back to the attacker |
-| `aquaMirror` | Ectomango | active | If this creature receives a status condition next turn, the attacker receives it too |
+| `defenseAura` | Antheara | active | This creature takes 10 less damage from attacks |
+| `hardAsSteel` | Strutalon | any | This creature takes 30 less from Mechanic and Neutral creatures |
+| `sturdyPresence` | Reddybara | any | Your attacks +20 |
+| `auraOfStrength` | Equinox | any | Your attacks +30 while your bench is full |
+| `clarityAura` | Sunbloss | any | Your creatures can't get Hallucination |
+| `camouflage` | Mystikeon | any | Your bench creatures can't be damaged |
+| `rainbowStrike` | Prismarine | active | Its attacks also deal 30 to a random opposing bench creature |
+| `energySiphon` | Lumbertail | any | Whenever the opponent uses an item, it gets 1 energy |
+| `guardianMode` | Meerkool #09 | any | All damage your creatures take from the opponent −10 |
+| `warriorMode` | Meerkool #10 | any | All damage your side deals to the opponent +10 |
+| `healingRetreat1` / `2` | Trunket / Elefeir | active | Heals 20 / 40 whenever it goes from active to the bench (retreat or forced switch), if damaged |
+| `mirageShield` | Planterdon | active | The opponent can't use items |
+| `thunderRush` | Breezebuzz, Zephyrbuzz | active | Its attack damage ×2 if the opponent evolved on their last turn |
+| `absorbEnergy` | Lumifloris, Photosynthra | any | Whenever it is healed, it also gets 1 energy |
+| `energizedHealing1` / `2` | Nebuleap / Comiscroaker | any | Whenever energy is attached to it, it heals 10 / 20 |
+| `metalicProtection` | Steelspirit | any | Mechanic attacks deal it no damage; it loses 20 HP at the end of each of its owner's turns |
+| `caprineGuard` | Pigmoat | any | Takes 40 less from moves by Celestial and Mystic creatures |
+| `elementalFortitude` | Astraea | any | Takes 20 less from Wind and Mechanic creatures |
+| `hydration` | Fluffbill | active | Can't get status conditions |
+| `retaliationStone` | Notreclast | any | Whenever an attack damages it, it deals 20 back to the attacker |
+| `aquaMirror` | Ectomango | active | Any status condition it gets from the opponent is also given to the attacker |
+
+### Choice (a button, once per turn)
+
+Used from the creature panel, at most once per turn per creature, before
+attacking. An effect that lasts lasts until your next turn, then you decide again.
+
+| Effect | Card | Where | Behavior |
+|---|---|---|---|
+| `resourcefulRecovery` | Serafina | any | Flip 1: heads, 1 energy to a chosen creature of yours |
+| `guardiansCall` | Aeglet | any | Needs Aegiscelis in hand. Flip 1: heads, evolve into it now (damage, energy and chain kept) |
+| `guardian` | Aegiscelis | bench | During the opponent's next turn, the next attack on your active creature hits this Aegiscelis instead. It remembers the creature, not the bench slot; if it leaves the bench first, the protection ends |
+| `quickReflexes` | Toxiforge | any | Flip 2: both heads, the opponent can't attack on their next turn |
+| `celestialBlessing` | Rosalia | any | Heal a random damaged Celestial creature 30, either side |
+| `phaseShift` | Pheonyx | active | After this turn's attack, it switches to the bench (free) |
+| `extraCharge` | Antaray | any | Attach 1 extra energy to a Neutral creature of yours |
+| `gnawingPrecision` | Mousucklord | any | Deal 20 to an opposing creature; the user of the ability chooses which |
 
 ---
 
@@ -249,125 +303,125 @@ Each ability is used at most once per turn per creature, and only before attacki
 
 | Card | Behavior |
 |---|---|
-| Potion | Heal a chosen own creature 20 |
+| Potion | Heal a chosen creature of yours 20 |
 | Card Draw | Draw 2 |
-| Booster | Next attack this turn deals `+20` |
-| Power-Up | Attacks deal `+10` for the next 3 turns |
-| Remedy | Clear all status conditions from the own active creature |
-| Energy Antenna | Attach 1 energy to a chosen own Mechanic creature |
-| Revive Crystal | Return a chosen creature from the own discard pile to hand, fully reset |
-| Shield Barrier | Own side takes 20 less damage next turn |
-| Aura Crystal | Heal every damaged own creature 10 |
-| Healing Crystal | Heal a chosen damaged own Celestial creature 40 |
-| Disruptor | Opponent shuffles their hand into their deck and draws one fewer card |
-| Amulet | Own Neutral creatures deal `+20` for the next 2 turns |
-| Gale Shield | Own Wind creatures take 30 less damage next turn |
-| Mystic Scroll | Search the own deck for a Mystic Stage 1 and put it in hand; the turn then ends |
+| Booster | Your next attack this turn +20 |
+| Power-Up | Your next 3 attacks +10 |
+| Remedy | Clear your active creature's status conditions |
+| Energy Antenna | 1 energy to a chosen Mechanic creature of yours |
+| Revive Crystal | Return a chosen creature from your discard pile to hand, fully reset |
+| Shield Barrier | Your creatures take 20 less from the opponent's next attack |
+| Aura Crystal | Heal each of your damaged creatures 10 |
+| Healing Crystal | Heal a chosen damaged Celestial creature of yours 40 |
+| Disruptor | The opponent shuffles their hand into their deck and draws one fewer |
+| Amulet | Your Neutral creatures' attacks +20 for 2 of your turns |
+| Gale Shield | Your Wind creatures take 30 less from the opponent's next attack |
+| Mystic Scroll | Take a Mystic Stage 1 from your deck into your hand; your turn ends |
 
-Items require a legal target: an item with no valid target cannot be played and
-does not consume the turn's item slot.
+An item without a legal target can't be played and doesn't use the turn's item.
+Mirage Shield blocks all items while the opposing Planterdon is active. Each item
+used triggers every opposing Lumbertail's Energy Siphon.
 
 ---
 
 ## 6. Status conditions
 
-Status conditions exist **only on the active creature**. They are applied by
-attacks, and they are cleared when the creature leaves the active slot for any
-reason (retreat, Heavenly Retreat, forced swap, Phase Shift, knockout) and by Remedy.
-A creature promoted from the bench always arrives clean.
+Status conditions only exist on the active creature. They come from attacks and
+are cleared when the creature leaves the active slot (retreat, switch, knockout)
+and by Remedy. A creature coming in from the bench always arrives clean.
+Evolving keeps them.
 
-| Status | Icon | Trigger | Effect |
-|---|---|---|---|
-| Hallucination | 😵 | When this creature attacks | Flip 1: heads → `+10` damage, tails → 40 self-damage |
-| Flux | ⚡ | When this side attaches energy | Flip 2: both tails → attachment blocked for the turn |
-| Lock | 🔒 | When this side uses an item | Flip 1: tails → the item is not spent and stays in hand |
+| Status | Effect |
+|---|---|
+| Hallucination 😵 | When it attacks, flip 1: heads +10 damage (only if the move deals damage), tails 40 self-damage |
+| Flux ⚡ | When you attach energy to it, flip 2: both tails, that energy is lost and the turn's attachment is used. Attaching to the bench doesn't flip |
+| Lock 🔒 | When you use an item, flip 1: tails, the item stays in hand but the turn's item is used |
 
-Application is gated by, in order: the target must be alive; Clarity Aura on the
-target's side blocks Hallucination; Hydration on the target blocks everything;
-Aqua Mirror on the target reflects the same status back onto the attacker.
-
-The Flux check happens once per turn. Once failed, energy attachment stays blocked
-for the remainder of that turn.
+Checks, in order: the target must be alive; Hydration on the target blocks
+everything; Clarity Aura on the target's side blocks Hallucination; nothing stacks;
+Aqua Mirror on the target gives the same status to the attacker (once, no
+ping-pong).
 
 ---
 
 ## 7. Turn lifecycle
 
-A "next turn" restriction is set on the affected side and cleared at the **end of
-that side's own turn**, so the restriction is felt for a full turn. This is the
-rule the project's steering doc calls out, and it now applies uniformly — including
-to Wing Slap and Quick Reflexes, which previously used a separate absolute
-`cantAttackUntilTurn` deadline.
+`endTurn` for the side whose turn is ending:
+1. Drop unspent this-turn bonuses (Booster, Phase Shift)
+2. Metalic Protection: each of its Steelspirits loses 20 HP, then knockouts
+3. Turn 30 just ended → the game ends on points
+4. Switch sides, turn counter +1
 
-Order of operations in `endTurn`:
+`beginTurn` for the side starting:
+1. Reset the turn budget (energy, attack, item, retreat, Flux check) and ability uses
+2. Roll the turn's energy type (Celestial if Starfall Strike landed)
+3. Draw 1 (not for the starter on turn 1)
+4. Announce what's in effect against it (Invincible Gambit, Quick Reflexes, Tidal Illusion, Mirage Shield, Wing Slap)
+5. Hand over to the AI if it's the AI's turn
 
-1. Decrement the ending side's Power-Up and Amulet counters
-2. Decrement the ending side's retreat locks, attack locks, and move cooldowns
-3. Clear the ending side's expiring restrictions: Tidal Illusion, Mirage Shield, Wing Slap, Quick Reflexes, Warrior Mode
-4. Advance Sprout Boost counters
-5. Switch sides and increment the turn counter
-6. Clear the starting side's protective auras that covered the opponent's turn: Guardian Mode, Clarity Aura, Camouflage, Metalic Protection, Hydration, Aqua Mirror
-7. Clear the starting side's `evolvedLastTurn`
-8. Reset per-turn flags for both sides: energy attached, has attacked, item used, Booster, Flux check, one-turn damage bonuses
-9. Reset every creature's `abilityUsedThisTurn`
-10. Clear the turn tracker
-11. Check the turn limit (>30 ends the game on points)
-12. Draw 1 for the side now starting
-13. Hand over to the AI if it is the AI's turn
+Nothing else needs clearing: every timed effect is a deadline, and always-on
+abilities are read from the board each time.
 
 ---
 
-## 8. Bug ledger
+## 8. Change ledger
 
-Behavior present in the old code that the refactor **deliberately changes**. All
-were confirmed by reading `script.js`; line numbers refer to the original file.
+Behavior that was deliberately changed, newest first.
 
-### Attacker/defender resolution
+### Ability and effect fixes (November 2026)
+
+| # | Before | Now |
+|---|---|---|
+| 40 | Most abilities were buttons that had to be pressed each turn, even when the card text describes something permanent | 23 abilities are always on (section 4); only the 8 whose text is a choice have a button |
+| 41 | Always-on bonuses stacked with several copies | One bonus per ability |
+| 42 | Guardian remembered a bench slot, so a swap could make a different creature take the hit | Remembers the Aegiscelis itself; ends if it leaves the bench |
+| 43 | Monk's Fury, Spectral Burst, Hard as Steel, Defense Aura and Caprine Guard were side-wide, so a creature switched in got the protection | Only the creature itself is protected |
+| 44 | Invincible Gambit stopped the opponent attacking at all | The opponent attacks normally but deals 0 damage, for one of their turns per heads; Zenethra's own damage is always 0 |
+| 45 | Overdrive Smash was blocked for 2 of its owner's turns | Blocked for 1 of its owner's turns (2 turns counting the opponent's) |
+| 46 | Bonuses (super effective, Booster, Warrior Mode...) turned 0-damage moves into damage | 0 stays 0; single-use bonuses aren't spent |
+| 47 | Oraclyon's Foresight Blast and Pantheraura's Mind Mirage flipped a coin for Hallucination | Always cause Hallucination, like Meditot's Mind Mirage |
+| 48 | Cloud Bounce could move energy to or from the active creature | Bench to bench only |
+| 49 | Energy Snatch took the energy type the creature held most of | A random one of its energy |
+| 50 | Energy Siphon was a button | Automatic whenever the opponent uses an item |
+| 51 | Guardian Mode had to be activated and only reduced attack damage | Reduces all damage to any of your creatures from the opponent |
+| 52 | Sprout Boost and Chill Recharge were lost when the creature evolved | Kept |
+| 53 | Metalic Protection cost 20 HP once, when pressed | Always on; 20 HP at the end of each of its owner's turns |
+| 54 | Healing Retreat had to be pressed before retreating | Heals on every move from active to bench, if damaged |
+| 55 | Camouflage didn't cover the side's own Risky Recoil | Covers all bench damage |
+| 56 | When the AI used Gnawing Precision, the player was asked to pick their own creature | The AI chooses |
+| 57 | The AI's status scoring looked up `'Hallucination'` but statuses are lowercase, so it never valued them | Lowercase keys |
+| 58 | Bench sweeps, Rainbow Strike, Gnawing Precision and Retaliation Stone ignored defensive and damage abilities | Same always-on rules as attacks (section 2) |
+
+### Earlier fixes
+
+| # | Before | Now |
+|---|---|---|
+| 30 | Healing Sap only healed the attacker | Heals 30 on each damaged creature of yours |
+| 31 | Energy was generic | Typed energy, typed move costs |
+| 32 | The player going first could attack on turn 1 | The starter can't attack and skips the turn-1 draw |
+| 33 | Retreat could be repeated in one turn | Once per turn |
+
+### From the original refactor
 
 | # | Old behavior | New behavior |
 |---|---|---|
-| 1 | 11 attacker-side effects were absent from the knockout path and silently dropped when the attack killed the defender: `invincibleGambit`, `tidalIllusion`, `cottonGuard`, `cloudBounce`, `sproutBoost`, `gulpSwap`, `mindRipple`, `tripleThreatFlip`, `spectralSlice`, `berryBurst`, `laughingLeaves` | Attacker-side halves always resolve; only defender-targeting halves are skipped |
-| 2 | `prismaticDive` was routed to the inline chain but only implemented in the survive branch, so its bench damage vanished on a knockout (3147, 7878) | Resolves in both cases |
-
-### Player/AI divergence
-
-| # | Old behavior | New behavior |
-|---|---|---|
-| 3 | Player's `mindMirage`, `etherealEcho`, `phantomPulse`, `dreamwave`, `dreamBooster` wrote `defender.hallucinating` raw (3255–3292), bypassing the AI's Clarity Aura; the AI's copies checked it | One gated application path for both sides |
-| 5 | The Overdrive Smash cooldown was checked only on the player path (2332) | Checked for both |
-| 6 | `aiConsiderRetreat` ignored `cantRetreat` and `cantRetreatTurns` (6388–6473), so Tempest Hold and Ethereal Snare did not bind the AI | One retreat-legality check for both |
-| 7 | The AI's `forcefulFlip` cleared only Hallucination (7773, 7960); the player's cleared all three | One status-clearing path |
-| 20 | The AI attack path omitted Cotton Guard entirely, so the player's Cotton Guard did not reduce AI damage | Single ordered reduction pipeline |
-| 21 | The AI attack path never read `amuletTurnsRemaining`, `chillRechargeBonus`, `sproutBoostActive`, or `thunderRushActive`, so the AI's Amulet, Chill Recharge, Sprout Boost and Thunder Rush had no effect | Single ordered bonus pipeline |
-| 19 | The AI's ability chains covered 20 of 31 abilities from the active slot and 15 from the bench; `absorbEnergy`, `energizedHealing1/2`, `caprineGuard`, `elementalFortitude`, `gnawingPrecision`, `hydration`, `aquaMirror` were never used by the AI | One registry; every ability is available to both sides, with a per-ability AI heuristic |
-
-### Dead or incorrect implementations
-
-| # | Old behavior | New behavior |
-|---|---|---|
-| 4 | `guardiansCall` built a replacement card without `evolutionChain`, `evolutionId` or `statusConditions` (5127, 5586, 5807), so the pre-evolution card never reached the discard pile and the creature could be evolved again the same turn | Goes through the shared evolution routine |
-| 8 | `case 'caffeineAddiction'` appeared twice in `handleMoveEffectBeforeKnockout` (3754, 3883); the second was dead | One definition |
-| 9 | `caffeineAddiction` (4501) and `psychicProwl` (4655, 4658) wrote the legacy booleans instead of the status manager, so those statuses never entered the status set | All status goes through one API |
-| 11 | `useMysticScrollCard` filtered the deck as if it held card objects (`c.data.stage`) but the deck holds id strings, so it always failed, wasted the card and ended the turn | Resolves ids correctly |
-| 13 | `cloudBounce` was a no-op that only printed a message | Implemented as an energy move between own creatures |
-| 14 | `healingRoots`, `minorMend`, `majorMend`, `planetBurst`, `healingSap`, `chillRecharge`, `caffeineAddiction`, `berryBurst`, `laughingLeaves` and `celestialBlessing` all decremented `damage` directly, bypassing `healCreature()`, so Absorb Energy never triggered from them | All healing goes through one function |
-| 22 | `hydration` and `aquaMirror` set flags that were never read anywhere — the two abilities did nothing | Implemented in the status application gate |
-| 12 | `useReviveCrystalCard` and `scavengeStrike` auto-picked the first candidate while telling the player to choose | The player chooses; the AI picks by heuristic |
-
-### Lifecycle and state
-
-| # | Old behavior | New behavior |
-|---|---|---|
-| 15 | `resetAndStartNewGame` rebuilt the side objects with a subset of their fields and never cleared `turnTracker.evolvedIds`, so flags could leak into a new game | One factory builds a side; full reset |
-| 16 | The Overdrive cooldown check ran after the Hallucination flip was stored, so an aborted attack left a stale flip that applied to the next attack | All gating precedes the roll |
-| 17 | `checkAbilityUsable` never enforced `abilityLocation === 'bench'`; only the render path gated it | Location is enforced in the shared legality check |
-| 26 | **Introduced by this rewrite, then fixed.** The Ready button's enabled state was derived from a "is it the player's turn" test requiring `phase === 'playing'`. During setup the phase is `setup` and `currentTurn` is still `null`, so Ready was permanently disabled and the game could not be started. The engine fuzzer could not catch it because it bypasses the setup UI entirely. | Setup is handled explicitly in `Render.controls()`, and `test-ui.html` now asserts control state in every phase |
-| 18 | `absorbEnergy` and `energizedHealing` were one-shot per activation, but the CSVs describe them as continuous ("every time", "when this creature is healed") | Continuous while the creature is in play |
-
-### Content data
-
-| # | Old behavior | New behavior |
-|---|---|---|
-| 23 | Evolution matched on `prevStage` by **name**, and names are not unique (4 × Antheara, 2 × Meerkool) | Cards carry a resolved `prevStageId`; a startup validator rejects ambiguous links |
-| 24 | `Galactic Adventures_85` "Pantheraura" has `move1Name: "Mind Mirage"` but `move1Effect: "dreamBooster"` (a coin-flip version), which contradicts Mind Mirage on Meditot | Kept as-is (the CSV agrees), but the validator now reports name/effect mismatches as warnings |
-| 25 | README documented Galactic Adventures images as `_001.png`–`_086.png`; on disk they are `_01.png`–`_86.png` | Documentation corrected; the validator checks every id against the `cards/` folder |
+| 1 | 11 attacker-side effects were dropped when the attack knocked the defender out | Attacker-side effects always resolve |
+| 2 | `prismaticDive` bonus vanished on a knockout | A damage bonus, computed before damage |
+| 3 | Player's Hallucination moves bypassed Clarity Aura | One gated status path |
+| 4 | `guardiansCall` built a replacement card without its evolution chain | Uses the shared evolution routine |
+| 5 | Overdrive Smash cooldown was only checked for the player | Checked for both |
+| 6 | The AI ignored retreat locks | One retreat-legality check |
+| 7 | The AI's `forcefulFlip` cleared only Hallucination | One status-clearing path |
+| 8–9 | Duplicate `caffeineAddiction` case; status written to legacy booleans | One definition; one status API |
+| 11 | Mystic Scroll always failed | Reads deck ids correctly |
+| 12 | Revive Crystal and Scavenge Strike auto-picked while asking the player | The player chooses |
+| 13 | `cloudBounce` did nothing | Implemented |
+| 14 | Several heals bypassed `healCreature()`, so Absorb Energy missed them | All healing goes through one function |
+| 15 | New games could inherit flags | One factory, full reset |
+| 16 | An aborted attack left a stale Hallucination flip | All gating before the roll |
+| 17 | Bench-only abilities could be used from the active slot | Location enforced in one check |
+| 19 | The AI never used 8 abilities | One registry for both sides |
+| 20–21 | The AI's attacks skipped Cotton Guard, Amulet, Chill Recharge, Sprout Boost, Thunder Rush | One ordered pipeline |
+| 22 | Hydration and Aqua Mirror did nothing | Implemented in the status gate |
+| 23 | Evolution matched by name (names repeat) | Matched by card id, validated at startup |
+| 26 | Ready button stuck disabled in setup | Fixed, covered by `test-ui.html` |

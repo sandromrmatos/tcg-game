@@ -64,34 +64,25 @@ function createSideFlags() {
         booster: false,             // Booster item: +20 to one attack
         powerUpAttacks: 0,          // Power-Up item: +10 to the next 3 attacks
         amuletUntil: null,          // Amulet item: +20 for Neutral attackers
-        auraOfStrengthBonus: 0,     // cleared at the end of this side's turn
-        sturdyPresenceBonus: 0,
-        warriorModeBonus: 0,
-        thunderRush: false,         // doubles this turn's attack
+        // Always-on abilities (Aura of Strength, Warrior Mode, Guardian Mode,
+        // Camouflage, Mirage Shield...) keep no flags: the rules check the
+        // board each time. See creaturesWithAbility() in abilities.js.
 
         // --- Damage reduction -----------------------------------------------
         // { amount, until } records keyed by id. See grantSideShield().
-        // monksFury | spectralBurst | defenseAura | hardAsSteel |
-        // shieldBarrier | galeShield | caprineGuard
+        // shieldBarrier | galeShield
         shields: {},
-
-        // --- Protective auras, each an absolute turn deadline ---------------
-        guardianModeUntil: null,    // -10 to all damage this side takes
-        clarityAuraUntil: null,     // blocks Hallucination on this side
-        camouflageUntil: null,      // this side's bench cannot be damaged
 
         // --- Restrictions on THIS side, as absolute deadlines --------------
         cantAttackUntil: null,      // Quick Reflexes
         cantDealDamageUntil: null,  // Tidal Illusion
-        cantUseItemsUntil: null,    // Mirage Shield
-        invincibleLockUntil: null,  // Invincible Gambit
+        invincibleLockUntil: null,  // Invincible Gambit: the OTHER side deals no damage
         forcedEnergyType: null,     // Starfall Strike: next turn's energy is this type
         forcedEnergyUntil: null,
 
         // --- Misc -----------------------------------------------------------
-        rainbowStrike: false,       // this turn's attack also hits the bench
         phaseShift: false,          // must swap out after attacking
-        guardianIndex: null,        // bench slot soaking damage for the active
+        guardianCard: null,         // the bench Aegiscelis soaking the next hit (Guardian)
         guardianUntil: null,
         usedItemOnTurn: null,       // turn number, read by Energy Siphon
         evolvedOnTurn: null,        // turn number, read by Thunder Rush
@@ -108,20 +99,8 @@ function createCreatureFlags() {
         cooldowns: {},              // effectId -> deadline (Overdrive Smash)
 
         // --- Damage reduction attached to this creature --------------------
-        // mindRipple | cottonGuard | elementalFortitude
+        // mindRipple | cottonGuard | monksFury | spectralBurst
         shields: {},
-
-        // --- Protective auras ----------------------------------------------
-        metalicProtectionUntil: null,  // immune to Mechanic damage
-        hydrationUntil: null,          // immune to status conditions
-        aquaMirrorUntil: null,         // reflects status back at the attacker
-
-        // --- Reactive / continuous while in play ---------------------------
-        retaliationStone: false,    // deals 20 back when damaged
-        absorbEnergy: false,        // healing also attaches energy
-        energizedHealing: 0,        // energy attachment also heals this much
-        healingRetreat: 0,          // heals this much when retreating
-        guardian: false,            // soaks damage for the active creature
 
         // --- Queued bonuses for this creature's next attack ----------------
         chillRecharge: false,       // +20
@@ -228,13 +207,22 @@ function addEnergyUnits(card, type, count = 1) {
  * creature's own moves need least: types its moves never name first, then
  * whichever type it holds most of.
  */
-function takeEnergyUnits(card, count = 1) {
+function takeEnergyUnits(card, count = 1, { random = false } = {}) {
     const removed = [];
     if (!card) return removed;
     const wanted = energyTypesUsedBy(card.data);
     for (let i = 0; i < count; i++) {
         const held = ENERGY_TYPES.filter(t => card.energyUnits[t] > 0);
         if (held.length === 0) break;
+        if (random) {
+            // Every attached energy is equally likely (Energy Snatch).
+            const pool = [];
+            for (const t of held) for (let k = 0; k < card.energyUnits[t]; k++) pool.push(t);
+            const pick = Rng.pick(pool);
+            card.energyUnits[pick]--;
+            removed.push(pick);
+            continue;
+        }
         held.sort((a, b) =>
             (wanted.has(a) ? 1 : 0) - (wanted.has(b) ? 1 : 0) ||
             card.energyUnits[b] - card.energyUnits[a]);

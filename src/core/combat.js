@@ -34,7 +34,9 @@ async function chooseCreatureOf(side, opts = {}) {
     // A forced choice needs no interaction.
     if (candidates.length === 1 && !opts.cancellable) return candidates[0];
 
-    if (side === 'player' && !Automation.active) {
+    // Who decides: the board's owner, unless the caller says otherwise.
+    const chooser = opts.chooser || side;
+    if (chooser === 'player' && !Automation.active) {
         return await Prompt.chooseCreature({
             candidates,
             title: opts.title || 'Choose a creature',
@@ -104,13 +106,19 @@ function makeContext(side, extra = {}) {
         // --- board mutation, all funnelled through one implementation -----
         heal: (card, amount, opts = {}) =>
             healCreature(card, amount, Object.assign({ side: locateSideOf(card, side) }, opts)),
-        hit: (card, amount, opts = {}) =>
-            damageCreature(card, amount, opts),
+        // Damage to the other side's creatures records where it came from, so
+        // always-on abilities on both sides apply to it (adjustCrossDamage).
+        hit: (card, amount, opts = {}) => {
+            const targetSide = opts.side || locateSideOf(card, foe);
+            if (targetSide === side || opts.source) return damageCreature(card, amount, opts);
+            const source = { card: extra.attacker || extra.card || null, side, kind: extra.move ? 'move' : 'ability' };
+            return damageCreature(card, amount, Object.assign({}, opts, { source }));
+        },
         // `type` is optional: without it the energy is one of the owner's deck types.
         energy: (card, count = 1, ownerSide, type) =>
             attachEnergyTo(card, count, { side: ownerSide || locateSideOf(card, side), type }),
-        unenergy: (card, count = 1, ownerSide, removedTypes) =>
-            discardEnergyFrom(card, count, { side: ownerSide || locateSideOf(card, side), removedTypes }),
+        unenergy: (card, count = 1, ownerSide, removedTypes, random = false) =>
+            discardEnergyFrom(card, count, { side: ownerSide || locateSideOf(card, side), removedTypes, random }),
 
         // --- status, always gated by Status.apply -------------------------
         status: (card, statusName) => Status.apply(card, statusName, {
@@ -120,7 +128,9 @@ function makeContext(side, extra = {}) {
 
         // --- choices --------------------------------------------------------
         chooseMyCreature: opts => chooseCreatureOf(side, opts),
-        chooseTheirCreature: opts => chooseCreatureOf(foe, opts),
+        // This side picks one of the OTHER side's creatures (Gnawing Precision):
+        // the player chooses when the player acts, the AI when the AI acts.
+        chooseTheirCreature: opts => chooseCreatureOf(foe, Object.assign({}, opts, { chooser: side })),
         chooseCreatureOf: (whichSide, opts) => chooseCreatureOf(whichSide, opts),
         chooseCard: opts => chooseCardOf(side, opts),
         chooseCardOf: (whichSide, opts) => chooseCardOf(whichSide, opts)
@@ -277,14 +287,18 @@ async function resolveAttack(side, moveNumber) {
  * Returns true if the damage was redirected.
  */
 async function applyGuardianRedirect(ctx) {
-    const index = ctx.them.flags.guardianIndex;
-    if (index === null || index === undefined) return false;
-    if (!Timing.active(ctx.them.flags.guardianUntil)) return false;
-
-    const guard = ctx.them.bench[index];
-    ctx.them.flags.guardianIndex = null;
+    const guard = ctx.them.flags.guardianCard;
+    if (!guard || !Timing.active(ctx.them.flags.guardianUntil)) return false;
+    if (!(ctx.damage > 0)) return false;
+    // It is the creature that used Guardian that protects, and only while it
+    // is still on the bench: after a swap or a knockout the protection ends.
+    if (!ctx.them.bench.includes(guard) || isFainted(guard)) {
+        ctx.them.flags.guardianCard = null;
+        ctx.them.flags.guardianUntil = null;
+        return false;
+    }
+    ctx.them.flags.guardianCard = null;
     ctx.them.flags.guardianUntil = null;
-    if (!guard) return false;
 
     await Log.say(
         `${creatureName(guard, ctx.foe)} steps in and takes the hit!`,
@@ -302,8 +316,9 @@ async function applyGuardianRedirect(ctx) {
 
 /** Retaliation Stone: the defender strikes back for 20 if it was damaged. */
 async function applyRetaliationStone(ctx) {
-    if (!ctx.defender.flags.retaliationStone || ctx.damage <= 0) return;
-    ctx.defender.flags.retaliationStone = false;
+    // Always on: every attack that damages it is answered.
+    if (!cardAbilityOn(ctx.defender, 'retaliationStone') || !(ctx.damage > 0)) return;
+    AbilityRegistry.noteTriggered('retaliationStone');
     await Log.say(
         `${creatureName(ctx.defender, ctx.foe)}'s Retaliation Stone strikes back!`,
         { kind: 'ability', icon: '💎' }
@@ -311,21 +326,26 @@ async function applyRetaliationStone(ctx) {
     await damageCreature(ctx.attacker, 20, {
         side: ctx.side,
         location: 'active',
-        reason: 'Retaliation Stone'
+        reason: 'Retaliation Stone',
+        source: { card: ctx.defender, side: ctx.foe, kind: 'ability' }
     });
 }
 
-/** Rainbow Strike: the attack also clips a random enemy bench creature. */
+/** Rainbow Strike (always on): every attack also clips a random enemy bench creature. */
 async function applyRainbowStrike(ctx) {
-    if (!ctx.me.flags.rainbowStrike) return;
-    ctx.me.flags.rainbowStrike = false;
+    if (!cardAbilityOn(ctx.attacker, 'rainbowStrike')) return;
 
     const bench = benchCreatures(ctx.foe);
     if (bench.length === 0) return;
 
+    AbilityRegistry.noteTriggered('rainbowStrike');
     const target = Rng.pick(bench);
     await Log.say(`Rainbow Strike arcs to the bench!`, { kind: 'ability', icon: '🌈' });
-    await damageCreature(target, 30, { side: ctx.foe, location: 'bench' });
+    await damageCreature(target, 30, {
+        side: ctx.foe,
+        location: 'bench',
+        source: { card: ctx.attacker, side: ctx.side, kind: 'move' }
+    });
 }
 
 /** Hallucination tails: the attacker hurts itself. */

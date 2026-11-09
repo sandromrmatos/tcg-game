@@ -10,13 +10,24 @@
 // Hydration or Aqua Mirror at all — and the last two did nothing for either
 // side, because their flags were written but never read.
 //
-// Each entry may define:
-//   requires(ctx) -> {ok, reason}   extra legality beyond the shared checks
-//   use(ctx)                        the effect (async)
-//   aiWants(ctx) -> boolean         whether the AI should use it now
+// Two kinds of ability, following the card text:
 //
-// `abilityLocation` on the card is authoritative for where it may be used, so
-// that rule lives in data, not code.
+//   * ACTIVATED — the text describes a choice ("you may", "flip a coin",
+//     "attach an energy", "deal 20 damage to any creature"). The player presses
+//     a button, once per turn, before attacking. Entries define:
+//       requires(ctx) -> {ok, reason}   extra legality beyond the shared checks
+//       use(ctx)                        the effect (async)
+//       aiWants(ctx) -> boolean         whether the AI should use it now
+//
+//   * ALWAYS ON (`passive: true`) — the text describes a standing rule ("this
+//     creature takes 30 less damage", "your bench can't be damaged"). There is
+//     no button; the rule is read where it applies (damage.js, heal.js,
+//     status.js, combat.js, timing.js, actions.js, items.js, turn.js) through
+//     cardAbilityOn() / sideHasAbility() below.
+//
+// `abilityLocation` on the card is authoritative for where an ability works:
+// where an activated one can be used from, and where an always-on one is in
+// effect ('active', 'bench' or 'any').
 //
 // ADDING AN ABILITY FOR A NEW SET: one register() call. validate.js fails at
 // startup if a card names an ability id that isn't here.
@@ -44,6 +55,21 @@ const AbilityRegistry = {
         return Array.from(this.abilities.keys());
     },
 
+    /** True for an always-on ability: it has no button and is never "used". */
+    isPassive(id) {
+        const def = this.get(id);
+        return !!(def && def.passive);
+    },
+
+    /**
+     * Called by the rules each time an always-on ability changes something,
+     * so the test harness can report which ones were exercised.
+     */
+    triggered: new Map(),
+    noteTriggered(id) {
+        this.triggered.set(id, (this.triggered.get(id) || 0) + 1);
+    },
+
     /**
      * The shared legality check. Both the ability buttons and the AI call this,
      * so a button is never offered for something the rules forbid.
@@ -52,6 +78,9 @@ const AbilityRegistry = {
     canUse(card, side, location) {
         if (!card || !card.data.abilityEffect) {
             return { ok: false, reason: 'No ability.' };
+        }
+        if (this.isPassive(card.data.abilityEffect)) {
+            return { ok: false, reason: `${card.data.abilityName} is always on: there is nothing to activate.` };
         }
         if (gameState.phase !== 'playing') {
             return { ok: false, reason: 'Not in play.' };
@@ -150,35 +179,95 @@ function damagedCreatures(side, typeFilter) {
         c.damage > 0 && (!typeFilter || getCardType(c.data) === typeFilter));
 }
 
-/** Grants a side-wide shield and announces it. */
-function sideShieldAbility(key, amount, description) {
-    return {
-        async use(ctx) {
-            grantSideShield(ctx.side, key, amount);
-            await ctx.say(
-                `${possessive(ctx.side)} creatures take ${amount} less damage next turn ${description}.`,
-                { kind: 'ability', icon: '🛡️' }
-            );
-        }
-    };
+// ---------------------------------------------------------------------------
+// Always-on abilities: where the rules ask "is this in effect right now?"
+// ---------------------------------------------------------------------------
+
+/** Does this card's ability work at this board location? */
+function abilityWorksAt(card, location) {
+    const where = card.data.abilityLocation || 'any';
+    return where === 'any' || where === location;
+}
+
+/** This creature has ability `id` and is standing where it works. */
+function hasAbilityAt(card, id, location) {
+    return !!card && !!card.data && card.data.abilityEffect === id && abilityWorksAt(card, location);
+}
+
+/** This creature is in play, has ability `id`, and it is in effect where it stands. */
+function cardAbilityOn(card, id) {
+    if (!card || !card.data || card.data.abilityEffect !== id) return false;
+    const spot = locateCard(card);
+    return !!spot && abilityWorksAt(card, spot.location);
+}
+
+/** A side's creatures whose always-on ability `id` is currently in effect. */
+function creaturesWithAbility(side, id) {
+    const s = gameState[side];
+    if (!s) return [];
+    const out = [];
+    if (hasAbilityAt(s.active, id, 'active')) out.push(s.active);
+    for (const card of s.bench) if (hasAbilityAt(card, id, 'bench')) out.push(card);
+    return out;
+}
+
+function sideHasAbility(side, id) {
+    return creaturesWithAbility(side, id).length > 0;
+}
+
+/** Healing Retreat and Energized Healing come in two strengths. */
+const PASSIVE_AMOUNTS = {
+    healingRetreat1: 20,
+    healingRetreat2: 40,
+    energizedHealing1: 10,
+    energizedHealing2: 20
+};
+
+/** Registers an always-on ability. `summary` is shown in the creature panel. */
+function passiveAbility(summary) {
+    return { passive: true, summary };
 }
 
 // ===========================================================================
 // ELEMENTAL AWAKENING
 // ===========================================================================
 
-AbilityRegistry.register('defenseAura', sideShieldAbility(
-    'defenseAura', 10, 'from the next attack'));
+// --- Always on ---------------------------------------------------------------
 
-AbilityRegistry.register('hardAsSteel', Object.assign(
-    sideShieldAbility('hardAsSteel', 30, 'from Mechanic and Neutral attackers'),
-    {
-        aiWants(ctx) {
-            const attackerType = ctx.them.active ? getCardType(ctx.them.active.data) : null;
-            return attackerType === 'Mechanic' || attackerType === 'Neutral';
-        }
-    }
-));
+// "While in the active position, it takes 10 less damage from attacks."
+AbilityRegistry.register('defenseAura', passiveAbility(
+    'While this creature is active, it takes 10 less damage from attacks.'));
+
+// "This creature takes 30 less damage from neutral and mechanic creatures."
+AbilityRegistry.register('hardAsSteel', passiveAbility(
+    'This creature takes 30 less damage from Neutral and Mechanic creatures.'));
+
+// "When this creature is in play, all of your attacks deal 20 more damage."
+AbilityRegistry.register('sturdyPresence', passiveAbility(
+    'While this creature is in play, all your attacks deal 20 more damage.'));
+
+// "Boosts the damage of any of your active creature attacks by 30 if you have
+// a full bench."
+AbilityRegistry.register('auraOfStrength', passiveAbility(
+    'While this creature is in play and your bench is full, your attacks deal 30 more damage.'));
+
+// "Prevents all of your creatures from getting the Hallucination status condition."
+AbilityRegistry.register('clarityAura', passiveAbility(
+    'While this creature is in play, your creatures cannot get Hallucination.'));
+
+// "Your bench creatures can't be damaged."
+AbilityRegistry.register('camouflage', passiveAbility(
+    'While this creature is in play, your bench creatures cannot be damaged.'));
+
+// "When attacking, also deal 30 damage to a random creature from the opponent's bench."
+AbilityRegistry.register('rainbowStrike', passiveAbility(
+    'Whenever this creature attacks, it also deals 30 damage to a random opposing bench creature.'));
+
+// "Whenever your opponent uses an item card, attach one energy to this creature."
+AbilityRegistry.register('energySiphon', passiveAbility(
+    'Whenever your opponent uses an item, this creature gets 1 energy.'));
+
+// --- Activated (the card text is a choice) ------------------------------------
 
 AbilityRegistry.register('resourcefulRecovery', {
     async use(ctx) {
@@ -194,21 +283,6 @@ AbilityRegistry.register('resourcefulRecovery', {
         });
         if (target) await ctx.energy(target.card, 1, ctx.side, type);
     }
-});
-
-AbilityRegistry.register('auraOfStrength', {
-    requires(ctx) {
-        if (benchCreatures(ctx.side).length < BENCH_SIZE) {
-            return { ok: false, reason: 'Aura of Strength needs a full bench of 3 creatures.' };
-        }
-        return { ok: true };
-    },
-    async use(ctx) {
-        ctx.me.flags.auraOfStrengthBonus = 30;
-        await ctx.say(`${possessive(ctx.side)} attacks deal +30 damage this turn.`,
-            { kind: 'ability', icon: '⬆️' });
-    },
-    aiWants: ctx => sideWillAttackThisTurn(ctx.side)
 });
 
 // "Flip a coin. If heads, evolve this creature immediately."
@@ -245,15 +319,13 @@ AbilityRegistry.register('guardiansCall', {
     }
 });
 
-/** Index in hand of a card that evolves `card`, or -1. */
-function findEvolutionInHand(side, card) {
-    return gameState[side].hand.findIndex(
-        h => isCreature(h.data) && isEvolutionOf(h.data, card.data));
-}
-
+// "Protects the active creature, taking damage on their behalf." A choice made
+// from the bench each turn: during the opponent's next turn, the next attack
+// on the active creature hits this Aegiscelis instead. It remembers the
+// creature, not the bench slot, so a swap can't put someone else in its place.
 AbilityRegistry.register('guardian', {
     async use(ctx) {
-        ctx.me.flags.guardianIndex = ctx.index;
+        ctx.me.flags.guardianCard = ctx.card;
         ctx.me.flags.guardianUntil = Timing.throughOpponentTurn();
         await ctx.say(
             `${creatureName(ctx.card, ctx.side)} will take the next hit meant for the active creature.`,
@@ -267,17 +339,11 @@ AbilityRegistry.register('guardian', {
     }
 });
 
-AbilityRegistry.register('energySiphon', {
-    requires(ctx) {
-        if (ctx.them.flags.usedItemOnTurn !== gameState.turnNumber - 1) {
-            return { ok: false, reason: 'Energy Siphon needs the opponent to have used an item last turn.' };
-        }
-        return { ok: true };
-    },
-    async use(ctx) {
-        await ctx.energy(ctx.card, 1);
-    }
-});
+/** Index in hand of a card that evolves `card`, or -1. */
+function findEvolutionInHand(side, card) {
+    return gameState[side].hand.findIndex(
+        h => isCreature(h.data) && isEvolutionOf(h.data, card.data));
+}
 
 AbilityRegistry.register('quickReflexes', {
     async use(ctx) {
@@ -289,16 +355,6 @@ AbilityRegistry.register('quickReflexes', {
         ctx.them.flags.cantAttackUntil = Timing.opponentTurns(1);
         await ctx.say(`${subject(ctx.foe)} cannot attack next turn!`,
             { kind: 'status', icon: '🚫' });
-    }
-});
-
-AbilityRegistry.register('clarityAura', {
-    async use(ctx) {
-        ctx.me.flags.clarityAuraUntil = Timing.throughOpponentTurn();
-        await ctx.say(
-            `${possessive(ctx.side)} creatures are shielded from Hallucination next turn.`,
-            { kind: 'ability', icon: '✨' }
-        );
     }
 });
 
@@ -330,38 +386,8 @@ AbilityRegistry.register('celestialBlessing', {
     }
 });
 
-AbilityRegistry.register('sturdyPresence', {
-    async use(ctx) {
-        ctx.me.flags.sturdyPresenceBonus = 20;
-        await ctx.say(`${possessive(ctx.side)} attacks deal +20 damage this turn.`,
-            { kind: 'ability', icon: '⬆️' });
-    },
-    aiWants: ctx => sideWillAttackThisTurn(ctx.side)
-});
-
-AbilityRegistry.register('rainbowStrike', {
-    async use(ctx) {
-        ctx.me.flags.rainbowStrike = true;
-        await ctx.say(
-            `This turn's attack will also hit a random bench creature for 30.`,
-            { kind: 'ability', icon: '🌈' }
-        );
-    },
-    aiWants: ctx => sideWillAttackThisTurn(ctx.side) &&
-        benchCreatures(ctx.foe).length > 0
-});
-
-AbilityRegistry.register('camouflage', {
-    async use(ctx) {
-        ctx.me.flags.camouflageUntil = Timing.throughOpponentTurn();
-        await ctx.say(
-            `${possessive(ctx.side)} bench creatures cannot be damaged next turn.`,
-            { kind: 'ability', icon: '🍃' }
-        );
-    },
-    aiWants: ctx => benchCreatures(ctx.side).length > 0
-});
-
+// "The creature can move out of the active position and reappear on the bench
+// after an attack" — optional, so it stays a choice made before attacking.
 AbilityRegistry.register('phaseShift', {
     requires(ctx) {
         if (benchCreatures(ctx.side).length === 0) {
@@ -389,6 +415,71 @@ AbilityRegistry.register('phaseShift', {
 // GALACTIC ADVENTURES
 // ===========================================================================
 
+// --- Always on ---------------------------------------------------------------
+
+// "Reduces all damage taken by 10" — every creature on your side, from every
+// source your opponent controls (attacks, bench damage, abilities).
+AbilityRegistry.register('guardianMode', passiveAbility(
+    'While this creature is in play, all damage your creatures take from the opponent is reduced by 10.'));
+
+// "Increases all damage done by 10" — every attack, and every other damage
+// your side deals to the opponent's creatures.
+AbilityRegistry.register('warriorMode', passiveAbility(
+    'While this creature is in play, all damage your side deals to the opponent is increased by 10.'));
+
+// "When this creature retreats to the bench, it heals 20 / 40 HP."
+AbilityRegistry.register('healingRetreat1', passiveAbility(
+    'When this creature leaves the active spot for the bench, it heals 20 HP.'));
+AbilityRegistry.register('healingRetreat2', passiveAbility(
+    'When this creature leaves the active spot for the bench, it heals 40 HP.'));
+
+// "If this creature is in the active slot, your opponent can't use items."
+AbilityRegistry.register('mirageShield', passiveAbility(
+    'While this creature is active, your opponent cannot use items.'));
+
+// "Double the attack damage of this creature if your opponent evolved a
+// creature in the last turn."
+AbilityRegistry.register('thunderRush', passiveAbility(
+    "This creature's attack damage is doubled if your opponent evolved a creature on their last turn."));
+
+// "When this creature is healed, it also gains an additional Energy card."
+AbilityRegistry.register('absorbEnergy', passiveAbility(
+    'Whenever this creature is healed, it also gets 1 energy.'));
+
+// "Every time you attach energy to this creature, heal 10 / 20 HP."
+AbilityRegistry.register('energizedHealing1', passiveAbility(
+    'Whenever energy is attached to this creature, it heals 10 HP.'));
+AbilityRegistry.register('energizedHealing2', passiveAbility(
+    'Whenever energy is attached to this creature, it heals 20 HP.'));
+
+// "This creature can't be damaged by Mechanic attacks, but it loses 20 hp."
+// The 20 HP is lost at the end of each of its owner's turns (turn.js).
+AbilityRegistry.register('metalicProtection', passiveAbility(
+    'This creature cannot be damaged by Mechanic attacks, but it loses 20 HP at the end of each of your turns.'));
+
+// "This creature takes 40 less damage from moves by Celestial and Mystic creatures."
+AbilityRegistry.register('caprineGuard', passiveAbility(
+    'This creature takes 40 less damage from moves by Celestial and Mystic creatures.'));
+
+// "This creature takes 20 less damage from Wind and Mechanic-type creatures."
+AbilityRegistry.register('elementalFortitude', passiveAbility(
+    'This creature takes 20 less damage from Wind and Mechanic creatures.'));
+
+// "This creature is not affected by status conditions."
+AbilityRegistry.register('hydration', passiveAbility(
+    'While this creature is active, it cannot get status conditions.'));
+
+// "When damaged by an attack, it deals 20 damage back."
+AbilityRegistry.register('retaliationStone', passiveAbility(
+    'Whenever an attack damages this creature, it deals 20 damage back to the attacker.'));
+
+// "Reflects any status condition back to the attacking creature."
+AbilityRegistry.register('aquaMirror', passiveAbility(
+    'While this creature is active, any status condition it gets is also given to the attacker.'));
+
+// --- Activated (the card text is a choice) ------------------------------------
+
+// "Once during your turn, you may attach an additional energy to a neutral creature."
 AbilityRegistry.register('extraCharge', {
     requires(ctx) {
         const neutrals = creaturesInPlay(ctx.side)
@@ -409,94 +500,8 @@ AbilityRegistry.register('extraCharge', {
     }
 });
 
-AbilityRegistry.register('guardianMode', {
-    async use(ctx) {
-        ctx.me.flags.guardianModeUntil = Timing.throughOpponentTurn();
-        await ctx.say(
-            `${possessive(ctx.side)} creatures take 10 less damage next turn.`,
-            { kind: 'ability', icon: '🛡️' }
-        );
-    }
-});
-
-AbilityRegistry.register('warriorMode', {
-    async use(ctx) {
-        ctx.me.flags.warriorModeBonus = 10;
-        await ctx.say(`${possessive(ctx.side)} attacks deal +10 damage this turn.`,
-            { kind: 'ability', icon: '⬆️' });
-    },
-    aiWants: ctx => sideWillAttackThisTurn(ctx.side)
-});
-
-/** Healing Retreat comes in two strengths (Trunket 20, Elefeir 40). */
-function healingRetreatAbility(amount) {
-    return {
-        async use(ctx) {
-            ctx.card.flags.healingRetreat = amount;
-            await ctx.say(
-                `${creatureName(ctx.card, ctx.side)} will heal ${amount} HP when it retreats.`,
-                { kind: 'ability', icon: '🌿' }
-            );
-        },
-        // Only meaningful if it is damaged and could actually retreat.
-        aiWants(ctx) {
-            return ctx.card.damage > 0 && creatureCanRetreat(ctx.card, ctx.side).ok;
-        }
-    };
-}
-
-AbilityRegistry.register('healingRetreat1', healingRetreatAbility(20));
-AbilityRegistry.register('healingRetreat2', healingRetreatAbility(40));
-
-AbilityRegistry.register('mirageShield', {
-    async use(ctx) {
-        ctx.them.flags.cantUseItemsUntil = Timing.opponentTurns(1);
-        await ctx.say(`${subject(ctx.foe)} cannot use items next turn.`,
-            { kind: 'status', icon: '🔮' });
-    }
-});
-
-AbilityRegistry.register('thunderRush', {
-    requires(ctx) {
-        if (ctx.them.flags.evolvedOnTurn !== gameState.turnNumber - 1) {
-            return { ok: false, reason: 'Thunder Rush needs the opponent to have evolved last turn.' };
-        }
-        return { ok: true };
-    },
-    async use(ctx) {
-        ctx.me.flags.thunderRush = true;
-        await ctx.say(`${possessive(ctx.side)} attack damage is doubled this turn!`,
-            { kind: 'ability', icon: '⚡' });
-    },
-    aiWants: ctx => sideWillAttackThisTurn(ctx.side)
-});
-
-AbilityRegistry.register('absorbEnergy', {
-    async use(ctx) {
-        ctx.card.flags.absorbEnergy = true;
-        await ctx.say(
-            `${creatureName(ctx.card, ctx.side)} will gain energy whenever it is healed.`,
-            { kind: 'ability', icon: '⚡' }
-        );
-    }
-});
-
-/** Energized Healing comes in two strengths (Nebuleap 10, Comiscroaker 20). */
-function energizedHealingAbility(amount) {
-    return {
-        async use(ctx) {
-            ctx.card.flags.energizedHealing = amount;
-            await ctx.say(
-                `${creatureName(ctx.card, ctx.side)} will heal ${amount} HP whenever energy is attached to it.`,
-                { kind: 'ability', icon: '💧' }
-            );
-        }
-    };
-}
-
-AbilityRegistry.register('energizedHealing1', energizedHealingAbility(10));
-AbilityRegistry.register('energizedHealing2', energizedHealingAbility(20));
-
+// "Deal 20 damage to any creature from your opponent." The user of the
+// ability picks the target, so the AI chooses when the AI uses it.
 AbilityRegistry.register('gnawingPrecision', {
     requires(ctx) {
         if (creaturesInPlay(ctx.foe).length === 0) {
@@ -520,80 +525,5 @@ AbilityRegistry.register('gnawingPrecision', {
             reason: 'Gnawing Precision'
         });
         await resolveKnockouts();
-    }
-});
-
-AbilityRegistry.register('metalicProtection', {
-    async use(ctx) {
-        ctx.card.flags.metalicProtectionUntil = Timing.throughOpponentTurn();
-        await ctx.say(
-            `${creatureName(ctx.card, ctx.side)} hardens: immune to Mechanic damage next turn, at a cost of 20 HP.`,
-            { kind: 'ability', icon: '⚙️' }
-        );
-        await ctx.hit(ctx.card, 20, {
-            side: ctx.side,
-            location: ctx.location,
-            reason: 'Metalic Protection'
-        });
-        await resolveKnockouts();
-    },
-    // Costs 20 HP, so only when it survives it and the threat is Mechanic.
-    aiWants(ctx) {
-        if (remainingHp(ctx.card) <= 30) return false;
-        return creaturesInPlay(ctx.foe).some(c => getCardType(c.data) === 'Mechanic');
-    }
-});
-
-AbilityRegistry.register('caprineGuard', Object.assign(
-    sideShieldAbility('caprineGuard', 40, 'from Celestial and Mystic attackers'),
-    {
-        aiWants(ctx) {
-            const type = ctx.them.active ? getCardType(ctx.them.active.data) : null;
-            return type === 'Celestial' || type === 'Mystic';
-        }
-    }
-));
-
-AbilityRegistry.register('elementalFortitude', {
-    async use(ctx) {
-        grantCreatureShield(ctx.card, 'elementalFortitude', 20);
-        await ctx.say(
-            `${creatureName(ctx.card, ctx.side)} takes 20 less damage from Wind and Mechanic next turn.`,
-            { kind: 'ability', icon: '🛡️' }
-        );
-    },
-    aiWants(ctx) {
-        const type = ctx.them.active ? getCardType(ctx.them.active.data) : null;
-        return type === 'Wind' || type === 'Mechanic';
-    }
-});
-
-AbilityRegistry.register('hydration', {
-    async use(ctx) {
-        ctx.card.flags.hydrationUntil = Timing.throughOpponentTurn();
-        await ctx.say(
-            `${creatureName(ctx.card, ctx.side)} is immune to status conditions next turn.`,
-            { kind: 'ability', icon: '💧' }
-        );
-    }
-});
-
-AbilityRegistry.register('retaliationStone', {
-    async use(ctx) {
-        ctx.card.flags.retaliationStone = true;
-        await ctx.say(
-            `${creatureName(ctx.card, ctx.side)} will strike back for 20 if it is damaged.`,
-            { kind: 'ability', icon: '💎' }
-        );
-    }
-});
-
-AbilityRegistry.register('aquaMirror', {
-    async use(ctx) {
-        ctx.card.flags.aquaMirrorUntil = Timing.throughOpponentTurn();
-        await ctx.say(
-            `${creatureName(ctx.card, ctx.side)} will reflect any status condition back at the attacker.`,
-            { kind: 'ability', icon: '🪞' }
-        );
     }
 });

@@ -347,12 +347,24 @@ const Screens = {
 
         if (data.abilityEffect) {
             const box = el('div', 'creature-panel-ability');
-            const where = { any: 'Usable from the active spot or the bench', active: 'Usable from the active spot only', bench: 'Usable from the bench only' };
-            box.appendChild(el('div', 'creature-panel-ability-name', `✨ ${data.abilityName}`));
+            const passive = AbilityRegistry.isPassive(data.abilityEffect);
+            const where = passive
+                ? { any: 'Always on, from the active spot or the bench', active: 'Always on while in the active spot', bench: 'Always on while on the bench' }
+                : { any: 'Usable from the active spot or the bench', active: 'Usable from the active spot only', bench: 'Usable from the bench only' };
+            box.appendChild(el('div', 'creature-panel-ability-name',
+                `✨ ${data.abilityName}${passive ? ' (always on)' : ''}`));
             const text = typeof cardText === 'function' ? cardText(card.id, 'ability') : '';
             if (text) box.appendChild(el('p', 'creature-panel-ability-text', text));
             box.appendChild(el('p', 'creature-panel-ability-where', where[data.abilityLocation || 'any'] || ''));
 
+            if (passive) {
+                // Nothing to activate: the rules apply it automatically.
+                const def = AbilityRegistry.get(data.abilityEffect);
+                if (def && def.summary && def.summary !== text) {
+                    box.appendChild(el('p', 'creature-panel-ability-why', def.summary));
+                }
+                info.appendChild(box);
+            } else {
             const check = gameState.busy
                 ? { ok: false, reason: 'Wait for the current action to finish.' }
                 : AbilityRegistry.canUse(card, 'player', location);
@@ -367,6 +379,7 @@ const Screens = {
             };
             box.appendChild(use);
             info.appendChild(box);
+            }
         } else {
             info.appendChild(el('p', 'creature-panel-meta', 'This creature has no ability.'));
         }

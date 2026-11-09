@@ -21,7 +21,15 @@ const RAID_BOSSES = [
     { id: 'babybara',  cardId: 'Elemental Awakening_34.png' },
     { id: 'alpakina',  cardId: 'Elemental Awakening_39.png' },
     { id: 'aloebud',   cardId: 'Elemental Awakening_47.png' },
-    { id: 'aeglet',    cardId: 'Elemental Awakening_63.png' }
+    { id: 'aeglet',    cardId: 'Elemental Awakening_63.png' },
+    { id: 'spiritfoil', cardId: 'Elemental Awakening_12.png' },
+    { id: 'teklash',    cardId: 'Galactic Adventures_02.png' },
+    { id: 'starraffe',  cardId: 'Galactic Adventures_11.png' },
+    { id: 'airsting',   cardId: 'Galactic Adventures_15.png' },
+    { id: 'mystaeon',   cardId: 'Galactic Adventures_21.png' },
+    { id: 'mousuckler', cardId: 'Galactic Adventures_45.png' },
+    { id: 'cockatrike', cardId: 'Galactic Adventures_48.png' },
+    { id: 'ectomango',  cardId: 'Galactic Adventures_65.png' }
 ];
 
 const RAID_STRONG_CARDS = {

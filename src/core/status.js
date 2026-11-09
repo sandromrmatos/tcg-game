@@ -78,7 +78,9 @@ const Status = {
             return false;
         }
 
-        if (Timing.active(card.flags.hydrationUntil)) {
+        // Hydration (always on, while active): no status conditions at all.
+        if (cardAbilityOn(card, 'hydration')) {
+            AbilityRegistry.noteTriggered('hydration');
             await Log.say(
                 `${creatureName(card, targetSide)} is protected from ${condition.name} by Hydration!`,
                 { kind: 'status', icon: '💧' }
@@ -86,8 +88,10 @@ const Status = {
             return false;
         }
 
+        // Clarity Aura (always on, while in play): the whole side is immune to Hallucination.
         if (condition.blockedByClarityAura && targetSide &&
-            Timing.active(gameState[targetSide].flags.clarityAuraUntil)) {
+            sideHasAbility(targetSide, 'clarityAura')) {
+            AbilityRegistry.noteTriggered('clarityAura');
             await Log.say(
                 `${creatureName(card, targetSide)} is protected from ${condition.name} by Clarity Aura!`,
                 { kind: 'status', icon: '✨' }
@@ -107,10 +111,13 @@ const Status = {
             { kind: 'status', icon: condition.icon }
         );
 
-        // Aqua Mirror sends the same condition back at the attacker.
-        if (Timing.active(card.flags.aquaMirrorUntil) && !opts.reflected && opts.attackerSide) {
+        // Aqua Mirror (always on, while active) sends the same condition back
+        // at the attacker.
+        if (cardAbilityOn(card, 'aquaMirror') && !opts.reflected && opts.attackerSide &&
+            opts.attackerSide !== targetSide) {
             const attacker = gameState[opts.attackerSide].active;
             if (attacker) {
+                AbilityRegistry.noteTriggered('aquaMirror');
                 await Log.say(
                     `${creatureName(card, targetSide)}'s Aqua Mirror reflects ${condition.name}!`,
                     { kind: 'status', icon: '🪞' }

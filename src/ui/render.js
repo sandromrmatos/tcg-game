@@ -288,7 +288,9 @@ function buildCreature(card, side, location, index) {
         const badge = document.createElement('span');
         badge.className = 'ability-badge';
         badge.textContent = '✨';
-        badge.title = `Ability: ${card.data.abilityName}. Tap the card to see it.`;
+        badge.title = AbilityRegistry.isPassive(card.data.abilityEffect)
+            ? `Ability: ${card.data.abilityName} (always on). Tap the card to see it.`
+            : `Ability: ${card.data.abilityName}. Tap the card to see it.`;
         wrap.appendChild(badge);
     }
     if (side === 'player') {
@@ -492,7 +494,8 @@ function creatureChips(card) {
     const shieldLabels = {
         mindRipple: 'Mind Ripple',
         cottonGuard: 'Cotton Guard',
-        elementalFortitude: 'Elemental Fortitude (Wind / Mechanic)'
+        monksFury: "Monk's Fury",
+        spectralBurst: 'Spectral Burst'
     };
     for (const key of Object.keys(shieldLabels)) {
         const shield = readShield(f.shields, key);
@@ -501,35 +504,23 @@ function creatureChips(card) {
         }
     }
 
-    if (Timing.active(f.metalicProtectionUntil)) {
-        chips.push({ icon: '⚙️', label: 'Metalic Protection: immune to Mechanic damage', kind: 'good' });
+    // Always-on abilities show while they are in effect where the creature stands.
+    const passive = card.data.abilityEffect && AbilityRegistry.isPassive(card.data.abilityEffect)
+        ? AbilityRegistry.get(card.data.abilityEffect) : null;
+    if (passive && cardAbilityOn(card, card.data.abilityEffect)) {
+        chips.push({ icon: '✨', label: `${card.data.abilityName} (always on): ${passive.summary}`, kind: 'good' });
     }
-    if (Timing.active(f.hydrationUntil)) {
-        chips.push({ icon: '💧', label: 'Hydration: immune to status conditions', kind: 'good' });
-    }
-    if (Timing.active(f.aquaMirrorUntil)) {
-        chips.push({ icon: '🪞', label: 'Aqua Mirror: reflects status conditions', kind: 'good' });
-    }
-    if (f.retaliationStone) {
-        chips.push({ icon: '💎', label: 'Retaliation Stone: deals 20 back when damaged', kind: 'good' });
-    }
-    if (f.absorbEnergy) {
-        chips.push({ icon: '⚡', label: 'Absorb Energy: gains energy when healed', kind: 'good' });
-    }
-    if (f.energizedHealing > 0) {
-        chips.push({ icon: '💧', label: `Energized Healing: heals ${f.energizedHealing} when charged`, kind: 'good' });
-    }
-    if (f.healingRetreat > 0) {
-        chips.push({ icon: '🌿', label: `Healing Retreat: heals ${f.healingRetreat} on retreat`, kind: 'good' });
-    }
+
     if (f.chillRecharge) {
         chips.push({ icon: '❄️', label: 'Chill Recharge: next attack +20', kind: 'good' });
     }
     if (f.sproutBoostReady) {
         chips.push({ icon: '🌱', label: 'Sprout Boost: next attack +30', kind: 'good' });
     }
-    if (f.guardian) {
-        chips.push({ icon: '🛡️', label: 'Guarding the active creature', kind: 'good' });
+    const owner = locateCard(card);
+    if (owner && gameState[owner.side] && gameState[owner.side].flags.guardianCard === card &&
+        Timing.active(gameState[owner.side].flags.guardianUntil)) {
+        chips.push({ icon: '🛡️', label: 'Guardian: takes the next hit meant for the active creature', kind: 'good' });
     }
     if (Timing.active(f.cantAttackUntil)) {
         chips.push({ icon: '💤', label: `Cannot attack for ${Timing.describe(f.cantAttackUntil)}`, kind: 'bad' });
@@ -551,13 +542,8 @@ function sideChips(side) {
     const f = gameState[side].flags;
 
     const shieldLabels = {
-        monksFury: "Monk's Fury",
-        spectralBurst: 'Spectral Burst',
-        defenseAura: 'Defense Aura',
-        hardAsSteel: 'Hard as Steel (Mechanic / Neutral)',
         shieldBarrier: 'Shield Barrier',
-        galeShield: 'Gale Shield (Wind defenders)',
-        caprineGuard: 'Caprine Guard (Celestial / Mystic)'
+        galeShield: 'Gale Shield (Wind defenders)'
     };
     for (const key of Object.keys(shieldLabels)) {
         const shield = readShield(f.shields, key);
@@ -566,15 +552,6 @@ function sideChips(side) {
         }
     }
 
-    if (Timing.active(f.guardianModeUntil)) {
-        chips.push({ icon: '🛡️', label: 'Guardian Mode: -10 damage to all creatures', kind: 'good' });
-    }
-    if (Timing.active(f.clarityAuraUntil)) {
-        chips.push({ icon: '✨', label: 'Clarity Aura: immune to Hallucination', kind: 'good' });
-    }
-    if (Timing.active(f.camouflageUntil)) {
-        chips.push({ icon: '🍃', label: 'Camouflage: bench cannot be damaged', kind: 'good' });
-    }
     if (f.booster) {
         chips.push({ icon: '⬆️', label: 'Booster: next attack +20', kind: 'good' });
     }
@@ -584,26 +561,11 @@ function sideChips(side) {
     if (Timing.active(f.amuletUntil)) {
         chips.push({ icon: '⬆️', label: 'Amulet: Neutral creatures +20 damage', kind: 'good' });
     }
-    if (f.warriorModeBonus > 0) {
-        chips.push({ icon: '⬆️', label: `Warrior Mode: +${f.warriorModeBonus} damage this turn`, kind: 'good' });
-    }
-    if (f.sturdyPresenceBonus > 0) {
-        chips.push({ icon: '⬆️', label: `Sturdy Presence: +${f.sturdyPresenceBonus} damage this turn`, kind: 'good' });
-    }
-    if (f.auraOfStrengthBonus > 0) {
-        chips.push({ icon: '⬆️', label: `Aura of Strength: +${f.auraOfStrengthBonus} damage this turn`, kind: 'good' });
-    }
-    if (f.thunderRush) {
-        chips.push({ icon: '⚡', label: 'Thunder Rush: attack damage doubled this turn', kind: 'good' });
-    }
-    if (f.rainbowStrike) {
-        chips.push({ icon: '🌈', label: 'Rainbow Strike: attack also hits the bench', kind: 'good' });
-    }
     if (f.phaseShift) {
         chips.push({ icon: '🌀', label: 'Phase Shift: must switch out after attacking', kind: 'info' });
     }
     if (Timing.active(f.invincibleLockUntil)) {
-        chips.push({ icon: '🚫', label: `Cannot attack for ${Timing.describe(f.invincibleLockUntil)}`, kind: 'bad' });
+        chips.push({ icon: '🚫', label: `Deals no damage for ${Timing.describe(f.invincibleLockUntil)} (Invincible Gambit)`, kind: 'bad' });
     }
     if (Timing.active(f.cantAttackUntil)) {
         chips.push({ icon: '🚫', label: 'Cannot attack this turn (Quick Reflexes)', kind: 'bad' });
@@ -611,8 +573,9 @@ function sideChips(side) {
     if (Timing.active(f.cantDealDamageUntil)) {
         chips.push({ icon: '🌊', label: 'Deals no damage this turn (Tidal Illusion)', kind: 'bad' });
     }
-    if (Timing.active(f.cantUseItemsUntil)) {
-        chips.push({ icon: '🔮', label: 'Cannot use items this turn (Mirage Shield)', kind: 'bad' });
+    const foe = foeOf(side);
+    if (gameState[foe] && hasAbilityAt(gameState[foe].active, 'mirageShield', 'active')) {
+        chips.push({ icon: '🔮', label: 'Cannot use items (opponent\'s Mirage Shield)', kind: 'bad' });
     }
 
     return chips;

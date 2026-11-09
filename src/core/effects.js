@@ -422,7 +422,12 @@ EffectRegistry.register('healingRoots', selfHeal(20));
 EffectRegistry.register('minorMend', selfHeal(10));
 EffectRegistry.register('majorMend', selfHeal(20));
 EffectRegistry.register('planetBurst', selfHeal(10));
-EffectRegistry.register('healingSap', selfHeal(20));
+// "Heal 30 HP from each of your creatures that has damage." Always resolves.
+EffectRegistry.register('healingSap', {
+    async onResolve(ctx) {
+        await healAllOwnCreatures(ctx, 30, 'Healing Sap');
+    }
+});
 
 EffectRegistry.register('mindRipple', creatureShield('mindRipple', 20, 'Mind Ripple'));
 EffectRegistry.register('cottonGuard', creatureShield('cottonGuard', 20, 'Cotton Guard'));
@@ -465,23 +470,18 @@ EffectRegistry.register('monksFury', {
             await ctx.say('No shield raised.', { kind: 'info', pace: 0.5 });
             return;
         }
-        grantSideShield(ctx.side, 'monksFury', 20);
+        // "Next turn THIS creature takes 20 less damage": the shield sits on
+        // Metamonk, so a creature switched in afterwards isn't protected.
+        grantCreatureShield(ctx.attacker, 'monksFury', 20);
         await ctx.say(
-            `${possessive(ctx.side)} side takes 20 less damage next turn (Monk's Fury).`,
+            `${creatureName(ctx.attacker, ctx.side)} takes 20 less damage next turn (Monk's Fury).`,
             { kind: 'ability', icon: '🛡️' }
         );
     }
 });
 
-EffectRegistry.register('spectralBurst', {
-    async onResolve(ctx) {
-        grantSideShield(ctx.side, 'spectralBurst', 10);
-        await ctx.say(
-            `${possessive(ctx.side)} side takes 10 less damage next turn (Spectral Burst).`,
-            { kind: 'ability', icon: '🛡️' }
-        );
-    }
-});
+// "Next turn, this creature takes 10 less damage."
+EffectRegistry.register('spectralBurst', creatureShield('spectralBurst', 10, 'Spectral Burst'));
 
 EffectRegistry.register('tempestHold', {
     async onResolve(ctx) {
@@ -495,9 +495,11 @@ EffectRegistry.register('tempestHold', {
 
 EffectRegistry.register('overdriveSmash', {
     async onResolve(ctx) {
-        ctx.attacker.flags.cooldowns.overdriveSmash = Timing.myTurns(2);
+        // "Can't use this move next turn": blocked on its owner's next turn
+        // only, so it's available again the turn after.
+        ctx.attacker.flags.cooldowns.overdriveSmash = Timing.myTurns(1);
         await ctx.say(
-            `Overdrive Smash overheats and can't be used for 2 turns.`,
+            `Overdrive Smash overheats and can't be used next turn.`,
             { kind: 'info', icon: '🔧' }
         );
     }
@@ -578,7 +580,8 @@ EffectRegistry.register('energySnatch', {
                 { kind: 'info', pace: 0.5 });
             return;
         }
-        await ctx.unenergy(victim, 1, ctx.foe);
+        // "Discard a random energy": any of its attached energy, equally likely.
+        await ctx.unenergy(victim, 1, ctx.foe, null, true);
     }
 });
 
@@ -681,14 +684,16 @@ EffectRegistry.register('invincibleGambit', {
     async onResolve(ctx) {
         const { heads } = await ctx.flipMany(3, ctx.move.name);
         if (heads > 0) {
-            // Extend an existing lock rather than overwriting it, so a second
-            // cast adds turns instead of possibly shortening the first.
+            // "For each heads, your opponent can't deal damage for 1 turn":
+            // the opponent's next `heads` turns (their turns only; this
+            // side's turns in between don't count). Their moves still work,
+            // they just deal 0 damage (damage.js). A second cast adds turns.
             const current = ctx.them.flags.invincibleLockUntil;
             ctx.them.flags.invincibleLockUntil = Timing.active(current)
                 ? current + (2 * heads)
                 : Timing.opponentTurns(heads);
             await ctx.say(
-                `${subject(ctx.foe)} cannot attack for ${heads} turn${heads === 1 ? '' : 's'}!`,
+                `${subject(ctx.foe)} ${verb(ctx.foe, 'deals', 'deal')} no damage for ${heads} turn${heads === 1 ? '' : 's'}!`,
                 { kind: 'status', icon: '🚫' }
             );
         } else {
@@ -704,33 +709,28 @@ EffectRegistry.register('invincibleGambit', {
     }
 });
 
-// "Move an energy between your own creatures." Was a no-op in the original.
+// "Move an energy from one of your benched creatures to another" — bench to
+// bench only, and optional.
 EffectRegistry.register('cloudBounce', {
     async onResolve(ctx) {
-        const sources = creaturesInPlay(ctx.side).filter(c => c.energy > 0);
-        if (sources.length === 0 || creaturesInPlay(ctx.side).length < 2) {
-            await ctx.say('No energy to move.', { kind: 'info', pace: 0.5 });
+        const bench = benchCreatures(ctx.side);
+        if (bench.length < 2 || !bench.some(c => c.energy > 0)) {
+            await ctx.say('No energy to move between bench creatures.', { kind: 'info', pace: 0.5 });
             return;
         }
         const from = await ctx.chooseMyCreature({
-            title: 'Move energy FROM which creature?',
-            filter: c => c.card.energy > 0,
+            title: 'Move energy FROM which bench creature?',
+            filter: c => c.location === 'bench' && c.card.energy > 0,
             cancellable: true,
-            aiPick: candidates => {
-                // Prefer taking from a bench creature that is not about to attack.
-                const bench = candidates.filter(c => c.location === 'bench');
-                return (bench.length ? bench : candidates)
-                    .slice()
-                    .sort((a, b) => b.card.energy - a.card.energy)[0];
-            }
+            aiPick: candidates => candidates.slice().sort((a, b) => b.card.energy - a.card.energy)[0]
         });
         if (!from) {
             await ctx.say('No energy moved.', { kind: 'info', pace: 0.5 });
             return;
         }
         const to = await ctx.chooseMyCreature({
-            title: 'Move energy TO which creature?',
-            filter: c => c.card !== from.card,
+            title: 'Move energy TO which bench creature?',
+            filter: c => c.location === 'bench' && c.card !== from.card,
             cancellable: true,
             aiPick: candidates => bestEnergyTarget(candidates)
         });

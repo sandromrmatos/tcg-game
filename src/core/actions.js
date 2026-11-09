@@ -57,10 +57,12 @@ async function swapActiveWithBench(side, benchIndex, opts = {}) {
     // Leaving the active slot always clears status conditions.
     await Status.clear(outgoing, { side });
 
-    // Healing Retreat (Trunket 20, Elefeir 40).
-    if (outgoing.flags.healingRetreat > 0) {
-        const amount = outgoing.flags.healingRetreat;
-        outgoing.flags.healingRetreat = 0;
+    // Healing Retreat (Trunket 20, Elefeir 40), always on: heals whenever it
+    // goes from the active spot to the bench.
+    const retreatId = ['healingRetreat1', 'healingRetreat2'].find(id => hasAbilityAt(outgoing, id, 'active'));
+    if (retreatId && outgoing.damage > 0) {
+        const amount = PASSIVE_AMOUNTS[retreatId];
+        AbilityRegistry.noteTriggered(retreatId);
         await Log.say(
             `${creatureName(outgoing, side)}'s Healing Retreat activates!`,
             { kind: 'ability', icon: '🌿' }
@@ -277,6 +279,10 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
     // Restrictions tied to the slot rather than the form do persist.
     evolution.flags.cantRetreatUntil = target.flags.cantRetreatUntil;
     evolution.flags.cantAttackUntil = target.flags.cantAttackUntil;
+    // So do "your next attack does more" charges (Sprout Boost, Chill
+    // Recharge): the next attack is still the creature's next attack.
+    evolution.flags.sproutBoostReady = target.flags.sproutBoostReady;
+    evolution.flags.chillRecharge = target.flags.chillRecharge;
 
     if (location === 'active') s.active = evolution;
     else s.bench[benchIndex] = evolution;

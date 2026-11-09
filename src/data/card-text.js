@@ -97,7 +97,7 @@ const CARD_TEXT = {
         "ability": "Prevents all of your creatures from getting the Hallucination status condition."
     },
     "Elemental Awakening_49.png": {
-        "move1": "It heals 20 HP for each of your creatures."
+        "move1": "Heal 30 HP from each of your creatures that has damage."
     },
     "Elemental Awakening_50.png": {
         "move1": "This creature is healed by 10 HP."

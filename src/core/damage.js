@@ -44,26 +44,26 @@ const DAMAGE_MODIFIERS = [
         test: ctx => isSuperEffective(ctx.attackerType, ctx.defenderType),
         apply: (ctx, dmg) => dmg + 10
     },
+    // Always-on abilities of the attacking side (one bonus each, however many
+    // copies of the creature are in play).
     {
         id: 'auraOfStrength',
         label: 'Aura of Strength',
-        test: ctx => ctx.me.flags.auraOfStrengthBonus > 0,
-        apply: (ctx, dmg) => dmg + ctx.me.flags.auraOfStrengthBonus,
-        consume: ctx => { ctx.me.flags.auraOfStrengthBonus = 0; }
+        test: ctx => sideHasAbility(ctx.side, 'auraOfStrength') &&
+                     benchCreatures(ctx.side).length >= BENCH_SIZE,
+        apply: (ctx, dmg) => passiveBonus('auraOfStrength', dmg + 30)
     },
     {
         id: 'sturdyPresence',
         label: 'Sturdy Presence',
-        test: ctx => ctx.me.flags.sturdyPresenceBonus > 0,
-        apply: (ctx, dmg) => dmg + ctx.me.flags.sturdyPresenceBonus,
-        consume: ctx => { ctx.me.flags.sturdyPresenceBonus = 0; }
+        test: ctx => sideHasAbility(ctx.side, 'sturdyPresence'),
+        apply: (ctx, dmg) => passiveBonus('sturdyPresence', dmg + 20)
     },
     {
         id: 'warriorMode',
         label: 'Warrior Mode',
-        test: ctx => ctx.me.flags.warriorModeBonus > 0,
-        apply: (ctx, dmg) => dmg + ctx.me.flags.warriorModeBonus,
-        consume: ctx => { ctx.me.flags.warriorModeBonus = 0; }
+        test: ctx => sideHasAbility(ctx.side, 'warriorMode'),
+        apply: (ctx, dmg) => passiveBonus('warriorMode', dmg + 10)
     },
     {
         id: 'amulet',
@@ -89,40 +89,42 @@ const DAMAGE_MODIFIERS = [
     {
         id: 'thunderRush',
         label: 'Thunder Rush',
-        test: ctx => ctx.me.flags.thunderRush,
-        apply: (ctx, dmg) => dmg * 2,
-        consume: ctx => { ctx.me.flags.thunderRush = false; }
+        // "...if your opponent evolved a creature in the last turn."
+        test: ctx => cardAbilityOn(ctx.attacker, 'thunderRush') &&
+                     ctx.them.flags.evolvedOnTurn === gameState.turnNumber - 1,
+        apply: (ctx, dmg) => passiveBonus('thunderRush', dmg * 2)
     },
 
     // --- Defender reductions ------------------------------------------------
+    // Monk's Fury and Spectral Burst protect the creature that used them, not
+    // whoever happens to be active when the next attack lands.
     {
         id: 'monksFury',
         label: "Monk's Fury",
-        test: ctx => readShield(ctx.them.flags.shields, 'monksFury'),
-        apply: (ctx, dmg) => dmg - readShield(ctx.them.flags.shields, 'monksFury').amount,
-        consume: ctx => consumeShield(ctx.them.flags.shields, 'monksFury')
+        test: ctx => readShield(ctx.defender.flags.shields, 'monksFury'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'monksFury').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'monksFury')
     },
     {
         id: 'hardAsSteel',
         label: 'Hard as Steel',
-        test: ctx => readShield(ctx.them.flags.shields, 'hardAsSteel') &&
+        test: ctx => cardAbilityOn(ctx.defender, 'hardAsSteel') &&
                      (ctx.attackerType === 'Mechanic' || ctx.attackerType === 'Neutral'),
-        apply: (ctx, dmg) => dmg - readShield(ctx.them.flags.shields, 'hardAsSteel').amount,
-        consume: ctx => consumeShield(ctx.them.flags.shields, 'hardAsSteel')
+        apply: (ctx, dmg) => passiveBonus('hardAsSteel', dmg - 30)
     },
     {
         id: 'spectralBurst',
         label: 'Spectral Burst',
-        test: ctx => readShield(ctx.them.flags.shields, 'spectralBurst'),
-        apply: (ctx, dmg) => dmg - readShield(ctx.them.flags.shields, 'spectralBurst').amount,
-        consume: ctx => consumeShield(ctx.them.flags.shields, 'spectralBurst')
+        test: ctx => readShield(ctx.defender.flags.shields, 'spectralBurst'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'spectralBurst').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'spectralBurst')
     },
     {
         id: 'defenseAura',
         label: 'Defense Aura',
-        test: ctx => readShield(ctx.them.flags.shields, 'defenseAura'),
-        apply: (ctx, dmg) => dmg - readShield(ctx.them.flags.shields, 'defenseAura').amount,
-        consume: ctx => consumeShield(ctx.them.flags.shields, 'defenseAura')
+        // The defender is the active creature, which is where Defense Aura works.
+        test: ctx => cardAbilityOn(ctx.defender, 'defenseAura'),
+        apply: (ctx, dmg) => passiveBonus('defenseAura', dmg - 10)
     },
     {
         id: 'shieldBarrier',
@@ -153,44 +155,96 @@ const DAMAGE_MODIFIERS = [
         apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'cottonGuard').amount,
         consume: ctx => consumeShield(ctx.defender.flags.shields, 'cottonGuard')
     },
+    // Always-on abilities of the defending creature or its side.
     {
         id: 'guardianMode',
         label: 'Guardian Mode',
-        // Lasts the whole turn, so it is deliberately not consumed.
-        test: ctx => Timing.active(ctx.them.flags.guardianModeUntil),
-        apply: (ctx, dmg) => dmg - 10
+        test: ctx => sideHasAbility(ctx.foe, 'guardianMode'),
+        apply: (ctx, dmg) => passiveBonus('guardianMode', dmg - 10)
     },
     {
         id: 'caprineGuard',
         label: 'Caprine Guard',
-        test: ctx => readShield(ctx.them.flags.shields, 'caprineGuard') &&
+        test: ctx => cardAbilityOn(ctx.defender, 'caprineGuard') &&
                      (ctx.attackerType === 'Celestial' || ctx.attackerType === 'Mystic'),
-        apply: (ctx, dmg) => dmg - readShield(ctx.them.flags.shields, 'caprineGuard').amount,
-        consume: ctx => consumeShield(ctx.them.flags.shields, 'caprineGuard')
+        apply: (ctx, dmg) => passiveBonus('caprineGuard', dmg - 40)
     },
     {
         id: 'elementalFortitude',
         label: 'Elemental Fortitude',
-        test: ctx => readShield(ctx.defender.flags.shields, 'elementalFortitude') &&
+        test: ctx => cardAbilityOn(ctx.defender, 'elementalFortitude') &&
                      (ctx.attackerType === 'Wind' || ctx.attackerType === 'Mechanic'),
-        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'elementalFortitude').amount,
-        consume: ctx => consumeShield(ctx.defender.flags.shields, 'elementalFortitude')
+        apply: (ctx, dmg) => passiveBonus('elementalFortitude', dmg - 20)
     },
     {
         id: 'metalicProtection',
         label: 'Metalic Protection',
-        // Total immunity for the turn, so also not consumed.
-        test: ctx => Timing.active(ctx.defender.flags.metalicProtectionUntil) &&
+        test: ctx => cardAbilityOn(ctx.defender, 'metalicProtection') &&
                      ctx.attackerType === 'Mechanic',
-        apply: () => 0
+        apply: () => passiveBonus('metalicProtection', 0)
     },
+
+    // --- "Deals no damage" restrictions on the attacking side -------------
     {
         id: 'tidalIllusion',
         label: 'Tidal Illusion',
         test: ctx => Timing.active(ctx.me.flags.cantDealDamageUntil),
         apply: () => 0
+    },
+    {
+        id: 'invincibleGambit',
+        label: 'Invincible Gambit',
+        test: ctx => Timing.active(ctx.me.flags.invincibleLockUntil),
+        apply: () => 0
     }
 ];
+
+/** Records an always-on ability firing (for test coverage) and passes the value through. */
+function passiveBonus(abilityId, value) {
+    if (typeof AbilityRegistry !== 'undefined') AbilityRegistry.noteTriggered(abilityId);
+    return value;
+}
+
+/**
+ * The same always-on rules for damage that doesn't come from the attack itself
+ * (bench sweeps, Rainbow Strike, Gnawing Precision, Retaliation Stone), when a
+ * creature on one side damages a creature on the other.
+ *
+ * @param {object} target  the creature being hit
+ * @param {string} targetSide
+ * @param {number} amount
+ * @param {object} source  { card, side, kind: 'move' | 'ability' }
+ * @returns {number} the adjusted amount, never below 0
+ */
+function adjustCrossDamage(target, targetSide, amount, source) {
+    if (!source || !source.side || source.side === targetSide) return amount;
+    const from = gameState[source.side].flags;
+    // "Deals no damage" (Invincible Gambit, Tidal Illusion): everything the
+    // side deals on its locked turns, not only its attack. The turns of the
+    // side that cast it in between don't count.
+    if (gameState.currentTurn === source.side &&
+        (Timing.active(from.invincibleLockUntil) || Timing.active(from.cantDealDamageUntil))) return 0;
+
+    const sourceType = source.card ? getCardType(source.card.data) : null;
+    let dmg = amount;
+    if (sideHasAbility(source.side, 'warriorMode')) dmg = passiveBonus('warriorMode', dmg + 10);
+    if (sideHasAbility(targetSide, 'guardianMode')) dmg = passiveBonus('guardianMode', dmg - 10);
+    if (cardAbilityOn(target, 'hardAsSteel') && (sourceType === 'Mechanic' || sourceType === 'Neutral')) {
+        dmg = passiveBonus('hardAsSteel', dmg - 30);
+    }
+    if (cardAbilityOn(target, 'elementalFortitude') && (sourceType === 'Wind' || sourceType === 'Mechanic')) {
+        dmg = passiveBonus('elementalFortitude', dmg - 20);
+    }
+    // These two name moves / attacks, so ability damage isn't reduced by them.
+    if (source.kind === 'move' && cardAbilityOn(target, 'caprineGuard') &&
+        (sourceType === 'Celestial' || sourceType === 'Mystic')) {
+        dmg = passiveBonus('caprineGuard', dmg - 40);
+    }
+    if (source.kind === 'move' && cardAbilityOn(target, 'metalicProtection') && sourceType === 'Mechanic') {
+        dmg = passiveBonus('metalicProtection', 0);
+    }
+    return Math.max(0, dmg);
+}
 
 /**
  * Runs the whole modifier list in order and logs each one that fires.
@@ -201,6 +255,11 @@ const DAMAGE_MODIFIERS = [
  * @returns {Promise<number>} final damage, never below 0
  */
 async function applyDamageModifiers(ctx, startingDamage) {
+    // A move that does no damage (a missed coin flip, a utility move) stays at
+    // 0: bonuses such as super effective, Booster or Amulet only add to damage
+    // that is actually being dealt. Single-use bonuses are not spent on it.
+    if (!(startingDamage > 0)) return 0;
+
     let damage = startingDamage;
 
     for (const mod of DAMAGE_MODIFIERS) {

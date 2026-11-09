@@ -88,13 +88,7 @@ async function aiConsiderRetreat(side) {
     const replacement = healthiestAttacker(candidates);
     if (!replacement) return;
 
-    // Use Healing Retreat first, so the retreat also heals.
-    if (active.data.abilityEffect &&
-        active.data.abilityEffect.indexOf('healingRetreat') === 0 &&
-        AbilityRegistry.canUse(active, side, 'active').ok) {
-        await AbilityRegistry.use(active, side, 'active', null);
-    }
-
+    // Healing Retreat is always on: performRetreat heals on its own.
     await performRetreat(side, replacement.index);
     await Log.aiPause(side, 0.6);
 }
@@ -265,20 +259,24 @@ function estimateMoveTacticalValue(move, side) {
     switch (move.effect) {
         // Disruption is valuable only while it can land on a fresh active target.
         case 'mindMirage': case 'phantomPulse': case 'brainFreeze':
-            return statusValue('Hallucination', 18);
+            return statusValue('hallucination', 18);
         case 'dreamwave': case 'dreamBooster': case 'mindPulse':
-            return statusValue('Hallucination', 18, 0.5);
+            return statusValue('hallucination', 18, 0.5);
         case 'fluxWave': case 'psychicProwl':
-            return statusValue('Flux', 12);
-        case 'spectralSlice': return statusValue('Flux', 12, 0.5);
-        case 'forestFury': return statusValue('Lock', 10);
+            return statusValue('flux', 12);
+        case 'spectralSlice': return statusValue('flux', 12, 0.5);
+        case 'forestFury': return statusValue('lock', 10);
         case 'chaosDice':
             return defender.status?.size ? 0 : 13; // expected value of one of three conditions
         case 'cantRetreat': return foeBench.length ? 10 : 0;
 
         // Reward actual recoverable health rather than a fixed maximum heal.
-        case 'healingRoots': case 'minorMend': case 'planetBurst': case 'healingSap':
+        case 'healingRoots': case 'minorMend': case 'planetBurst':
             return Math.min(20, missingHp(attacker)) * 0.8;
+        // Heals 30 on every damaged creature: the attacker, then the bench.
+        case 'healingSap':
+            return Math.min(30, missingHp(attacker)) * 0.8 +
+                ownBench.reduce((sum, card) => sum + Math.min(30, missingHp(card)) * 0.35, 0);
         case 'majorMend': return Math.min(20, missingHp(attacker)) * 0.9;
         case 'coffeeHeal':
             return ownBench.length ? Math.min(10, Math.max(...ownBench.map(missingHp))) * 0.7 : 0;

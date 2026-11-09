@@ -116,6 +116,16 @@ const ItemRegistry = {
 
         Render.all();
 
+        // Energy Siphon (always on): each opposing Lumbertail gets 1 energy
+        // whenever this side uses an item.
+        const foe = foeOf(side);
+        for (const siphon of creaturesWithAbility(foe, 'energySiphon')) {
+            AbilityRegistry.noteTriggered('energySiphon');
+            await Log.say(`${creatureName(siphon, foe)}'s Energy Siphon draws power from the item!`,
+                { kind: 'ability', icon: '⚡', pace: 0.6 });
+            await attachEnergyTo(siphon, 1, { side: foe });
+        }
+
         if (def.endsTurn) {
             await Log.say(`${possessive(side)} turn ends.`, { kind: 'info', pace: 0.6 });
             s.hasAttacked = true;

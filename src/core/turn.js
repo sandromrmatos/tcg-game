@@ -43,12 +43,7 @@ async function startGame() {
 /** Clears the bonuses that only ever applied to the turn just finishing. */
 function clearEndOfTurnBonuses(side) {
     const f = gameState[side].flags;
-    f.auraOfStrengthBonus = 0;
-    f.sturdyPresenceBonus = 0;
-    f.warriorModeBonus = 0;
-    f.thunderRush = false;
     f.booster = false;
-    f.rainbowStrike = false;
     f.phaseShift = false;
 }
 
@@ -77,6 +72,16 @@ async function endTurn() {
     const ending = gameState.currentTurn;
 
     clearEndOfTurnBonuses(ending);
+
+    // Metalic Protection (always on): "...but it loses 20 hp", at the end of
+    // each of its owner's turns.
+    const steel = creaturesWithAbility(ending, 'metalicProtection');
+    for (const card of steel) {
+        AbilityRegistry.noteTriggered('metalicProtection');
+        await damageCreature(card, 20, { side: ending, reason: 'Metalic Protection' });
+    }
+    if (steel.length) await resolveKnockouts();
+    if (isGameOver()) return;
 
     // Turn limit is checked before handing over, so turn 30 is really the last.
     if (gameState.turnNumber >= MAX_TURNS) {
@@ -144,7 +149,7 @@ async function announceActiveRestrictions(side) {
 
     if (Timing.active(s.flags.invincibleLockUntil)) {
         await Log.say(
-            `${subject(side)} cannot attack for ${Timing.describe(s.flags.invincibleLockUntil)} (Invincible Gambit).`,
+            `${subject(side)} ${verb(side, 'deals', 'deal')} no damage this turn (Invincible Gambit, ${Timing.describe(s.flags.invincibleLockUntil)} left).`,
             { kind: 'status', icon: '🚫', pace: 0.6 }
         );
     }
@@ -156,8 +161,9 @@ async function announceActiveRestrictions(side) {
         await Log.say(`${subject(side)} will deal no damage this turn (Tidal Illusion).`,
             { kind: 'status', icon: '🌊', pace: 0.6 });
     }
-    if (Timing.active(s.flags.cantUseItemsUntil)) {
-        await Log.say(`${subject(side)} cannot use items this turn (Mirage Shield).`,
+    if (hasAbilityAt(gameState[foeOf(side)].active, 'mirageShield', 'active')) {
+        AbilityRegistry.noteTriggered('mirageShield');
+        await Log.say(`${subject(side)} cannot use items while ${gameState[foeOf(side)].active.data.name} is active (Mirage Shield).`,
             { kind: 'status', icon: '🔮', pace: 0.6 });
     }
     if (s.active && Timing.active(s.active.flags.cantAttackUntil)) {
