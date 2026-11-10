@@ -9,14 +9,19 @@
      code and pages (html, js, css, manifest)  network first, cache fallback,
        so a new version is picked up on the next open without bumping
        anything, and the last version still starts offline.
-     images and audio                          cache first, fetched once.
-       The 170 card images (~34 MB) are NOT precached: each is cached the
-       first time it is seen, so installing stays quick and light.
+     images and audio                          stale while revalidate: the
+       cached copy shows straight away, and the worker checks the server in
+       the background and stores a newer file if there is one, so redrawn
+       card art appears on the next open without bumping anything. The
+       browser's HTTP cache (10 minutes on GitHub Pages) keeps those checks
+       cheap. The 170 card images (~34 MB) are NOT precached: each is cached
+       the first time it is seen, so installing stays quick and light.
 
-   Bump CACHE_VERSION only to throw every cached file away.
+   Bump CACHE_VERSION only to throw every cached file away. v2 did that
+   once, because v1 kept images forever and never noticed redrawn cards.
    ============================================================ */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `ea-tcg-${CACHE_VERSION}`;
 
 /** The shell: without these the game does not start. */
@@ -96,7 +101,7 @@ self.addEventListener('fetch', event => {
     if (/\/test(-ui)?\.html$/.test(url.pathname)) return;
 
     const isAsset = /\.(png|jpe?g|webp|gif|svg|mp3|ogg|wav)$/i.test(url.pathname);
-    event.respondWith(isAsset ? cacheFirst(req) : networkFirst(req));
+    event.respondWith(isAsset ? staleWhileRevalidate(req, event) : networkFirst(req));
 });
 
 async function networkFirst(req) {
@@ -116,14 +121,24 @@ async function networkFirst(req) {
     }
 }
 
-async function cacheFirst(req) {
+/**
+ * Serves the cached image at once and refreshes it in the background, so an
+ * updated file on the server replaces the cached one for the next time.
+ */
+async function staleWhileRevalidate(req, event) {
     const cache = await caches.open(CACHE_NAME);
     const hit = await cache.match(req, { ignoreSearch: true });
-    if (hit) return hit;
-    try {
-        const res = await fetch(req);
-        if (res.ok && res.type === 'basic') cache.put(req, res.clone()).catch(() => {});
+    const refresh = fetch(req).then(res => {
+        if (res.ok && res.type === 'basic') return cache.put(req, res.clone()).then(() => res);
         return res;
+    });
+    if (hit) {
+        // Keep the worker alive until the background refresh is stored.
+        event.waitUntil(refresh.catch(() => {}));
+        return hit;
+    }
+    try {
+        return await refresh;
     } catch {
         return offline();
     }
