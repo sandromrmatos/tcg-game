@@ -56,6 +56,12 @@ const DeckBuilder = {
         const nameInput = document.getElementById('builder-name');
         if (nameInput) nameInput.value = existingName || '';
 
+        // Every opening starts with the info text and both menus closed, so
+        // the cards get the space.
+        this.bindMenus();
+        this.showInfo(false);
+        this.openMenu(null);
+
         this.buildControls();
         // The controls are built once and keep their DOM value between
         // openings, so they have to be put back to match the reset filters.
@@ -84,6 +90,58 @@ const DeckBuilder = {
     },
 
     // -----------------------------------------------------------------------
+    // Info text and the Energy / Sets menus
+    // -----------------------------------------------------------------------
+
+    /** The ⓘ button and the two menu buttons. Wired once. */
+    bindMenus() {
+        if (this.menusBound) return;
+        this.menusBound = true;
+        const info = document.getElementById('builder-info-btn');
+        if (info) info.onclick = () => this.showInfo(document.getElementById('builder-hint').hidden);
+        const energy = document.getElementById('builder-energy-btn');
+        if (energy) energy.onclick = () => this.openMenu(this.menuOpen === 'energy' ? null : 'energy');
+        const sets = document.getElementById('builder-sets-btn');
+        if (sets) sets.onclick = () => this.openMenu(this.menuOpen === 'sets' ? null : 'sets');
+    },
+
+    showInfo(show) {
+        const hint = document.getElementById('builder-hint');
+        const btn = document.getElementById('builder-info-btn');
+        if (hint) hint.hidden = !show;
+        if (btn) {
+            btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+            btn.classList.toggle('builder-info-btn-on', !!show);
+        }
+    },
+
+    /** Opens one menu ('energy' or 'sets'), closing the other; null closes both. */
+    openMenu(which) {
+        this.menuOpen = which;
+        const menus = { energy: ['builder-energy-btn', 'builder-energy'], sets: ['builder-sets-btn', 'builder-set-tabs'] };
+        for (const [id, [btnId, panelId]] of Object.entries(menus)) {
+            const open = which === id;
+            const btn = document.getElementById(btnId);
+            const panel = document.getElementById(panelId);
+            if (panel) panel.hidden = !open;
+            if (btn) {
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                btn.classList.toggle('builder-menu-btn-open', open);
+            }
+        }
+    },
+
+    /** The short "what's chosen" text on each closed menu. */
+    renderMenuSummaries() {
+        const types = this.currentEnergyTypes();
+        setText('builder-energy-summary', types.length === ENERGY_TYPES.length
+            ? 'All'
+            : types.map(t => ENERGY_ICONS[t]).join(' '));
+        const set = this.setFilter === 'all' ? null : cardSets.find(s => s.id === this.setFilter);
+        setText('builder-sets-summary', set ? set.name : 'All sets');
+    },
+
+    // -----------------------------------------------------------------------
     // Controls
     // -----------------------------------------------------------------------
 
@@ -104,12 +162,15 @@ const DeckBuilder = {
                 tab.classList.toggle('set-tab-active', this.setFilter === entry.id);
                 tab.onclick = () => {
                     this.setFilter = entry.id;
+                    // One choice, so the menu closes and hands the space back.
+                    this.openMenu(null);
                     this.buildControls();
                     this.renderPool();
                 };
                 tabs.appendChild(tab);
             }
         }
+        this.renderMenuSummaries();
 
         // Type filter, generated from the types actually present.
         const typeSelect = document.getElementById('builder-type-filter');
@@ -406,11 +467,7 @@ const DeckBuilder = {
         if (!host) return;
         host.innerHTML = '';
         const chosen = new Set(this.currentEnergyTypes());
-
-        const label = document.createElement('span');
-        label.className = 'builder-energy-label';
-        label.textContent = 'Energy:';
-        host.appendChild(label);
+        this.renderMenuSummaries();
 
         for (const type of ENERGY_TYPES) {
             const btn = document.createElement('button');

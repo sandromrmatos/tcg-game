@@ -259,8 +259,12 @@
 <div id="builder-modal" class="modal">
     <div class="modal-panel modal-full">
         <button class="modal-close" type="button" data-close-modal="builder-modal">×</button>
-        <h2 id="builder-title">Deck builder</h2>
-        <p id="builder-hint" class="builder-hint"></p>
+        <div class="builder-title-row">
+            <h2 id="builder-title">Deck builder</h2>
+            <button id="builder-info-btn" class="builder-info-btn" type="button"
+                    aria-expanded="false" aria-controls="builder-hint" aria-label="About the deck builder">i</button>
+        </div>
+        <p id="builder-hint" class="builder-hint" hidden></p>
 
         <div class="builder-top">
             <input id="builder-name" class="text-input" type="text"
@@ -270,10 +274,26 @@
             </div>
         </div>
 
-        <!-- The energy types this deck gets; several means one of them at random each turn -->
-        <div id="builder-energy" class="builder-energy"></div>
+        <!-- Energy and Sets: closed menus on one line; tapping one opens its options -->
+        <div class="builder-menus">
+            <button id="builder-energy-btn" class="builder-menu-btn" type="button"
+                    aria-expanded="false" aria-controls="builder-energy">
+                <span class="builder-menu-name">Energy</span>
+                <span id="builder-energy-summary" class="builder-menu-summary"></span>
+                <span class="builder-menu-caret" aria-hidden="true">▾</span>
+            </button>
+            <button id="builder-sets-btn" class="builder-menu-btn" type="button"
+                    aria-expanded="false" aria-controls="builder-set-tabs">
+                <span class="builder-menu-name">Sets</span>
+                <span id="builder-sets-summary" class="builder-menu-summary"></span>
+                <span class="builder-menu-caret" aria-hidden="true">▾</span>
+            </button>
+        </div>
 
-        <div id="builder-set-tabs" class="set-tabs"></div>
+        <!-- The energy types this deck gets; several means one of them at random each turn -->
+        <div id="builder-energy" class="builder-energy builder-menu-panel" hidden></div>
+
+        <div id="builder-set-tabs" class="set-tabs builder-menu-panel" hidden></div>
 
         <div class="builder-filters">
             <input id="builder-search" class="text-input" type="search"
