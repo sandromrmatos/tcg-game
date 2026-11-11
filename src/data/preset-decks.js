@@ -5,6 +5,7 @@
 // Galactic Adventures decks mix in Elemental Awakening cards, mostly items.
 const presetEA = n => `Elemental Awakening_${String(n).padStart(2, '0')}.png`;
 const presetGA = n => `Galactic Adventures_${String(n).padStart(2, '0')}.png`;
+const presetTR = n => `Temporal Rift_${String(n).padStart(2, '0')}.png`;
 /** Two copies of each listed card. */
 const presetTwoOf = (...ids) => ids.flatMap(id => [id, id]);
 
@@ -366,6 +367,118 @@ const presetDeckLists = [
             presetGA(9), presetGA(10),                                  // Meerkool, Meerkool
             ...presetTwoOf(presetEA(66)),                               // Card Draw
             presetGA(72), presetEA(65)                                  // Amulet, Potion
+        ]
+    },
+
+    // ---- Temporal Rift: one type each, plus two mixed-type decks --------------
+    // Types mix freely since Temporal Rift; the mixed decks pick the energy
+    // types their creatures' moves name.
+    {
+        name: "Temporal Mystic Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Mystic"],
+        cards: [
+            ...presetTwoOf(presetTR(21), presetTR(22), presetTR(23)),   // Toxikin → Toxighoul → Miasmant
+            ...presetTwoOf(presetTR(52), presetTR(53), presetTR(54)),   // Lumimba → Solmane → Aurorion
+            ...presetTwoOf(presetTR(37), presetTR(38)),                 // Echolet → Serenewt
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetTR(61))                                // Mystic Amulet
+        ]
+    },
+    {
+        name: "Temporal Wind Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Wind"],
+        cards: [
+            ...presetTwoOf(presetTR(31), presetTR(32), presetTR(33)),   // Loonaqua → Aqualoon → Baller
+            ...presetTwoOf(presetTR(29), presetTR(30)),                 // Pebblift → Aerolithon
+            ...presetTwoOf(presetTR(55), presetTR(56)),                 // Cacklair → Snickurl
+            ...presetTwoOf(presetTR(34)),                               // Nimbearis
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetTR(62))                                // Wind Feather
+        ]
+    },
+    {
+        name: "Temporal Celestial Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Celestial"],
+        cards: [
+            ...presetTwoOf(presetTR(24), presetTR(25), presetTR(26)),   // Florinelle → Lavandread → Thornaria
+            ...presetTwoOf(presetTR(45), presetTR(46), presetTR(47)),   // Funglet → Myceloroot / Glidroot
+            ...presetTwoOf(presetTR(17), presetTR(18)),                 // Petitelo → Pomelune
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetTR(63))                                // Celestial Armor
+        ]
+    },
+    {
+        name: "Temporal Mechanic Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Mechanic"],
+        cards: [
+            ...presetTwoOf(presetTR(13), presetTR(14), presetTR(15)),   // Cogmite → Gearachnid → Dynaspanner
+            ...presetTwoOf(presetTR(19), presetTR(20)),                 // Tanglett → Tangrash
+            ...presetTwoOf(presetTR(57), presetTR(58)),                 // Gridlet → Granigrit
+            ...presetTwoOf(presetTR(35)),                               // Ignivault
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetTR(64))                                // Mechanic Toolkit
+        ]
+    },
+    {
+        name: "Temporal Neutral Deck",
+        type: "preset",
+        set: "TR",
+        cards: [
+            ...presetTwoOf(presetTR(4), presetTR(5), presetTR(6)),      // Anukibi → Anukara → Anukalith
+            ...presetTwoOf(presetTR(39), presetTR(40)),                 // Terruffian → Yawnshire
+            ...presetTwoOf(presetTR(50), presetTR(51)),                 // Nibblink → Earloam
+            ...presetTwoOf(presetTR(36)),                               // Harpuddle
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetTR(65))                                // Neutral Elixir
+        ]
+    },
+    {
+        name: "Temporal Sweet Fox Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Mystic", "Wind", "Celestial", "Mechanic"],
+        cards: [
+            ...presetTwoOf(presetTR(7), presetTR(9), presetTR(10), presetTR(11)), // Vulpetta → Zephyraun / Florvulpa / Rustarok
+            ...presetTwoOf(presetTR(1), presetTR(2), presetTR(3)),      // Flakette, Canelette, Rollinette
+            ...presetTwoOf(presetTR(8)),                                // Vulpetta → Noctivane
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetTR(62), presetTR(63)                                  // Wind Feather, Celestial Armor
+        ]
+    },
+    {
+        name: "Temporal Twilight Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Mystic", "Wind"],
+        cards: [
+            ...presetTwoOf(presetTR(27), presetTR(28)),                 // Mythloon → Wraithrift
+            ...presetTwoOf(presetTR(43), presetTR(44)),                 // Orkidia → Wispetal
+            ...presetTwoOf(presetTR(48), presetTR(49)),                 // Eskiddo → Cryobbit
+            ...presetTwoOf(presetTR(59), presetTR(60)),                 // Faygoal (Mystic), Faygoal (Wind)
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            presetTR(61), presetTR(62)                                  // Mystic Amulet, Wind Feather
+        ]
+    },
+    {
+        name: "Temporal Forge Deck",
+        type: "preset",
+        set: "TR",
+        energyTypes: ["Mechanic", "Wind"],
+        cards: [
+            ...presetTwoOf(presetTR(41), presetTR(42)),                 // Lemirron → Smeldern
+            ...presetTwoOf(presetTR(57), presetTR(58)),                 // Gridlet → Granigrit
+            ...presetTwoOf(presetTR(29), presetTR(30)),                 // Pebblift → Aerolithon
+            ...presetTwoOf(presetTR(16), presetTR(35)),                 // Cycloblaze, Ignivault
+            ...presetTwoOf(presetEA(66)),                               // Card Draw
+            ...presetTwoOf(presetTR(64))                                // Mechanic Toolkit
         ]
     }
 ];

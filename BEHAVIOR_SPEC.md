@@ -30,7 +30,8 @@ Rules that apply throughout:
 |---|---|
 | Deck size | exactly 20 cards, at most 2 copies of a card |
 | Deck must contain | at least 1 Stage 1 creature |
-| Type mixing | one main type (Mystic / Wind / Celestial / Mechanic) + any Neutral creatures and items |
+| Type mixing | any types mix. A creature whose moves name an energy type the deck doesn't use is a warning; the deck can still be saved |
+| Accessories | attached from the hand to one of your creatures of the accessory's type; 1 per turn, separate from the item; 1 per creature (section 5b) |
 | Opening hand | 5 cards, redrawn until it has a Stage 1 |
 | Board | 1 active slot + 3 bench slots per side |
 | Win | first to 3 points; or more points after turn 30 (equal = draw); or the opponent has no creatures left |
@@ -324,6 +325,36 @@ used triggers every opposing Lumbertail's Energy Siphon.
 
 ---
 
+## 5b. Accessories (Temporal Rift)
+
+- Played from the hand on your turn before attacking, onto one of your creatures of the accessory's type that has none. One accessory per turn, on top of the one item.
+- Lock and Mirage Shield name items, so they don't block accessories. Cryo Roar (heads) and Alloy Clutch stop the opponent attaching new ones for their next turn; attached ones keep working.
+- It stays on through retreats and through evolving into a creature of the same type. Evolving or Elemental Shift into another type sends it to the discard pile. It goes to the discard pile with the creature when it is knocked out.
+- Losing Mystic Amulet's +10 HP can knock a creature out.
+
+| Accessory | Type | Behavior |
+|---|---|---|
+| Mystic Amulet | Mystic | +10 HP; its attacks +10 (attack modifier after Amulet) |
+| Wind Feather | Wind | Retreat cost −1, never below 0 |
+| Celestial Armor | Celestial | −10 damage from attacks; heals 10 at the start of each of its owner's turns |
+| Mechanic Toolkit | Mechanic | −20 damage from attacks, if the creature has an ability (either kind) |
+| Neutral Elixir | Neutral | Button in the creature panel: the creature and its earlier stages return to the hand fully healed; energy and the Elixir are discarded; an active one is replaced from the bench |
+
+## 5c. Temporal Rift rules notes
+
+- **Memento Echo** (Wraithrift): on the opponent's next turn none of their abilities work, always-on ones included.
+- **Twist of Fate** (Aurorion, always on): while any Aurorion's ability is in effect, the type chart is reversed for both players (Wind beats Mystic, Neutral beats Mechanic, Mechanic no longer beats Neutral).
+- **Overload Guard** (Ignivault): checked on the final attack damage; 50 or more becomes 0. The AI projects its damage and prefers a move that lands under 50.
+- **Tech Shield** (Harpuddle "A", Yawnshire "E"): any case, anywhere in the attacker's name; protects your active creature from either spot; −20 once.
+- **Stealth Mode** (Granigrit): half damage, rounded up, from attackers with fewer energy than it.
+- **Foxy Armor** (Rustarok): your active takes −10 per Vulpetta evolution you have in play (Noctivane, Zephyraun, Florvulpa, Rustarok).
+- **Looker Fate**: draws 1 the moment a creature evolves into Anukara or Anukalith. **Forest Kin**: at the end of its owner's turn, optionally take a Vulpetta evolution from the deck.
+- **Reverie Talon**: +40 if this side's attack on its previous turn was a move with "Dive" anywhere in its name.
+- **Bloomshroud**: the opponent flips as their next turn starts; tails, Wispetal takes no damage or status that turn.
+- **Storm's Chance**: can't be used on the owner's next turn whatever the coin; tails discards all energy from all its owner's creatures.
+- **Gale Scatter**: 20 per heads (Pebblift 2 coins, Aerolithon 3).
+- Choosers: the opponent picks for Wind Sweep, Super Roar and Magnetarc Needle; the user picks for Sky Grace.
+
 ## 6. Status conditions
 
 Status conditions only exist on the active creature. They come from attacks and
@@ -367,6 +398,14 @@ abilities are read from the board each time.
 ## 8. Change ledger
 
 Behavior that was deliberately changed, newest first.
+
+### Temporal Rift (November 2026)
+
+| # | Before | Now |
+|---|---|---|
+| 60 | A deck could have only one non-Neutral type | Any types mix; energy-type mismatches are warnings |
+| 61 | No accessory cards | Accessories (section 5b) |
+| 62 | — | Temporal Rift set, 8 AI decks, 3 mini-games and missions; the set and the mini-games unlock at 90% of Galactic Adventures |
 
 ### Ability and effect fixes (November 2026)
 

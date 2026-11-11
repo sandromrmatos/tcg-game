@@ -80,6 +80,30 @@ const Missions = (() => {
         { id: 'guess_days_20', cat: 'minigames', description: 'Play "Guess the Number" on 20 different days', type: 'guess_days', target: 20, reward: r(5, 3) }
     );
 
+    // ---- Temporal Rift: accessories, the Vulpetta family and the new mini-games ----
+    BASE.push(
+        { id: 'unique_accessory_1', cat: 'collection', description: 'Collect your first accessory card', type: 'unique_type', cardType: 'Accessory', target: 1, reward: r(2, 1) },
+        { id: 'unique_accessory_5', cat: 'collection', description: 'Collect all 5 accessory cards', type: 'unique_type', cardType: 'Accessory', target: 5, reward: r(5, 3) },
+        { id: 'tr_vulpetta_family', cat: 'sets', description: 'Collect Vulpetta and all four of its evolutions',
+          type: 'own_cards', cards: ['Temporal Rift_07.png', 'Temporal Rift_08.png', 'Temporal Rift_09.png', 'Temporal Rift_10.png', 'Temporal Rift_11.png'], reward: r(5, 3) },
+        { id: 'tr_sweet_trio', cat: 'sets', description: 'Collect Flakette, Canelette and Rollinette',
+          type: 'own_cards', cards: ['Temporal Rift_01.png', 'Temporal Rift_02.png', 'Temporal Rift_03.png'], reward: r(3, 1) }
+    );
+    for (const [key, name] of [['sorting', 'Creature Sorting'], ['puzzle', 'Puzzle'], ['tetris', 'Tetris']]) {
+        BASE.push(
+            { id: `${key}_once`,    cat: 'minigames', description: `Play "${name}" one time`, type: 'arcade_days', game: key, target: 1, reward: r(2, 0) },
+            { id: `${key}_days_5`,  cat: 'minigames', description: `Play "${name}" on 5 different days`,  type: 'arcade_days', game: key, target: 5,  reward: r(2, 1) },
+            { id: `${key}_days_10`, cat: 'minigames', description: `Play "${name}" on 10 different days`, type: 'arcade_days', game: key, target: 10, reward: r(3, 2) },
+            { id: `${key}_days_20`, cat: 'minigames', description: `Play "${name}" on 20 different days`, type: 'arcade_days', game: key, target: 20, reward: r(5, 3) }
+        );
+    }
+    BASE.push(
+        { id: 'sorting_fast', cat: 'minigames', description: 'Finish "Creature Sorting" in under 40 seconds', type: 'arcade_time', game: 'sorting', seconds: 39, reward: r(3, 2) },
+        { id: 'puzzle_fast',  cat: 'minigames', description: 'Finish "Puzzle" in 3 minutes or less', type: 'arcade_time', game: 'puzzle', seconds: 180, reward: r(3, 2) },
+        { id: 'tetris_20',    cat: 'minigames', description: 'Score 20 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 20, reward: r(3, 2) },
+        { id: 'tetris_40',    cat: 'minigames', description: 'Score 40 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 40, reward: r(5, 3) }
+    );
+
     // ---- New: per-set missions, generated from the set registry ----
     const SET_MISSIONS = [];
     for (const set of cardSets) {
@@ -240,6 +264,13 @@ const Missions = (() => {
             case 'opponents_beaten_set': return numeric(p.beatenBySet[m.setId] || 0, m.target);
             case 'wins_vs_type':     return numeric(p.winsByType[m.deckType] || 0, m.target);
             case 'raids_cleared':    return numeric(p.raidsCleared, m.target);
+            case 'own_cards':        return numeric(m.cards.filter(id => (Profile.s.cards[id] || 0) > 0).length, m.cards.length);
+            case 'arcade_days':      return numeric(Object.keys((Profile.s.arcadeDays || {})[m.game] || {}).length, m.target);
+            case 'arcade_time': {
+                const best = (Profile.s.arcadeBest || {})[m.game];
+                return flag(!!best && best <= m.seconds);
+            }
+            case 'arcade_score':     return numeric((Profile.s.arcadeBest || {})[m.game] || 0, m.target);
             default:                 return flag(false);
         }
     }

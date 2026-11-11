@@ -72,7 +72,15 @@ const RAID_STRONG_CARDS = {
     'Galactic Adventures_59.png': 57,  // Platypog → Fluffbill
     'Elemental Awakening_28.png': 54,  // Baklavaff → Galaktikreme
     'Elemental Awakening_34.png': 52,  // Babybara → Carmibara → Reddybara
-    'Galactic Adventures_10.png': 52   // Meerkool (Warrior Mode)
+    'Galactic Adventures_10.png': 52,  // Meerkool (Warrior Mode)
+    // Temporal Rift: the family test's win rates (tcg-family-test-temporal.xlsx)
+    'Temporal Rift_39.png': 57,        // Terruffian → Yawnshire
+    'Temporal Rift_19.png': 56,        // Tanglett → Tangrash
+    'Temporal Rift_36.png': 55,        // Harpuddle
+    'Temporal Rift_12.png': 55,        // Solyssa
+    'Temporal Rift_48.png': 55,        // Eskiddo → Cryobbit
+    'Temporal Rift_35.png': 54,        // Ignivault
+    'Temporal Rift_24.png': 52         // Florinelle → Lavandread → Thornaria
 };
 
 /**

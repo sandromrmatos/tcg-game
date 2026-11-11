@@ -558,6 +558,7 @@ runValidation();
         `effects_never_run=${untouched(EffectRegistry).join('|') || 'none'}`,
         `abilities_never_run=${untouched(AbilityRegistry).join('|') || 'none'}`,
         `items_never_run=${untouched(ItemRegistry).join('|') || 'none'}`,
+        `accessories_never_run=${AccessoryRegistry.ids().filter(id => !AccessoryRegistry.used.has(id)).join('|') || 'none'}`,
         `harness_error=${error || 'none'}`,
         `stats=${JSON.stringify(run)}`,
         `turn_histogram=${JSON.stringify(turnHistogram)}`

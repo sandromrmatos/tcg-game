@@ -159,7 +159,7 @@ const Render = {
             const usedTurn = gameState.player.hasAttacked;
             retreatBtn.disabled = !playerTurn || !check.ok || usedTurn;
             retreatBtn.textContent = active
-                ? `Retreat (${active.data.retreat}⚡)`
+                ? `Retreat (${retreatCost(active)}⚡)`
                 : 'Retreat';
             retreatBtn.title = usedTurn
                 ? 'You have already attacked this turn.'
@@ -232,7 +232,7 @@ function buildCreature(card, side, location, index) {
 
     // HP bar with the actual remaining number, rather than only a damage total.
     const hp = remainingHp(card);
-    const fraction = clamp(hp / card.data.hp, 0, 1);
+    const fraction = clamp(hp / maxHp(card), 0, 1);
 
     const hpBar = document.createElement('div');
     hpBar.className = 'hp-bar';
@@ -245,7 +245,7 @@ function buildCreature(card, side, location, index) {
 
     const hpText = document.createElement('div');
     hpText.className = 'hp-text';
-    hpText.textContent = `${hp}/${card.data.hp}`;
+    hpText.textContent = `${hp}/${maxHp(card)}`;
     wrap.appendChild(hpText);
 
     if (card.energy > 0) {
@@ -277,6 +277,17 @@ function buildCreature(card, side, location, index) {
     }
 
     CardZoom.bind(art, card.id, card.fullArt);
+
+    // An attached accessory shows as a small card in the corner.
+    if (card.accessory) {
+        const acc = document.createElement('img');
+        acc.className = 'accessory-badge';
+        acc.src = cardImage(card.accessory.id);
+        acc.alt = card.accessory.data.name;
+        acc.title = `${card.accessory.data.name} attached`;
+        CardZoom.bind(acc, card.accessory.id, false);
+        wrap.appendChild(acc);
+    }
 
     // Abilities no longer sit on the card as a button that overlapped
     // everything. A creature whose ability can be used right now gets a
@@ -425,6 +436,9 @@ function handCardPlayability(card) {
     if (isItem(card.data)) {
         return ItemRegistry.canUse(card, 'player');
     }
+    if (isAccessory(card.data)) {
+        return AccessoryRegistry.canUse(card, 'player');
+    }
     if (card.data.stage === 'Stage 1') {
         if (emptyBenchSlots('player').length === 0) {
             return { ok: false, reason: 'Bench is full' };
@@ -504,6 +518,28 @@ function creatureChips(card) {
         }
     }
 
+    if (card.accessory) {
+        const text = typeof cardText === 'function' ? cardText(card.accessory.id, 'accessory') : '';
+        chips.push({ icon: '🧿', label: `${card.accessory.data.name}${text ? ': ' + text : ''}`, kind: 'good' });
+    }
+    for (const [key, label] of [['oreLash', 'Ore Lash'], ['coreTangle', 'Core Tangle']]) {
+        const shield = readShield(f.shields, key);
+        if (shield) chips.push({ icon: '🛡️', label: `${label}: -${shield.amount} damage`, kind: 'good' });
+    }
+    if (Timing.active(f.anchoredUntil)) {
+        chips.push({ icon: '⚓', label: 'Anchored Terrain: Mechanic attacks deal it no damage', kind: 'good' });
+    }
+    if (f.bloomshroudTurn) {
+        chips.push({ icon: '🌸', label: 'Bloomshroud: on tails next turn it takes no damage or status', kind: 'good' });
+    }
+    if (typeof bloomshroudSafe === 'function' && bloomshroudSafe(card)) {
+        chips.push({ icon: '🌸', label: 'Bloomshroud: no damage or status effects this turn', kind: 'good' });
+    }
+    const printed = getCardData(card.id);
+    if (printed && getCardType(printed) !== getCardType(card.data)) {
+        chips.push({ icon: '🔄', label: `Elemental Shift: now ${getCardType(card.data)} type`, kind: 'info' });
+    }
+
     // Always-on abilities show while they are in effect where the creature stands.
     const passive = card.data.abilityEffect && AbilityRegistry.isPassive(card.data.abilityEffect)
         ? AbilityRegistry.get(card.data.abilityEffect) : null;
@@ -568,10 +604,20 @@ function sideChips(side) {
         chips.push({ icon: '🚫', label: `Deals no damage for ${Timing.describe(f.invincibleLockUntil)} (Invincible Gambit)`, kind: 'bad' });
     }
     if (Timing.active(f.cantAttackUntil)) {
-        chips.push({ icon: '🚫', label: 'Cannot attack this turn (Quick Reflexes)', kind: 'bad' });
+        chips.push({ icon: '🚫', label: 'Cannot attack this turn', kind: 'bad' });
     }
     if (Timing.active(f.cantDealDamageUntil)) {
         chips.push({ icon: '🌊', label: 'Deals no damage this turn (Tidal Illusion)', kind: 'bad' });
+    }
+    if (Timing.active(f.cantEvolveUntil)) {
+        chips.push({ icon: '🧸', label: 'Cannot evolve this turn (Cuddle Storm)', kind: 'bad' });
+    }
+    if (Timing.active(f.cantUseAccessoriesUntil)) {
+        chips.push({ icon: '🧊', label: 'Cannot use accessory cards this turn', kind: 'bad' });
+    }
+    if (f.abilitiesBlockedTurn !== null && f.abilitiesBlockedTurn >= gameState.turnNumber) {
+        chips.push({ icon: '🔇', label: f.abilitiesBlockedTurn === gameState.turnNumber
+            ? 'No abilities this turn (Memento Echo)' : 'No abilities next turn (Memento Echo)', kind: 'bad' });
     }
     const foe = foeOf(side);
     if (gameState[foe] && hasAbilityAt(gameState[foe].active, 'mirageShield', 'active')) {

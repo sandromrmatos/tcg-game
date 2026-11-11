@@ -33,6 +33,25 @@ const GUESS_MAX = 50;
 const MEMORY_IMAGES = ['Floonleef', 'Venomgear', 'Aloebud', 'Babybara', 'Baklavaff', 'Batakaze', 'Dewmo', 'Dodolet'];
 const MEMORY_BOARD_SIZE = 16;
 
+/**
+ * The Temporal Rift mini-games (hard mode of the arcade versions). They open
+ * with the Temporal Rift set. Rewards, once a day each, like the others:
+ *   sorting          by time: under 0:40 → 5🪙 +1💜 · 1:00 → 3🪙, 50% 💜 · 1:15 → 2🪙 · slower → 1🪙
+ *   puzzle           by time: up to 3:00 → 5🪙 +1💜 · 5:00 → 3🪙, 50% 💜 ·
+ *                    8:00 → 2🪙 · slower → 1🪙
+ *   tetris           by score: 20+ → 5🪙 +1💜 · 10+ → 3🪙, 50% 💜 · 5+ → 2🪙 · less → 1🪙
+ * Sundays: every finished game pays at least 1💜, and the best tier pays 2💜.
+ */
+const ARCADE_GAMES = ['sorting', 'puzzle', 'tetris'];
+const ARCADE_SET = 'TR';
+const ARCADE_TIME_TIERS = [{ upTo: 180, credits: 5, gem: 1 }, { upTo: 300, credits: 3, gem: 0.5 },
+    { upTo: 480, credits: 2, gem: 0 }, { upTo: Infinity, credits: 1, gem: 0 }];
+// Creature Sorting is quicker: under 40 seconds is the best tier (whole seconds, so 39 is the last).
+const SORTING_TIME_TIERS = [{ upTo: 39, credits: 5, gem: 1 }, { upTo: 60, credits: 3, gem: 0.5 },
+    { upTo: 75, credits: 2, gem: 0 }, { upTo: Infinity, credits: 1, gem: 0 }];
+const ARCADE_SCORE_TIERS = [{ from: 20, credits: 5, gem: 1 }, { from: 10, credits: 3, gem: 0.5 },
+    { from: 5, credits: 2, gem: 0 }, { from: 0, credits: 1, gem: 0 }];
+
 const RARITIES = {
     1: { name: 'Common',   icon: '🟢', color: '#90EE90', cost: 1 },
     2: { name: 'Uncommon', icon: '🔵', color: '#87CEEB', cost: 5 },
@@ -136,6 +155,12 @@ const Profile = {
             minigameResults: {},         // 'wheel'|'guess'|'memory' -> { date, credits, gems } of the last play
             guessGame: null,             // { target, count, date }
             memoryGame: null,            // { board, matched, firstFlip, date }
+            // Temporal Rift mini-games (sorting, puzzle, tetris): days played,
+            // last play date, and the game in progress.
+            arcadeDays: { sorting: {}, puzzle: {}, tetris: {} },
+            arcadeLast: { sorting: null, puzzle: null, tetris: null },
+            arcadeBest: { sorting: null, puzzle: null, tetris: 0 },  // fastest seconds / top score
+            arcadeGame: null,            // { key, date, startedAt, seed, score }
             drawsTotal: 0,
             purchasesTotal: 0,
             drawSet: cardSets[0].id,
@@ -251,9 +276,24 @@ const Profile = {
         s.lastGuessDate = dateOrNull(raw.lastGuessDate);
         s.lastMemoryDate = dateOrNull(raw.lastMemoryDate);
 
+        s.arcadeDays = {};
+        s.arcadeLast = {};
+        s.arcadeBest = {};
+        for (const key of ARCADE_GAMES) {
+            s.arcadeDays[key] = dayMap(raw.arcadeDays && raw.arcadeDays[key]);
+            s.arcadeLast[key] = dateOrNull(raw.arcadeLast && raw.arcadeLast[key]);
+            const best = raw.arcadeBest && Number(raw.arcadeBest[key]);
+            s.arcadeBest[key] = key === 'tetris' ? int(best) : (best > 0 ? Math.floor(best) : null);
+        }
+        const ag = raw.arcadeGame;
+        s.arcadeGame = ag && typeof ag === 'object' && ARCADE_GAMES.includes(ag.key) && Number(ag.startedAt) > 0
+            ? { key: ag.key, date: dateOrNull(ag.date) || dayKey(), startedAt: Number(ag.startedAt),
+                seed: int(ag.seed), score: int(ag.score) }
+            : null;
+
         s.minigameResults = {};
         if (raw.minigameResults && typeof raw.minigameResults === 'object') {
-            for (const key of ['wheel', 'guess', 'memory']) {
+            for (const key of ['wheel', 'guess', 'memory'].concat(ARCADE_GAMES)) {
                 const r = raw.minigameResults[key];
                 if (r && typeof r === 'object' && dateOrNull(r.date)) {
                     s.minigameResults[key] = { date: r.date, credits: int(r.credits), gems: int(r.gems) };
@@ -826,6 +866,93 @@ const Profile = {
         this.s.memoryGame = null;
         this.touch('memory', { immediate: true });
         return { position, image, isFirstFlip: false, matched: true, firstPosition, gameComplete: true, creditsWon, gemsWon };
+    },
+
+    // -----------------------------------------------------------------------
+    // Temporal Rift mini-games: Creature Sorting, Puzzle, Tetris
+    //
+    // Starting a game uses the day's go. The game is saved as it starts, so
+    // leaving and coming back resumes it with the clock still running (Sorting,
+    // Puzzle: the same board from its seed) or ends it on the score so far
+    // (Tetris), which stops a slow start being thrown away for a fresh one.
+    // -----------------------------------------------------------------------
+
+    arcadeUnlocked() {
+        return this.isSetUnlocked(ARCADE_SET);
+    },
+
+    arcadeStatus(key) {
+        this.regen();
+        const g = this.s.arcadeGame;
+        const active = !!g && g.key === key;
+        const busyElsewhere = !!g && g.key !== key;
+        const alreadyToday = this.s.arcadeLast[key] === dayKey();
+        const tooMany = this.s.credits > MINIGAME_MAX_CREDITS;
+        const locked = !this.arcadeUnlocked();
+        return {
+            locked, active, busyElsewhere, alreadyToday, tooMany,
+            canPlay: !locked && !alreadyToday && !tooMany && !g,
+            credits: this.s.credits,
+            sunday: isSundayToday(),
+            game: active ? Object.assign({}, g) : null,
+            best: this.s.arcadeBest[key]
+        };
+    },
+
+    startArcade(key) {
+        if (!ARCADE_GAMES.includes(key)) return { error: 'Unknown game.' };
+        const st = this.arcadeStatus(key);
+        if (st.locked) return { error: 'Unlock after completing 90% of Galactic Adventures.' };
+        if (st.active) return { ok: true, game: st.game };
+        if (st.busyElsewhere) return { error: 'Finish the mini-game you already started first.' };
+        if (st.alreadyToday) return { error: 'You already played this today. Come back tomorrow!' };
+        if (st.tooMany) return { error: `You need ${MINIGAME_MAX_CREDITS} or fewer credits to play.` };
+        this.s.arcadeGame = { key, date: dayKey(), startedAt: Date.now(), seed: 1 + randInt(2147483000), score: 0 };
+        this.touch('arcade', { immediate: true });
+        return { ok: true, game: Object.assign({}, this.s.arcadeGame) };
+    },
+
+    /** Tetris saves its score as it goes, so a closed game still counts. */
+    arcadeProgress(key, score) {
+        const g = this.s.arcadeGame;
+        if (!g || g.key !== key) return;
+        g.score = Math.max(g.score, Math.floor(Number(score) || 0));
+        this.touch('arcade');
+    },
+
+    /** The reward for a result: seconds (sorting, puzzle) or score (tetris). */
+    arcadeReward(key, value, sunday = isSundayToday(), roll = Math.random()) {
+        const tiers = key === 'tetris' ? ARCADE_SCORE_TIERS : key === 'sorting' ? SORTING_TIME_TIERS : ARCADE_TIME_TIERS;
+        const tier = key === 'tetris' ? tiers.find(t => value >= t.from) : tiers.find(t => value <= t.upTo);
+        const best = tier === tiers[0];
+        let gems = tier.gem >= 1 ? 1 : (roll < tier.gem ? 1 : 0);
+        if (sunday) gems = best ? 2 : Math.max(1, gems);
+        return { credits: tier.credits, gems };
+    },
+
+    /**
+     * Ends the game in progress and pays its reward.
+     * @param {object} result { seconds } for sorting and puzzle, { score } for tetris
+     */
+    finishArcade(key, result = {}) {
+        const g = this.s.arcadeGame;
+        if (!g || g.key !== key) return { error: 'No game in progress.' };
+        const value = key === 'tetris'
+            ? Math.max(g.score, Math.floor(Number(result.score) || 0))
+            : Math.max(1, Math.floor((Date.now() - g.startedAt) / 1000));
+        const reward = this.arcadeReward(key, value);
+        this.regen();
+        this._addCredits(reward.credits);
+        this.s.gems += reward.gems;
+        const today = dayKey();
+        this.s.arcadeLast[key] = today;
+        this.s.arcadeDays[key][today] = true;
+        if (key === 'tetris') this.s.arcadeBest.tetris = Math.max(this.s.arcadeBest.tetris || 0, value);
+        else if (!this.s.arcadeBest[key] || value < this.s.arcadeBest[key]) this.s.arcadeBest[key] = value;
+        this.s.minigameResults[key] = { date: today, credits: reward.credits, gems: reward.gems };
+        this.s.arcadeGame = null;
+        this.touch('arcade', { immediate: true });
+        return { ok: true, value, creditsWon: reward.credits, gemsWon: reward.gems };
     },
 
     // -----------------------------------------------------------------------

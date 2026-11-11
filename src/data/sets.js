@@ -21,6 +21,12 @@ const cardSets = [
         name: 'Galactic Adventures',
         prefix: 'Galactic Adventures_',
         accent: '#7fd4ff'
+    },
+    {
+        id: 'TR',
+        name: 'Temporal Rift',
+        prefix: 'Temporal Rift_',
+        accent: '#c792ff'
     }
 ];
 

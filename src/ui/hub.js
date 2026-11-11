@@ -89,6 +89,9 @@ const Hub = {
         { id: 'wheel',      label: '🎡 Spin the Wheel',   parent: 'minigames' },
         { id: 'guess',      label: '🎯 Guess the Number', parent: 'minigames' },
         { id: 'memory',     label: '🧠 Memory Game',      parent: 'minigames' },
+        { id: 'sorting',    label: '🗄️ Creature Sorting', parent: 'minigames' },
+        { id: 'puzzle',     label: '🧩 Puzzle',           parent: 'minigames' },
+        { id: 'tetris',     label: '🧱 Tetris',           parent: 'minigames' },
         { id: 'collection', label: '📈 Collection' },
         { id: 'stats',      label: '🏆 Stats' },
         { id: 'save',       label: '💾 Save data' }
@@ -155,7 +158,7 @@ const Hub = {
         if (today !== this._today) {
             this._today = today;
             if (Profile.markLoginDay()) changed = true;
-            if (this.page !== 'draw' && this.page !== 'guess' && this.page !== 'memory') this.renderPage();
+            if (!['draw', 'guess', 'memory', 'sorting', 'puzzle', 'tetris'].includes(this.page)) this.renderPage();
         }
         if (changed) Profile.touch('regen');
         else this.renderHeader();
@@ -223,7 +226,8 @@ const Hub = {
     celebrateUnlock(set) {
         this.dialog({
             title: `🎉 ${set.name} unlocked!`,
-            message: `You collected 90% of the previous set, so ${set.name} cards can now be drawn, bought and used in decks.`,
+            message: `You collected 90% of the previous set, so ${set.name} cards can now be drawn, bought and used in decks.` +
+                (set.id === ARCADE_SET ? ' Three new mini-games are open too: Creature Sorting, Puzzle and Tetris.' : ''),
             buttons: [{ label: 'Awesome!', value: true, kind: 'primary' }]
         });
     },
@@ -327,6 +331,9 @@ const Hub = {
             wheel: () => this.renderWheel(),
             guess: () => this.renderGuess(),
             memory: () => this.renderMemory(),
+            sorting: () => this.renderSorting(),
+            puzzle: () => this.renderPuzzle(),
+            tetris: () => this.renderTetris(),
             collection: () => this.renderCollection(),
             stats: () => this.renderStats(),
             save: () => this.renderSave()
@@ -386,7 +393,31 @@ const Hub = {
                 `Win credits today: ${st.winCreditsToday}/${WIN_CREDITS_PER_DAY}.` +
                 (st.creditsFull ? ` Your credits are full, so a win won't earn one right now.` : '');
         }
+        this.renderOpponentPicker();
         Screens.renderDeckList();
+    },
+
+    /** "Opponent: 🎲 Random AI deck" or one of the AI decks from unlocked sets. */
+    renderOpponentPicker() {
+        const select = document.getElementById('opponent-select');
+        if (!select) return;
+        const presets = DeckLibrary.aiPresets();
+        const chosen = Screens.opponentChoice();
+        select.innerHTML = '';
+        select.appendChild(h('option', { value: '', text: '🎲 Random AI deck' }));
+        for (const set of cardSets) {
+            const decks = presets.filter(d => d.set === set.id);
+            if (!decks.length) continue;
+            const group = h('optgroup', { label: set.name });
+            for (const deck of decks) {
+                const o = (Profile.s.stats.byOpponent || {})[deck.name];
+                const record = o && o.played ? ` (${o.won}W ${o.lost}L)` : '';
+                group.appendChild(h('option', { value: deck.name, text: `${deck.name} · ${deckPrimaryType(deck.cards)}${record}` }));
+            }
+            select.appendChild(group);
+        }
+        select.value = presets.some(d => d.name === chosen) ? chosen : '';
+        select.onchange = () => Screens.setOpponentChoice(select.value);
     },
 
     // -----------------------------------------------------------------------
@@ -958,12 +989,13 @@ const Hub = {
               about: 'Guess a number from 1 to 50. Fewer guesses, bigger reward (up to 5 credits).', status: Profile.guessStatus() },
             { id: 'memory', key: 'memory', icon: '🧠', name: 'Memory Game',
               about: 'Find all 8 pairs for 2, 3 or 5 credits and maybe a gem.', status: Profile.memoryStatus() }
-        ];
+        ].concat(this.arcadeListEntries());
     },
 
     /** One line telling the player whether this game is done for today and what it paid. */
     minigameMessage(game) {
         const st = game.status;
+        if (st.locked) return { kind: 'locked', text: '🔒 Unlock after completing 90% of Galactic Adventures.' };
         if (st.active) return { kind: 'active', text: '▶️ Game in progress. Finish it to collect your reward.' };
         if (st.alreadyToday) {
             const r = Profile.s.minigameResults[game.key];
@@ -993,7 +1025,8 @@ const Hub = {
                 h('p', { class: `minigame-status ${msg.kind}`, text: msg.text }),
                 h('button', {
                     class: `btn ${msg.kind === 'ready' || msg.kind === 'active' ? 'btn-primary' : 'btn-ghost'}`, type: 'button',
-                    text: msg.kind === 'active' ? 'Continue' : msg.kind === 'ready' ? 'Play' : 'Open',
+                    text: msg.kind === 'active' ? 'Continue' : msg.kind === 'ready' ? 'Play' : msg.kind === 'locked' ? '🔒 Locked' : 'Open',
+                    disabled: msg.kind === 'locked',
                     on: { click: () => this.showPage(game.id) }
                 })));
         }
@@ -1004,7 +1037,7 @@ const Hub = {
     backToMinigames() {
         return h('button', {
             class: 'btn btn-ghost btn-sm back-btn', type: 'button', text: '← Mini-games',
-            disabled: this.navLocked, title: this.navLocked ? 'Guess the number correctly before leaving' : '',
+            disabled: this.navLocked, title: this.navLocked ? 'Finish the game before leaving' : '',
             on: { click: () => this.showPage('minigames') }
         });
     },
@@ -1153,7 +1186,7 @@ const Hub = {
         this.navLocked = locked;
         document.querySelectorAll('.hub-tab').forEach(t => {
             t.classList.toggle('locked', locked && t.dataset.page !== this.page);
-            t.title = locked && t.dataset.page !== this.page ? 'Guess the number correctly before leaving' : '';
+            t.title = locked && t.dataset.page !== this.page ? 'Finish the game before leaving' : '';
         });
     },
 

@@ -72,11 +72,44 @@ async function onHandCardClick(card, handIndex) {
 
     if (isItem(card.data)) {
         await onPlayItem(card, handIndex);
+    } else if (isAccessory(card.data)) {
+        await onPlayAccessory(card);
     } else if (card.data.stage === 'Stage 1') {
         await onPlayCreature(card, handIndex);
     } else {
         await onEvolve(card, handIndex);
     }
+}
+
+/** Attach an accessory: pick one of your creatures of its type. */
+async function onPlayAccessory(card) {
+    const check = AccessoryRegistry.canUse(card, 'player');
+    if (!check.ok) {
+        Log.warn(check.reason);
+        return;
+    }
+    const target = await Prompt.chooseCreature({
+        candidates: AccessoryRegistry.targets(card, 'player'),
+        title: `Attach ${card.data.name} to which ${card.data.accessoryType} creature? (one accessory per turn)`,
+        cancellable: true
+    });
+    if (!target) return;
+    await runExclusive(async () => {
+        await AccessoryRegistry.attach(card, 'player', target);
+    });
+}
+
+/** The accessory's own button (Neutral Elixir), from the creature panel. */
+async function onUseAccessory(card) {
+    const check = AccessoryRegistry.canActivate(card, 'player');
+    if (!check.ok) {
+        Log.warn(check.reason);
+        return;
+    }
+    await runExclusive(async () => {
+        await AccessoryRegistry.activate(card, 'player');
+        await resolveKnockouts();
+    });
 }
 
 async function onPlayItem(card, handIndex) {
@@ -304,7 +337,7 @@ async function onRetreatButton() {
 
     const choice = await Prompt.chooseCreature({
         candidates: boardCandidates('player', c => c.location === 'bench'),
-        title: `Switch ${active.data.name} with which creature? (costs ${active.data.retreat} energy)`,
+        title: `Switch ${active.data.name} with which creature? (costs ${retreatCost(active)} energy)`,
         cancellable: true
     });
     if (!choice) return;

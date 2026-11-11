@@ -1612,3 +1612,19 @@ img.zoomable { pointer-events: auto; }
     #builder-modal .builder-deck-wrap { max-height: 75vh; }
 }
 .deck-energy { color: var(--text-dim); }
+
+/* Temporal Rift: an attached accessory, shown as a small card on the creature. */
+.accessory-badge {
+    position: absolute;
+    left: -6px;
+    bottom: 22px;
+    width: 34%;
+    max-width: 44px;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 2px solid #c9a227;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+    z-index: 3;
+    cursor: zoom-in;
+}

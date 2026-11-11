@@ -49,6 +49,11 @@
                 <h2>⚔️ Play against the AI</h2>
                 <p id="play-summary" class="page-sub"></p>
             </div>
+            <!-- Who the AI plays: a random deck, or one you pick -->
+            <div class="opponent-pick">
+                <label for="opponent-select">Opponent</label>
+                <select id="opponent-select" class="select-input"></select>
+            </div>
             <div id="deck-list" class="deck-list"></div>
             <footer class="deck-footer">
                 <button id="create-deck-btn" class="btn btn-primary btn-lg" type="button">
@@ -69,6 +74,9 @@
         <section id="page-wheel" class="hub-page"></section>
         <section id="page-guess" class="hub-page"></section>
         <section id="page-memory" class="hub-page"></section>
+        <section id="page-sorting" class="hub-page"></section>
+        <section id="page-puzzle" class="hub-page"></section>
+        <section id="page-tetris" class="hub-page"></section>
         <section id="page-collection" class="hub-page"></section>
         <section id="page-stats" class="hub-page"></section>
         <section id="page-save" class="hub-page"></section>
@@ -392,7 +400,8 @@
                     <li>Only cards you own, and no more copies than you own</li>
                     <li>Exactly 20 cards, at most 2 copies of any one card</li>
                     <li>At least one Stage 1 creature</li>
-                    <li>One primary type, plus any number of Neutral and Item cards</li>
+                    <li>Creatures of any types can be mixed. Pick the deck's energy types to match: a creature whose moves need an energy type the deck doesn't use gets a warning, but the deck can still be saved</li>
+                    <li>Accessory cards are attached to one of your creatures of their type, one per turn</li>
                     <li>Cards from different sets can be mixed freely</li>
                 </ul>
             </section>
@@ -654,6 +663,7 @@
 <script src="src/ui/deckbuilder.js"></script>
 <script src="src/ui/screens.js"></script>
 <script src="src/ui/hub.js"></script>
+<script src="src/ui/arcade.js"></script>
 
 <!-- tooling + bootstrap -->
 <script src="src/validate.js"></script>

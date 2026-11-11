@@ -70,6 +70,7 @@ const CORE = [
     'src/ui/deckbuilder.js',
     'src/ui/screens.js',
     'src/ui/hub.js',
+    'src/ui/arcade.js',
     'src/validate.js',
     'src/main.js'
 ];

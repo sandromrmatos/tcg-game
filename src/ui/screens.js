@@ -338,7 +338,7 @@ const Screens = {
             ? ENERGY_TYPES.filter(t => card.energyUnits[t]).map(t => `${ENERGY_ICONS[t]} ${card.energyUnits[t]} ${t}`).join(', ')
             : 'no energy';
         info.appendChild(el('p', 'creature-panel-meta',
-            `HP ${hp}/${data.hp} · ${energyText} · Retreat ${data.retreat} (any type)`));
+            `HP ${hp}/${maxHp(card)} · ${energyText} · Retreat ${retreatCost(card)} (any type)`));
 
         for (const status of Status.list(card)) {
             const c = STATUS_CONDITIONS[status];
@@ -384,6 +384,30 @@ const Screens = {
             info.appendChild(el('p', 'creature-panel-meta', 'This creature has no ability.'));
         }
 
+        // Its accessory, with the accessory's own button where it has one.
+        if (card.accessory) {
+            const box = el('div', 'creature-panel-ability');
+            box.appendChild(el('div', 'creature-panel-ability-name', `🧿 ${card.accessory.data.name}`));
+            const accText = typeof cardText === 'function' ? cardText(card.accessory.id, 'accessory') : '';
+            if (accText) box.appendChild(el('p', 'creature-panel-ability-text', accText));
+            const act = AccessoryRegistry.activation(card);
+            if (act) {
+                const check = gameState.busy
+                    ? { ok: false, reason: 'Wait for the current action to finish.' }
+                    : AccessoryRegistry.canActivate(card, 'player');
+                if (!check.ok) box.appendChild(el('p', 'creature-panel-ability-why', check.reason));
+                const btn = el('button', 'btn btn-primary', act.label);
+                btn.type = 'button';
+                btn.disabled = !check.ok;
+                btn.onclick = () => {
+                    this.closeModal('creature-modal');
+                    onUseAccessory(card);
+                };
+                box.appendChild(btn);
+            }
+            info.appendChild(box);
+        }
+
         for (const move of movesOf(data)) {
             const text = typeof cardText === 'function' ? cardText(card.id, `move${move.number}`) : '';
             const line = el('p', 'creature-panel-move',
@@ -410,6 +434,18 @@ const Screens = {
      * Starts a real game with one of the player's decks; the AI takes a random
      * preset. The match is recorded so leaving it counts as a loss.
      */
+    /** The AI deck chosen on the Play page ('' = random). Kept on this device. */
+    opponentChoice() {
+        try { return localStorage.getItem('tcg.opponentChoice') || ''; } catch (e) { return ''; }
+    },
+
+    setOpponentChoice(name) {
+        try {
+            if (name) localStorage.setItem('tcg.opponentChoice', name);
+            else localStorage.removeItem('tcg.opponentChoice');
+        } catch (e) { /* storage unavailable: the choice lasts for this page only */ }
+    },
+
     async selectDeck(index) {
         const deck = DeckLibrary.get(index);
         if (!deck) return;
@@ -425,9 +461,11 @@ const Screens = {
 
         gameState.player.selectedDeck = index;
 
-        // Galactic Adventures decks join the AI's pool once that set is unlocked.
+        // Later sets' decks join the AI's pool once their set is unlocked. The
+        // Play page's Opponent menu picks one, or leaves it to chance.
         const presets = DeckLibrary.aiPresets();
-        const aiDeck = Rng.pick(presets) || deck;
+        const picked = presets.find(d => d.name === this.opponentChoice());
+        const aiDeck = picked || Rng.pick(presets) || deck;
         gameState.opponent.selectedDeck = DeckLibrary.indexOf(aiDeck);
 
         this.closeModal('deck-preview-modal');

@@ -184,40 +184,34 @@ function validateDeck(cardIds) {
         return { valid: false, error: 'A deck needs at least one Stage 1 creature.' };
     }
 
-    // Exactly one primary type; Neutral and Item cards mix with anything.
-    let primary = null;
+    // Types mix freely now that energy is typed: a creature whose moves need
+    // an energy type the deck doesn't use is a warning (energyTypeWarnings),
+    // not an error.
     for (const id of cardIds) {
-        const data = getCardData(id);
-        if (!data) return { valid: false, error: `Unknown card: ${id}` };
-
-        const type = getCardType(data);
-        if (type === 'Neutral' || type === 'Item') continue;
-
-        if (!primary) primary = type;
-        else if (type !== primary) {
-            return {
-                valid: false,
-                error: `A deck can't mix ${primary} and ${type}. Only Neutral and Item cards mix freely.`
-            };
-        }
+        if (!getCardData(id)) return { valid: false, error: `Unknown card: ${id}` };
     }
 
     return { valid: true };
 }
 
 /**
- * A deck's primary type: its one non-Neutral creature type, or 'Neutral' for a
- * deck of only Neutral creatures and items. Used for "win against a Mystic
- * deck" style achievements and the AI deck labels.
+ * A deck's primary type: the non-Neutral creature type it has most cards of,
+ * or 'Neutral' for a deck of only Neutral creatures. Used for "win against a
+ * Mystic deck" style achievements and the AI deck labels.
  */
 function deckPrimaryType(cardIds) {
+    const counts = {};
     for (const id of cardIds || []) {
         const data = getCardData(id);
-        if (!data) continue;
+        if (!data || !isCreature(data)) continue;
         const type = getCardType(data);
-        if (type !== 'Neutral' && type !== 'Item') return type;
+        if (type !== 'Neutral') counts[type] = (counts[type] || 0) + 1;
     }
-    return 'Neutral';
+    let best = 'Neutral', most = 0;
+    for (const type of CREATURE_TYPES) {
+        if ((counts[type] || 0) > most) { best = type; most = counts[type]; }
+    }
+    return best;
 }
 
 /**
@@ -334,7 +328,19 @@ function presetCompositionProblems(cardIds) {
         const key = line.map(c => c.id).sort().join('|');
         if (reported.has(key)) continue;
         // Promo stages can't be in an AI deck, so they don't count towards a line.
-        const stages = line.filter(c => !c.promo);
+        let stages = line.filter(c => !c.promo);
+        // A line that branches (Vulpetta evolves into four creatures) only
+        // needs the branches the deck uses, plus everything they evolve from.
+        if (line.some(c => (c.nextStageIds || []).length > 1)) {
+            const needed = new Set();
+            const addWithAncestors = d => {
+                if (!d || needed.has(d.id)) return;
+                needed.add(d.id);
+                for (const prev of d.prevStageIds || []) addWithAncestors(getCardData(prev));
+            };
+            for (const c of line) if (counts.has(c.id)) addWithAncestors(c);
+            stages = stages.filter(c => needed.has(c.id));
+        }
         const missing = stages.filter(c => !counts.has(c.id));
         const single = stages.filter(c => counts.get(c.id) === 1);
         if (missing.length || single.length) {
@@ -348,7 +354,7 @@ function presetCompositionProblems(cardIds) {
     const types = new Set([...counts.keys()].map(getCardData).filter(d => d && isCreature(d)).map(getCardType));
     for (const id of counts.keys()) {
         const data = getCardData(id);
-        const needs = data && TYPE_SPECIFIC_ITEMS[data.itemEffect];
+        const needs = data && (TYPE_SPECIFIC_ITEMS[data.itemEffect] || (isAccessory(data) ? data.accessoryType : null));
         if (needs && !types.has(needs)) problems.push(`${data.name} only works with ${needs} creatures, and the deck has none.`);
     }
     return problems;

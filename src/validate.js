@@ -132,6 +132,16 @@ const Validate = {
     },
 
     checkItemReferences() {
+        // Accessories: a registered effect and a creature type to attach to.
+        for (const card of cardDatabase) {
+            if (!isAccessory(card)) continue;
+            if (!card.accessoryEffect || !AccessoryRegistry.has(card.accessoryEffect)) {
+                this.error(`Accessory "${card.name}" (${card.id}) uses "${card.accessoryEffect}", which is not registered in core/items.js.`);
+            }
+            if (!CREATURE_TYPES.includes(card.accessoryType)) {
+                this.error(`Accessory "${card.name}" (${card.id}) has no creature type to attach to.`);
+            }
+        }
         for (const card of cardDatabase) {
             if (!isItem(card)) {
                 if (card.itemEffect) {

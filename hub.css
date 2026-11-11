@@ -819,3 +819,72 @@
     .raid-art-wrap { flex: none; align-self: center; }
     .raid-art { width: 180px; }
 }
+
+/* Play page: choose the AI's deck, or a random one. */
+.opponent-pick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 14px;
+    flex-wrap: wrap;
+}
+.opponent-pick label { font-weight: 700; color: var(--text-dim); }
+.opponent-pick select { flex: 1 1 220px; max-width: 460px; }
+
+/* ---- Temporal Rift mini-games ------------------------------------------- */
+.minigame-card.locked { opacity: 0.6; }
+.minigame-status.locked { color: var(--text-faint); }
+.arcade-clock { font-size: 22px; font-weight: 800; color: var(--gold); text-align: center; margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+
+.sorting-shelves {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    max-width: 760px;
+    margin: 0 auto;
+}
+.sorting-shelf {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 6px 6px 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 5px solid #8a6a43;
+}
+.sorting-slot {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sorting-slot.empty { border: 2px dashed rgba(255, 255, 255, 0.15); }
+.sorting-slot.selected { border-color: var(--gold); box-shadow: 0 0 10px rgba(255, 207, 92, 0.6); }
+.sorting-slot img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+
+.puzzle-layout { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.puzzle-preview {
+    width: 72px;
+    aspect-ratio: 2 / 3;
+    background-size: cover;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+}
+.puzzle-grid { display: grid; gap: 1px; }
+.puzzle-board { background: rgba(0, 0, 0, 0.35); padding: 2px; border-radius: 6px; }
+.puzzle-cell, .puzzle-piece { padding: 0; border: 0; border-radius: 2px; background-color: rgba(255, 255, 255, 0.06); }
+.puzzle-cell.placed { background-color: transparent; }
+.puzzle-piece.used { visibility: hidden; }
+.puzzle-piece.selected { outline: 3px solid var(--gold); outline-offset: -3px; position: relative; z-index: 1; }
+
+.tetris-layout { display: flex; justify-content: center; gap: 14px; align-items: flex-start; }
+.tetris-canvas { display: block; border: 3px solid #555; border-radius: 4px; background: #16131f; max-width: 62vw; height: auto; }
+.tetris-next { display: block; border: 2px solid #555; border-radius: 4px; }
+.tetris-controls { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 12px; touch-action: manipulation; }
+.tetris-controls > div { display: flex; gap: 8px; }
+.tetris-btn { width: 60px; height: 52px; font-size: 22px; font-weight: 800; user-select: none; }
+.tetris-btn.wide { width: 136px; font-size: 16px; }
