@@ -894,3 +894,50 @@
 .tetris-controls > div { display: flex; gap: 8px; }
 .tetris-btn { width: 60px; height: 52px; font-size: 22px; font-weight: 800; user-select: none; }
 .tetris-btn.wide { width: 136px; font-size: 16px; }
+
+/* --------------------------------------------------------------------------
+   Online PvP: lobby and the turn clock
+   -------------------------------------------------------------------------- */
+
+.pvp-body { display: flex; flex-direction: column; gap: 12px; }
+.pvp-note { color: var(--text-dim); line-height: 1.5; margin: 0; }
+.pvp-error { color: #ffd9a8; line-height: 1.5; margin: 0; }
+.pvp-fine { color: var(--text-faint); font-size: 12px; margin: 0; }
+.pvp-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
+.pvp-field .text-input, .pvp-field .select-input { width: 100%; }
+.pvp-actions { display: flex; }
+.pvp-actions .btn { flex: 1 1 auto; }
+.pvp-join { display: flex; gap: 8px; }
+.pvp-join .btn { flex: 0 0 auto; }
+.pvp-code-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    font-weight: 700;
+    text-align: center;
+}
+.pvp-code {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: 0.25em;
+    text-align: center;
+    color: var(--gold);
+    padding: 6px 0;
+    user-select: all;
+}
+
+.pvp-clock {
+    display: none;
+    margin-top: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+.pvp-clock-show { display: block; }
+.pvp-clock-low { color: #ff8f8f; animation: pvp-clock-pulse 1s ease-in-out infinite; }
+@keyframes pvp-clock-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) {
+    .pvp-clock-low { animation: none; }
+}

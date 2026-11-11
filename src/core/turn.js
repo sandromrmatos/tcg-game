@@ -17,7 +17,9 @@
 async function startGame() {
     gameState.phase = 'playing';
     gameState.turnNumber = 1;
-    gameState.currentTurn = Rng.flip() === 'heads' ? 'player' : 'opponent';
+    // SIDES rather than literal names: in online play the guest's SIDES is
+    // reversed, so the same seeded flip picks the same player on both devices.
+    gameState.currentTurn = Rng.flip() === 'heads' ? SIDES[0] : SIDES[1];
     gameState.firstTurnSide = gameState.currentTurn;
     turnTracker.clear();
 
@@ -126,7 +128,8 @@ async function beginTurn() {
 
     // Draw for the turn. The side going first skips it on turn 1.
     if (isStarterFirstTurn(side)) {
-        const who = side === 'player' ? 'you skip' : 'the AI skips';
+        const who = side === 'player' ? 'you skip'
+            : subject(side) === 'The AI' ? 'the AI skips' : `${subject(side)} skips`;
         await Log.say(`Going first: ${who} the draw and cannot attack this turn. Energy can still be attached.`,
             { kind: 'info', icon: 'ℹ️', pace: 0.9 });
     } else {
@@ -146,6 +149,14 @@ async function beginTurn() {
     await announceActiveRestrictions(side);
 
     Render.all();
+
+    // Online PvP: no AI. The 60-second clock starts, and on the other
+    // player's turn their actions are replayed as they arrive.
+    if (typeof PvP !== 'undefined' && PvP.active) {
+        PvP.onTurnStart(side);
+        if (side === 'opponent') await PvP.runRemoteTurn(side);
+        return;
+    }
 
     if (side === 'opponent' || Automation.playBothSides) {
         await runAiTurn(side);

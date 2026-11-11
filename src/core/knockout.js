@@ -168,10 +168,11 @@ async function endGame(winner, reason) {
 
     const message = winner === 'tie'
         ? "It's a draw!"
-        : (winner === 'player' ? 'You win!' : 'The AI wins.');
+        : (winner === 'player' ? 'You win!' : `${subject('opponent')} wins.`);
 
     Log.write(`${message} ${reason}`, { kind: 'point', icon: '🏁' });
     Render.all();
+    if (typeof PvP !== 'undefined' && PvP.active) PvP.onGameOver();
 
     // Collection layer: record the result and pay the daily win credit. Only
     // real games have an active match; QA games and test harnesses don't.

@@ -59,6 +59,9 @@
                 <button id="create-deck-btn" class="btn btn-primary btn-lg" type="button">
                     Build a deck
                 </button>
+                <button id="pvp-btn" class="btn btn-primary btn-lg" type="button">
+                    🌐 Play online
+                </button>
                 <button id="debug-btn" class="btn btn-ghost btn-lg" type="button">
                     🔒 QA mode
                 </button>
@@ -113,6 +116,8 @@
                         Turn <b id="turn-number">0</b> / <span id="turn-limit">30</span>
                     </div>
                     <div id="busy-indicator" class="busy-indicator">resolving…</div>
+                    <!-- Online games: the turn clock -->
+                    <div id="pvp-clock" class="pvp-clock" aria-live="off"></div>
                 </section>
 
                 <section class="hud-side" data-player="player">
@@ -468,6 +473,15 @@
     </div>
 </div>
 
+<!-- Online PvP lobby (before the hub dialog, so its confirmations show on top) -->
+<div id="pvp-modal" class="modal" data-dismissable="false">
+    <div class="modal-panel modal-narrow pvp-panel">
+        <button id="pvp-close" class="modal-close" type="button" aria-label="Close">×</button>
+        <h2>🌐 Play online</h2>
+        <div id="pvp-body" class="pvp-body"></div>
+    </div>
+</div>
+
 <!-- Hub: generic dialog (confirm, alert, password) -->
 <div id="hub-dialog" class="modal hub-dialog" data-dismissable="false">
     <div class="modal-panel modal-narrow">
@@ -503,7 +517,7 @@
                     <li><strong>🐉 Raid Bosses</strong>: beat a boss deck to win the full-art version of its card.</li>
                     <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, each free once a day for credits and gems. Each game shows whether you've played it today and what you earned.</li>
                     <li><strong>📈 Collection</strong>: your progress through each set.</li>
-                    <li><strong>🏆 Stats</strong>: games played, won and lost against the AI.</li>
+                    <li><strong>🏆 Stats</strong>: games played, won and lost against the AI, and your online games and win rate.</li>
                     <li><strong>💾 Save data</strong>: download and import backups, or move your save to another device.</li>
                 </ul>
             </details>
@@ -525,6 +539,16 @@
                     <li>Whoever goes first doesn't draw and can't attack on turn 1. Your Stats show your win rate going first and going second.</li>
                     <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>. If your credits are full when you start, a win earns nothing, and the game warns you first.</li>
                     <li>Leaving a game before it ends, or closing the page mid-game, counts as a loss.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🌐 Playing online against a friend</summary>
+                <ul>
+                    <li>On the Play page, tap <strong>🌐 Play online</strong> and pick your deck. One player taps <strong>Make a room</strong> and shares the 4-letter code; the other types it and taps <strong>Join</strong>.</li>
+                    <li>Each turn has <strong>60 seconds</strong>. When the time runs out, the turn ends (an open choice is answered for you).</li>
+                    <li>A win pays 1 credit, sharing the same limit of 3 win credits a day as games against the AI. Leaving counts as a loss; if the other player leaves or disconnects for long enough, you win.</li>
+                    <li>Online games have their own stats (games played, win rate) and their own missions. They don't count towards the card achievements.</li>
+                    <li>If the online service is busy or at its free limit, Play online says so instead of starting. If your own connection drops for too long, or the two devices ever disagree about the board, the game stops and doesn't count.</li>
                 </ul>
             </details>
             <details>
@@ -664,6 +688,7 @@
 <script src="src/ui/screens.js"></script>
 <script src="src/ui/hub.js"></script>
 <script src="src/ui/arcade.js"></script>
+<script src="src/ui/pvp.js"></script>
 
 <!-- tooling + bootstrap -->
 <script src="src/validate.js"></script>

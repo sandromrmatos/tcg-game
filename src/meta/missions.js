@@ -184,13 +184,24 @@ const Missions = (() => {
         { id: 'raid_10', cat: 'raids', description: 'Defeat 10 different raid bosses', type: 'raids_cleared', target: 10, reward: r(5, 5) }
     ];
 
-    const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS, RAID_MISSIONS);
+    // ---- Online games against other players ----
+    const PVP_MISSIONS = [
+        { id: 'pvp_play_1',  cat: 'pvp', description: 'Play your first online game against another player', type: 'pvp_played', target: 1,  reward: r(2, 0) },
+        { id: 'pvp_win_1',   cat: 'pvp', description: 'Win your first online game against another player',  type: 'pvp_won',    target: 1,  reward: r(2, 1) },
+        { id: 'pvp_play_10', cat: 'pvp', description: 'Play 10 online games against other players',        type: 'pvp_played', target: 10, reward: r(3, 1) },
+        { id: 'pvp_win_5',   cat: 'pvp', description: 'Win 5 online games against other players',          type: 'pvp_won',    target: 5,  reward: r(3, 2) },
+        { id: 'pvp_play_25', cat: 'pvp', description: 'Play 25 online games against other players',        type: 'pvp_played', target: 25, reward: r(5, 2) },
+        { id: 'pvp_win_15',  cat: 'pvp', description: 'Win 15 online games against other players',         type: 'pvp_won',    target: 15, reward: r(5, 3) }
+    ];
+
+    const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS, PVP_MISSIONS, RAID_MISSIONS);
 
     const CATEGORIES = [
         { id: 'all', name: 'All' },
         { id: 'collection', name: 'Collection' },
         { id: 'sets', name: 'Sets' },
         { id: 'games', name: 'Games vs AI' },
+        { id: 'pvp', name: 'Online PvP' },
         { id: 'raids', name: 'Raids' },
         { id: 'minigames', name: 'Mini-games' },
         { id: 'daily', name: 'Login' }
@@ -207,6 +218,8 @@ const Missions = (() => {
             played: s.stats.played,
             won: s.stats.won,
             bestStreak: s.stats.bestStreak,
+            pvpPlayed: (s.stats.pvp && s.stats.pvp.played) || 0,
+            pvpWon: (s.stats.pvp && s.stats.pvp.won) || 0,
             opponentsBeaten: 0,
             beatenBySet: {},
             winsByType: {},
@@ -260,6 +273,8 @@ const Missions = (() => {
             case 'games_played':     return numeric(p.played, m.target);
             case 'games_won':        return numeric(p.won, m.target);
             case 'win_streak':       return numeric(p.bestStreak, m.target);
+            case 'pvp_played':       return numeric(p.pvpPlayed, m.target);
+            case 'pvp_won':          return numeric(p.pvpWon, m.target);
             case 'opponents_beaten': return numeric(p.opponentsBeaten, m.target);
             case 'opponents_beaten_set': return numeric(p.beatenBySet[m.setId] || 0, m.target);
             case 'wins_vs_type':     return numeric(p.winsByType[m.deckType] || 0, m.target);

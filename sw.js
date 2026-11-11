@@ -71,6 +71,7 @@ const CORE = [
     'src/ui/screens.js',
     'src/ui/hub.js',
     'src/ui/arcade.js',
+    'src/ui/pvp.js',
     'src/validate.js',
     'src/main.js'
 ];

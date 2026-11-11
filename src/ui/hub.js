@@ -267,10 +267,14 @@ const Hub = {
             const primary = buttons.find(b => b.kind === 'primary' || b.kind === 'danger') || buttons[buttons.length - 1];
 
             const finish = value => {
+                if (this._dialogDismiss === dismiss) this._dialogDismiss = null;
                 modal.classList.remove('modal-show');
                 window.removeEventListener('keydown', onKey, true);
                 resolve({ value, text: input.value });
             };
+            // Lets an online game close a confirmation when the turn timer runs out.
+            const dismiss = () => finish(false);
+            this._dialogDismiss = dismiss;
             const onKey = e => {
                 if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); finish(false); }
                 else if (e.key === 'Enter' && opts.input) { e.stopPropagation(); e.preventDefault(); finish(primary.value); }
@@ -288,6 +292,13 @@ const Hub = {
             modal.classList.add('modal-show');
             setTimeout(() => (opts.input ? input : foot.lastChild).focus(), 30);
         });
+    },
+
+    _dialogDismiss: null,
+
+    /** Closes the open dialog as if dismissed (answers false). */
+    dismissDialog() {
+        if (this._dialogDismiss) this._dialogDismiss();
     },
 
     alert(title, message) {
@@ -389,7 +400,7 @@ const Hub = {
         const st = Profile.preMatchNotice();
         const summary = document.getElementById('play-summary');
         if (summary) {
-            summary.textContent = `Win a game against the AI to earn 1 credit (up to ${WIN_CREDITS_PER_DAY} a day). ` +
+            summary.textContent = `Win a game against the AI or an online player to earn 1 credit (up to ${WIN_CREDITS_PER_DAY} a day in total). ` +
                 `Win credits today: ${st.winCreditsToday}/${WIN_CREDITS_PER_DAY}.` +
                 (st.creditsFull ? ` Your credits are full, so a win won't earn one right now.` : '');
         }
@@ -1370,7 +1381,7 @@ const Hub = {
     renderStats() {
         const host = this.pageHost('stats');
         const st = Profile.s.stats;
-        host.appendChild(this.pageTitle('🏆 Stats', 'Your games against the AI. Leaving a game early counts as a loss. QA games are not counted.'));
+        host.appendChild(this.pageTitle('🏆 Stats', 'Your games against the AI, and online games against other players below. Leaving a game early counts as a loss. QA games are not counted.'));
 
         const rate = rec => (rec.played ? `${pct(rec.won, rec.played)}%` : '–');
         const tiles = [
@@ -1389,6 +1400,18 @@ const Hub = {
 
         host.appendChild(h('p', { class: 'page-sub stat-note', text:
             'Going first: no draw and no attack on turn 1. Games left before the opening coin flip count in neither first nor second.' }));
+
+        // Online games against other players, counted separately.
+        const pv = st.pvp || { played: 0, won: 0, lost: 0, drawn: 0, forfeits: 0 };
+        host.appendChild(h('h3', { class: 'section-title', text: '🌐 Online PvP' }));
+        const pvpTiles = [
+            ['PvP games played', pv.played], ['PvP won', pv.won], ['PvP lost', pv.lost], ['PvP drawn', pv.drawn],
+            ['PvP win rate', pv.played ? `${pct(pv.won, pv.played)}%` : '–'],
+            ['PvP games left early', pv.forfeits]
+        ];
+        host.appendChild(h('div', { class: 'stat-grid' },
+            pvpTiles.map(([label, value]) => h('div', { class: 'panel stat-tile' },
+                h('div', { class: 'stat-value', text: String(value) }), h('div', { class: 'stat-label', text: label })))));
 
         host.appendChild(h('h3', { class: 'section-title', text: 'Against each AI deck' }));
         const opp = h('table', { class: 'data-table' },
@@ -1438,7 +1461,7 @@ const Hub = {
                 const order = g.first === true ? ' · went 1st' : g.first === false ? ' · went 2nd' : '';
                 list.appendChild(h('div', { class: `history-row ${g.result}` },
                     h('span', { class: 'history-result', text: label }),
-                    h('span', { class: 'history-match', text: `${g.deck} vs ${g.opponent}${order}` }),
+                    h('span', { class: 'history-match', text: `${g.deck} vs ${g.pvp ? '🌐 ' : ''}${g.opponent}${order}` }),
                     h('span', { class: 'history-score', text: g.score }),
                     h('span', { class: 'history-date', text: g.at ? new Date(g.at).toLocaleString() : '' })));
             }

@@ -557,6 +557,8 @@ const Screens = {
                 })
                 : { value: true };
             if (!answer || !answer.value) return;
+            // Online: tell the other player first, so they get the win at once.
+            if (typeof PvP !== 'undefined' && PvP.active && gameState.phase !== 'gameOver') PvP.forfeit();
             Profile.forfeitMatch(playerMatchReport(false));
         }
         gameState.phase = 'gameOver';
@@ -564,24 +566,29 @@ const Screens = {
         this.returnToDeckSelection();
     },
 
-    beginGame() {
+    beginGame({ pvp = false } = {}) {
         Log.clear();
         gameState.track = createMatchTrack();
         gameState.firstTurnSide = null;
+        gameState.setupReady = { player: false, opponent: false };
         gameState.phase = 'setup';
         buildDecks();
         drawOpeningHands();
-        aiSetup();
+        // Online, the other player places their own creatures (sent at Ready).
+        if (!pvp) aiSetup();
 
         document.getElementById('deck-screen').classList.remove('screen-show');
         document.getElementById('game-screen').classList.add('screen-show');
 
-        Log.write('Place your active creature, then press Ready. The AI\'s creatures stay face down until then.',
+        Log.write(pvp
+            ? `Place your active creature, then press Ready. ${subject('opponent')}'s creatures stay face down until you are both ready.`
+            : 'Place your active creature, then press Ready. The AI\'s creatures stay face down until then.',
             { kind: 'turn', icon: '🎬' });
         Render.all();
     },
 
     returnToDeckSelection() {
+        if (typeof PvP !== 'undefined') PvP.cleanup();
         resetGameState();
         Log.clear();
         this.closeModal('game-over-modal');

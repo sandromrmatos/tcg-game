@@ -16,13 +16,17 @@ function foeOf(side) {
  * what lets the player and AI share one implementation of every effect.
  */
 function subject(side) {
-    return side === 'player' ? 'You' : 'The AI';
+    return side === 'player' ? 'You' : (SideNames.opponent || 'The AI');
 }
 
 /** Possessive form: "Your" / "The AI's". */
 function possessive(side) {
-    return side === 'player' ? 'Your' : "The AI's";
+    if (side === 'player') return 'Your';
+    return SideNames.opponent ? `${SideNames.opponent}'s` : "The AI's";
 }
+
+/** In an online game the opponent is named instead of "The AI" (set by pvp.js). */
+const SideNames = { opponent: null };
 
 /**
  * A creature's display name, qualified by owner so the log is never ambiguous

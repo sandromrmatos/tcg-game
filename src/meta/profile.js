@@ -184,7 +184,9 @@ const Profile = {
             first: this.blankRecord(),
             second: this.blankRecord(),
             byOpponent: {},              // deck name -> { played, won, lost, drawn }
-            history: []                  // newest first: { at, deck, opponent, result, score, forfeit, first }
+            // Online games against other players, kept apart from the AI totals.
+            pvp: { played: 0, won: 0, lost: 0, drawn: 0, forfeits: 0 },
+            history: []                  // newest first: { at, deck, opponent, result, score, forfeit, first, pvp }
         };
     },
 
@@ -332,6 +334,7 @@ const Profile = {
                 deck: String(am.deck || 'Unknown deck'),
                 opponent: String(am.opponent || 'AI'),
                 wentFirst: typeof am.wentFirst === 'boolean' ? am.wentFirst : null,
+                pvp: !!am.pvp,
                 raid: am.raid && typeof am.raid === 'object' && raidBossById(am.raid.bossId)
                     ? { bossId: am.raid.bossId, types: (Array.isArray(am.raid.types) ? am.raid.types : []).filter(t => RAID_TYPES.includes(t)) }
                     : null
@@ -346,6 +349,10 @@ const Profile = {
         for (const k of ['first', 'second']) {
             const rec = st[k] && typeof st[k] === 'object' ? st[k] : {};
             s.stats[k] = { played: int(rec.played), won: int(rec.won), lost: int(rec.lost), drawn: int(rec.drawn) };
+        }
+        {
+            const rec = st.pvp && typeof st.pvp === 'object' ? st.pvp : {};
+            s.stats.pvp = { played: int(rec.played), won: int(rec.won), lost: int(rec.lost), drawn: int(rec.drawn), forfeits: int(rec.forfeits) };
         }
 
         // Per-card achievements: only known card ids, only numeric counters.
@@ -381,7 +388,8 @@ const Profile = {
             .map(h => ({
                 at: Number(h.at) || 0, deck: String(h.deck || ''), opponent: String(h.opponent || ''),
                 result: h.result, score: String(h.score || ''), forfeit: !!h.forfeit,
-                first: typeof h.first === 'boolean' ? h.first : null
+                first: typeof h.first === 'boolean' ? h.first : null,
+                pvp: !!h.pvp
             }));
 
         s.app = SAVE_APP_ID;
@@ -434,7 +442,7 @@ const Profile = {
         // the same as leaving it with the button.
         if (this.s.activeMatch) {
             const m = this.s.activeMatch;
-            this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst });
+            this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst, pvp: m.pvp });
             if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
             this.s.activeMatch = null;
             this.bootNotices.push(`Your last game (${m.deck} vs ${m.opponent}) was left unfinished, so it counted as a loss.`);
@@ -1068,9 +1076,10 @@ const Profile = {
      * @param {object} [opts] { raid: { bossId, types } } for a raid game: the
      *   boss, and the types the player's deck counts for (raidQualifyingTypes)
      */
-    startMatch(deckName, opponentName, { raid = null } = {}) {
+    startMatch(deckName, opponentName, { raid = null, pvp = false } = {}) {
         this.s.activeMatch = {
             startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null,
+            pvp: !!pvp,
             raid: raid ? { bossId: raid.bossId, types: (raid.types || []).slice() } : null
         };
         // Immediate: closing the page mid-game must still count as a loss.
@@ -1098,8 +1107,9 @@ const Profile = {
         if (!m) return null;
         const result = winner === 'player' ? 'win' : winner === 'opponent' ? 'loss' : 'draw';
         this.s.activeMatch = null;
-        this._recordResult(result, { deck: m.deck, opponent: m.opponent, score, wentFirst: m.wentFirst });
-        if (report) this.recordCardAchievements(report);
+        this._recordResult(result, { deck: m.deck, opponent: m.opponent, score, wentFirst: m.wentFirst, pvp: m.pvp });
+        // The per-card achievements are about the AI decks; online games don't count.
+        if (report && !m.pvp) this.recordCardAchievements(report);
 
         let reward;
         if (result === 'win') {
@@ -1134,14 +1144,33 @@ const Profile = {
         const m = this.s && this.s.activeMatch;
         if (!m) return;
         this.s.activeMatch = null;
-        this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst });
+        this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst, pvp: m.pvp });
         if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
-        if (report) this.recordCardAchievements(Object.assign({}, report, { won: false, survivors: [] }));
+        if (report && !m.pvp) this.recordCardAchievements(Object.assign({}, report, { won: false, survivors: [] }));
         this.touch('match-end', { immediate: true });
     },
 
-    _recordResult(result, { deck, opponent, score, forfeit = false, wentFirst = null }) {
+    /** An online game that broke off (connection lost, out of sync): it doesn't count. */
+    cancelMatch() {
+        if (!this.s || !this.s.activeMatch) return;
+        this.s.activeMatch = null;
+        this.touch('match-cancel', { immediate: true });
+    },
+
+    _recordResult(result, { deck, opponent, score, forfeit = false, wentFirst = null, pvp = false }) {
         const st = this.s.stats;
+        if (pvp) {
+            // Online games have their own totals and stay out of the AI ones.
+            const rec = st.pvp;
+            rec.played++;
+            if (result === 'win') rec.won++;
+            else if (result === 'loss') rec.lost++;
+            else rec.drawn++;
+            if (forfeit) rec.forfeits++;
+            st.history.unshift({ at: Date.now(), deck, opponent, result, score: score || '', forfeit, first: wentFirst, pvp: true });
+            if (st.history.length > 30) st.history.length = 30;
+            return;
+        }
         st.played++;
         if (result === 'win') { st.won++; st.streak++; st.bestStreak = Math.max(st.bestStreak, st.streak); }
         else if (result === 'loss') { st.lost++; st.streak = 0; }

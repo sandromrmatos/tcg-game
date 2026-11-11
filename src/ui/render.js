@@ -48,14 +48,16 @@ const Render = {
         const label = document.getElementById('turn-label');
         if (label) {
             if (gameState.phase === 'setup') {
-                label.textContent = 'Setup — place your active creature';
+                label.textContent = gameState.setupReady.player && SideNames.opponent
+                    ? `Waiting for ${SideNames.opponent}…`
+                    : 'Setup — place your active creature';
             } else if (gameState.phase === 'gameOver') {
                 label.textContent = 'Game over';
             } else if (gameState.phase === 'deckSelection') {
                 label.textContent = 'Choose a deck';
             } else {
                 label.textContent = gameState.currentTurn === 'player'
-                    ? 'Your turn' : "Opponent's turn";
+                    ? 'Your turn' : (SideNames.opponent ? `${SideNames.opponent}'s turn` : "Opponent's turn");
             }
             label.dataset.side = gameState.currentTurn || '';
         }

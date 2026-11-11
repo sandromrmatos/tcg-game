@@ -95,8 +95,19 @@ async function onPlayAccessory(card) {
     });
     if (!target) return;
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'accessory', h: gameState.player.hand.indexOf(card), loc: target.location, idx: target.index })) return;
         await AccessoryRegistry.attach(card, 'player', target);
     });
+}
+
+/**
+ * Online PvP: tells the other device what this player is about to do, so it
+ * can replay it. Called inside runExclusive, right before the action runs.
+ * Returns false when the action must not happen (time ran out, not your turn).
+ */
+function pvpSend(action) {
+    if (typeof PvP === 'undefined' || !PvP.active) return true;
+    return PvP.sendAction(action);
 }
 
 /** The accessory's own button (Neutral Elixir), from the creature panel. */
@@ -107,6 +118,8 @@ async function onUseAccessory(card) {
         return;
     }
     await runExclusive(async () => {
+        const spot = locateCard(card);
+        if (!spot || !pvpSend({ t: 'useAcc', loc: spot.location, idx: spot.index })) return;
         await AccessoryRegistry.activate(card, 'player');
         await resolveKnockouts();
     });
@@ -131,6 +144,7 @@ async function onPlayItem(card, handIndex) {
     if (handIndex === -1 || !ItemRegistry.canUse(card, 'player').ok) return;
 
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'item', h: handIndex })) return;
         await ItemRegistry.use(card, 'player', handIndex);
         await resolveKnockouts();
     });
@@ -151,6 +165,7 @@ async function onPlayCreature(card, handIndex) {
     if (slot === null) return;
 
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'bench', h: handIndex, slot })) return;
         await playCreatureToBench('player', handIndex, slot);
     });
 }
@@ -175,6 +190,7 @@ async function onEvolve(card, handIndex) {
     if (!choice) return;
 
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'evolve', h: handIndex, loc: choice.location, idx: choice.index })) return;
         await evolveCreature('player', handIndex, choice.location, choice.index);
     });
 }
@@ -254,6 +270,7 @@ async function onAttack(moveNumber) {
 
     clearSelection();
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'attack', n: moveNumber })) return;
         await resolveAttack('player', moveNumber);
     });
 }
@@ -267,6 +284,7 @@ async function onUseAbility(card, location, index) {
         return;
     }
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'ability', loc: location, idx: index })) return;
         await AbilityRegistry.use(card, 'player', location, index);
         await resolveKnockouts();
     });
@@ -315,6 +333,7 @@ async function onEnergyButton() {
     }
 
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'energy', loc: choice.location, idx: choice.index })) return;
         await attachTurnEnergy('player', choice.card);
     });
 }
@@ -343,6 +362,7 @@ async function onRetreatButton() {
     if (!choice) return;
 
     await runExclusive(async () => {
+        if (!pvpSend({ t: 'retreat', idx: choice.index })) return;
         await performRetreat('player', choice.index);
     });
 }
@@ -355,14 +375,22 @@ async function onEndTurnButton() {
             Log.warn('Place an active creature before starting.');
             return;
         }
+        if (gameState.setupReady.player) return;
         gameState.setupReady.player = true;
         clearSelection();
         await runExclusive(async () => {
-            await startGame();
+            // Online: send this setup, wait for the other player's, then start.
+            if (typeof PvP !== 'undefined' && PvP.active) await PvP.localReady();
+            else await startGame();
         });
         return;
     }
     clearSelection();
+    if (typeof PvP !== 'undefined' && PvP.active) {
+        // Checked first, so the end is only sent when it will really happen.
+        if (gameState.busy || gameState.currentTurn !== 'player' || gameState.phase !== 'playing') return;
+        if (!pvpSend({ t: 'end' })) return;
+    }
     await playerEndTurn();
 }
 

@@ -101,7 +101,11 @@ const Prompt = {
                 return;
             }
 
-            this._active = { cancel: () => finish(null) };
+            this._active = {
+                cancel: () => finish(null),
+                // Out of time (online play): skip if allowed, else the first creature.
+                auto: () => finish(opts.cancellable ? null : candidates[0])
+            };
             this._showBar(opts.title || 'Choose a creature',
                 opts.cancellable ? () => finish(null) : null);
         });
@@ -171,7 +175,7 @@ const Prompt = {
                 footEl.appendChild(skip);
             }
 
-            this._active = { cancel: () => finish(null) };
+            this._active = { cancel: () => finish(null), auto: () => finish(opts.cancellable ? null : 0) };
             modal.classList.add('modal-show');
         });
     },
@@ -218,7 +222,13 @@ const Prompt = {
                 footEl.appendChild(cancel);
             }
 
-            this._active = { cancel: () => finish(null) };
+            // Out of time: the "no" option if there is one, else the first.
+            const auto = () => {
+                const list = opts.options || [];
+                if (opts.cancellable || !list.length || list.some(o => o.value === null)) finish(null);
+                else finish(list[0].value);
+            };
+            this._active = { cancel: () => finish(null), auto };
             modal.classList.add('modal-show');
         });
     },
@@ -268,6 +278,16 @@ const Prompt = {
     /** Force-closes any open prompt (used when the game ends mid-choice). */
     cancelAll() {
         if (this._active) this._active.cancel();
+    },
+
+    /**
+     * Answers the open prompt for the player when their time runs out in an
+     * online game: skips where skipping is allowed, else takes the first option.
+     */
+    autoResolve() {
+        if (!this._active) return;
+        if (this._active.auto) this._active.auto();
+        else this._active.cancel();
     }
 };
 

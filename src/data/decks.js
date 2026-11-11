@@ -38,10 +38,35 @@ const DeckLibrary = {
         // The raid boss deck of the current (or last) raid game, rebuilt at
         // random for every raid game. Kept last so the other indexes stay put.
         if (this.raidDeck) this.decks.push(this.raidDeck);
+        if (this.pvpDeck) this.decks.push(this.pvpDeck);
         return this.decks;
     },
 
     raidDeck: null,
+
+    // The other player's deck during an online game (pvp.js). Removed after.
+    pvpDeck: null,
+
+    /** Puts the online opponent's deck in the library; returns its index. */
+    setPvpDeck(deck) {
+        this.clearPvpDeck();
+        this.pvpDeck = {
+            name: deck.name,
+            type: 'pvp',
+            cards: deck.cards.slice(),
+            energyTypes: deckEnergyTypes(deck),
+            fullArt: cleanFullArt(deck.fullArt, deck.cards)
+        };
+        this.decks.push(this.pvpDeck);
+        return this.decks.length - 1;
+    },
+
+    clearPvpDeck() {
+        if (!this.pvpDeck) return;
+        const old = this.decks.indexOf(this.pvpDeck);
+        if (old !== -1) this.decks.splice(old, 1);
+        this.pvpDeck = null;
+    },
 
     /** Puts a freshly generated raid boss deck in the library; returns its index. */
     setRaidDeck(deck) {

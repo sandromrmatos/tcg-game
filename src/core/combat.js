@@ -31,19 +31,51 @@ async function chooseCreatureOf(side, opts = {}) {
     const candidates = boardCandidates(side, opts.filter);
     if (candidates.length === 0) return null;
 
-    // A forced choice needs no interaction.
-    if (candidates.length === 1 && !opts.cancellable) return candidates[0];
-
     // Who decides: the board's owner, unless the caller says otherwise.
     const chooser = opts.chooser || side;
-    if (chooser === 'player' && !Automation.active) {
-        return await Prompt.chooseCreature({
+
+    // Online PvP: the other player's choices arrive over the network, and
+    // every choice made here is sent, forced ones included, so both devices
+    // read the same answer at the same point (see pvp.js).
+    const net = pvpChoiceRole(chooser);
+    if (net === 'remote') {
+        const v = await PvP.takeChoice();
+        return v === null || v === undefined ? null : (candidates[v] || null);
+    }
+    let pick;
+    if (candidates.length === 1 && !opts.cancellable) {
+        // A forced choice needs no interaction.
+        pick = candidates[0];
+    } else if (net === 'local') {
+        pick = Automation.active ? candidates[0]
+            : await PvP.localChoice(() => Prompt.chooseCreature({
+                candidates,
+                title: opts.title || 'Choose a creature',
+                cancellable: opts.cancellable
+            }));
+    } else if (chooser === 'player' && !Automation.active) {
+        pick = await Prompt.chooseCreature({
             candidates,
             title: opts.title || 'Choose a creature',
             cancellable: opts.cancellable
         });
+    } else {
+        pick = opts.aiPick ? opts.aiPick(candidates) : Rng.pick(candidates);
     }
-    return opts.aiPick ? opts.aiPick(candidates) : Rng.pick(candidates);
+    if (net === 'local') {
+        const index = pick ? candidates.indexOf(pick) : -1;
+        PvP.sendChoice(index === -1 ? null : index);
+    }
+    return pick;
+}
+
+/**
+ * 'local' when this device's player makes the choice in an online game,
+ * 'remote' when the other player does, null outside online play.
+ */
+function pvpChoiceRole(chooser) {
+    if (typeof PvP === 'undefined' || !PvP.active) return null;
+    return chooser === 'player' ? 'local' : 'remote';
 }
 
 /**
@@ -53,9 +85,23 @@ async function chooseCreatureOf(side, opts = {}) {
 async function chooseOptionOf(side, opts = {}) {
     const options = opts.options || [];
     if (options.length === 0) return null;
+    const list = options.slice();
+    if (opts.cancellable) list.push({ label: 'Cancel', value: null, kind: 'ghost' });
+
+    const net = pvpChoiceRole(side);
+    if (net === 'remote') {
+        const v = await PvP.takeChoice();
+        return v === null || v === undefined || !list[v] ? null : list[v].value;
+    }
+    if (net === 'local') {
+        const value = Automation.active ? options[0].value
+            : await PvP.localChoice(() => Prompt.chooseOption({ title: opts.title, subtitle: opts.subtitle, options: list }));
+        const index = list.findIndex(o => o.value === value);
+        PvP.sendChoice(index === -1 ? null : index);
+        return index === -1 ? null : list[index].value;
+    }
+
     if (side === 'player' && !Automation.active) {
-        const list = options.slice();
-        if (opts.cancellable) list.push({ label: 'Cancel', value: null, kind: 'ghost' });
         return await Prompt.chooseOption({ title: opts.title, subtitle: opts.subtitle, options: list });
     }
     const picked = opts.aiPick ? opts.aiPick(options) : null;
@@ -66,19 +112,30 @@ async function chooseOptionOf(side, opts = {}) {
 async function chooseCardOf(side, opts = {}) {
     const cards = opts.cards || [];
     if (cards.length === 0) return null;
-    if (cards.length === 1 && !opts.cancellable) return 0;
 
-    if (side === 'player' && !Automation.active) {
-        return await Prompt.chooseCards({
+    const net = pvpChoiceRole(side);
+    if (net === 'remote') {
+        const v = await PvP.takeChoice();
+        return typeof v === 'number' && v >= 0 && v < cards.length ? v : null;
+    }
+    let picked;
+    if (cards.length === 1 && !opts.cancellable) {
+        picked = 0;
+    } else if (net === 'local' || (side === 'player' && !Automation.active)) {
+        const ask = () => Prompt.chooseCards({
             cards,
             title: opts.title || 'Choose a card',
             subtitle: opts.subtitle,
             cancellable: opts.cancellable,
             cancelLabel: opts.cancelLabel
         });
+        picked = net !== 'local' ? await ask() : Automation.active ? 0 : await PvP.localChoice(ask);
+    } else {
+        picked = opts.aiPick ? opts.aiPick(cards) : Rng.int(cards.length);
+        picked = typeof picked === 'number' ? picked : 0;
     }
-    const picked = opts.aiPick ? opts.aiPick(cards) : Rng.int(cards.length);
-    return typeof picked === 'number' ? picked : 0;
+    if (net === 'local') PvP.sendChoice(typeof picked === 'number' ? picked : null);
+    return picked;
 }
 
 /**
