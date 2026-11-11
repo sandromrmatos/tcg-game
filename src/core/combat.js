@@ -46,6 +46,22 @@ async function chooseCreatureOf(side, opts = {}) {
     return opts.aiPick ? opts.aiPick(candidates) : Rng.pick(candidates);
 }
 
+/**
+ * Asks a side to pick one of a few options (Elemental Shift's new type).
+ * Returns the option's value, or null when the player cancels.
+ */
+async function chooseOptionOf(side, opts = {}) {
+    const options = opts.options || [];
+    if (options.length === 0) return null;
+    if (side === 'player' && !Automation.active) {
+        const list = options.slice();
+        if (opts.cancellable) list.push({ label: 'Cancel', value: null, kind: 'ghost' });
+        return await Prompt.chooseOption({ title: opts.title, subtitle: opts.subtitle, options: list });
+    }
+    const picked = opts.aiPick ? opts.aiPick(options) : null;
+    return picked !== null && picked !== undefined ? picked : (opts.cancellable ? null : options[0].value);
+}
+
 /** Asks a side to choose from an arbitrary list of cards. */
 async function chooseCardOf(side, opts = {}) {
     const cards = opts.cards || [];
@@ -259,7 +275,7 @@ async function resolveAttack(side, moveNumber) {
             Render.board();
             await Log.say(
                 `${creatureName(defender, foe)} takes ${ctx.damage} damage ` +
-                `(${Math.max(0, remainingHp(defender))}/${defender.data.hp} HP left).`,
+                `(${Math.max(0, remainingHp(defender))}/${maxHp(defender)} HP left).`,
                 { kind: 'damage', icon: '💥' }
             );
         } else {
@@ -277,6 +293,9 @@ async function resolveAttack(side, moveNumber) {
 
     await EffectRegistry.resolve(ctx);
     await EffectRegistry.resolveIfTargetAlive(ctx);
+
+    // Remembered after the effects, so Reverie Talon reads the attack before this one.
+    me.lastAttack = { name: move.name, turn: gameState.turnNumber };
 
     await resolveKnockouts();
     await endTurn();

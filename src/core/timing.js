@@ -83,7 +83,7 @@ function sideCanAttack(side) {
     // Invincible Gambit doesn't stop attacks: it makes them deal no damage
     // (damage.js), so moves with other effects still do those.
     if (Timing.active(f.cantAttackUntil)) {
-        return { ok: false, reason: `Quick Reflexes stops ${subject(side).toLowerCase()} attacking this turn.` };
+        return { ok: false, reason: `${subject(side)} can't attack this turn.` };
     }
     return { ok: true };
 }
@@ -123,8 +123,8 @@ function creatureCanRetreat(card, side) {
     if (Timing.active(card.flags.cantRetreatUntil)) {
         return { ok: false, reason: `${creatureName(card, side)} can't retreat for ${Timing.describe(card.flags.cantRetreatUntil)}.` };
     }
-    if (card.energy < card.data.retreat) {
-        return { ok: false, reason: `Not enough energy to retreat (needs ${card.data.retreat} of any type).` };
+    if (card.energy < retreatCost(card)) {
+        return { ok: false, reason: `Not enough energy to retreat (needs ${retreatCost(card)} of any type).` };
     }
     if (benchCreatures(side).length === 0) {
         return { ok: false, reason: 'No bench creature to switch with.' };

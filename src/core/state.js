@@ -37,6 +37,12 @@ function createSide() {
         energyAttachedThisTurn: false,
         hasAttacked: false,
         itemUsedThisTurn: false,
+        // One accessory per turn, separate from the item limit.
+        accessoryUsedThisTurn: false,
+        // Evolutions this side made this game (Glidroot's Canopy Drift), and
+        // its last attack (Snickurl's Reverie Talon).
+        evolutionsMade: 0,
+        lastAttack: null,           // { name, turn }
         // One voluntary retreat per turn. Forced switches (Phase Shift,
         // Heavenly Retreat, Forceful Flip, promotion after a knockout) do not
         // go through performRetreat, so they never read or set this.
@@ -79,6 +85,11 @@ function createSideFlags() {
         invincibleLockUntil: null,  // Invincible Gambit: the OTHER side deals no damage
         forcedEnergyType: null,     // Starfall Strike: next turn's energy is this type
         forcedEnergyUntil: null,
+        cantEvolveUntil: null,      // Cuddle Storm
+        cantUseAccessoriesUntil: null, // Cryo Roar, Alloy Clutch
+        // Memento Echo: no abilities at all (always-on ones included) on this
+        // side's turn with this number.
+        abilitiesBlockedTurn: null,
 
         // --- Misc -----------------------------------------------------------
         phaseShift: false,          // must swap out after attacking
@@ -105,6 +116,11 @@ function createCreatureFlags() {
         // --- Queued bonuses for this creature's next attack ----------------
         chillRecharge: false,       // +20
         sproutBoostReady: false,    // +30
+
+        // --- Temporal Rift ---------------------------------------------------
+        anchoredUntil: null,        // Anchored Terrain: Mechanic attacks deal it 0
+        bloomshroudTurn: null,      // Bloomshroud: the opponent flips on this turn
+        bloomshroudSafeTurn: null,  // ...and on tails it is untouchable this turn
 
         // --- Set during an attack, consumed by the damage pipeline ---------
         hallucinationFlip: null
@@ -156,6 +172,8 @@ function makeCardInstance(cardId) {
         evolutionChain: [],
         // Shown with its full-art image. Cosmetic only.
         fullArt: false,
+        // The accessory card instance attached to this creature, if any.
+        accessory: null,
         flags: createCreatureFlags()
     };
     // `energy` stays the total, which is what retreat costs and the
@@ -249,6 +267,9 @@ function defaultEnergyTypeFor(card) {
 
 /** Restores an instance to pristine condition (Revive Crystal). */
 function resetCardInstance(card) {
+    // Elemental Shift changes `data` on the instance; a fresh card has its printed type.
+    card.data = getCardData(card.id) || card.data;
+    card.accessory = null;
     card.damage = 0;
     card.energyUnits = emptyEnergyUnits();
     card.status = new Set();

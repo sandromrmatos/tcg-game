@@ -83,6 +83,14 @@ async function damageCreature(card, amount, opts = {}) {
         return 0;
     }
 
+    // Bloomshroud: "this creature takes no damage", whatever the source.
+    if (bloomshroudSafe(card) && !(opts.source && opts.source.side === side) && opts.reason !== 'recoil') {
+        if (!opts.silent) {
+            await Log.say(`Bloomshroud protects ${card.data.name}!`, { kind: 'ability', icon: '🌸', pace: 0.5 });
+        }
+        return 0;
+    }
+
     // Damage from the other side goes through the same always-on rules as an
     // attack (Guardian Mode, Warrior Mode, Hard as Steel, ...).
     if (opts.source) {

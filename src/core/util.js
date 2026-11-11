@@ -139,8 +139,12 @@ const TYPE_COLORS = {
     Celestial: '#3ec97a',
     Mechanic: '#e08b3c',
     Neutral: '#8d98a5',
-    Item: '#5a6b7d'
+    Item: '#5a6b7d',
+    Accessory: '#c9a227'
 };
+
+/** The five creature types, in display order. */
+const CREATURE_TYPES = ['Mystic', 'Wind', 'Celestial', 'Mechanic', 'Neutral'];
 
 /** Mystic -> Wind -> Celestial -> Mystic, plus Mechanic -> Neutral. */
 const SUPER_EFFECTIVE = {
@@ -159,7 +163,13 @@ function typeColor(type) {
 }
 
 function isSuperEffective(attackerType, defenderType) {
-    if (attackerType === 'Item' || defenderType === 'Item') return false;
+    if (!CREATURE_TYPES.includes(attackerType) || !CREATURE_TYPES.includes(defenderType)) return false;
+    // Twist of Fate (Aurorion, always on): while one is in play, every
+    // weakness is reversed for both players, so Wind beats Mystic and Neutral
+    // beats Mechanic.
+    if (typeof twistOfFateActive === 'function' && twistOfFateActive()) {
+        return SUPER_EFFECTIVE[defenderType] === attackerType;
+    }
     // Neutral neither deals nor receives a bonus, except from Mechanic.
     if (attackerType === 'Neutral') return false;
     return SUPER_EFFECTIVE[attackerType] === defenderType;
@@ -170,11 +180,16 @@ function isSuperEffective(attackerType, defenderType) {
 // ---------------------------------------------------------------------------
 
 function isItem(cardData) {
-    return cardData && cardData.stage === 'Item';
+    return !!cardData && cardData.stage === 'Item';
+}
+
+/** Accessory cards (Temporal Rift onwards) are attached to a creature. */
+function isAccessory(cardData) {
+    return !!cardData && cardData.stage === 'Accessory';
 }
 
 function isCreature(cardData) {
-    return cardData && cardData.stage !== 'Item';
+    return !!cardData && cardData.stage !== 'Item' && cardData.stage !== 'Accessory';
 }
 
 /** Energy cost: the cost string's length is the number of energy required. */
@@ -276,12 +291,26 @@ function movesOf(cardData) {
     return [moveOf(cardData, 1), moveOf(cardData, 2)].filter(Boolean);
 }
 
+/** A creature's maximum HP, including an attached accessory (Mystic Amulet +10). */
+function maxHp(card) {
+    if (!card) return 0;
+    const bonus = typeof accessoryHpBonus === 'function' ? accessoryHpBonus(card) : 0;
+    return (card.data.hp || 0) + bonus;
+}
+
+/** Energy a creature pays to retreat, after accessories (Wind Feather -1). Never below 0. */
+function retreatCost(card) {
+    if (!card) return 0;
+    const cut = typeof accessoryRetreatReduction === 'function' ? accessoryRetreatReduction(card) : 0;
+    return Math.max(0, (card.data.retreat || 0) - cut);
+}
+
 function remainingHp(card) {
-    return card ? card.data.hp - card.damage : 0;
+    return card ? maxHp(card) - card.damage : 0;
 }
 
 function isFainted(card) {
-    return !!card && card.damage >= card.data.hp;
+    return !!card && card.damage >= maxHp(card);
 }
 
 function newEvolutionId() {

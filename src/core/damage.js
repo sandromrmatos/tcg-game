@@ -73,6 +73,12 @@ const DAMAGE_MODIFIERS = [
         apply: (ctx, dmg) => dmg + 20
     },
     {
+        id: 'mysticAmulet',
+        label: 'Mystic Amulet',
+        test: ctx => accessoryOn(ctx.attacker, 'mysticAmulet'),
+        apply: (ctx, dmg) => dmg + 10
+    },
+    {
         id: 'chillRecharge',
         label: 'Chill Recharge',
         test: ctx => ctx.attacker.flags.chillRecharge,
@@ -184,6 +190,77 @@ const DAMAGE_MODIFIERS = [
         apply: () => passiveBonus('metalicProtection', 0)
     },
 
+    // --- Temporal Rift defences -------------------------------------------
+    {
+        id: 'oreLash',
+        label: 'Ore Lash',
+        test: ctx => readShield(ctx.defender.flags.shields, 'oreLash'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'oreLash').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'oreLash')
+    },
+    {
+        id: 'coreTangle',
+        label: 'Core Tangle',
+        test: ctx => readShield(ctx.defender.flags.shields, 'coreTangle'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'coreTangle').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'coreTangle')
+    },
+    {
+        id: 'foxyArmor',
+        label: 'Foxy Armor',
+        test: ctx => sideHasAbility(ctx.foe, 'foxyArmor') && vulpettaEvolutions(ctx.foe).length > 0,
+        apply: (ctx, dmg) => passiveBonus('foxyArmor', dmg - 10 * vulpettaEvolutions(ctx.foe).length)
+    },
+    {
+        id: 'techShieldA',
+        label: 'Tech Shield',
+        test: ctx => sideHasAbility(ctx.foe, 'techShieldA') && nameHas(ctx.attacker, 'a'),
+        apply: (ctx, dmg) => passiveBonus('techShieldA', dmg - 20)
+    },
+    {
+        id: 'techShieldE',
+        label: 'Tech Shield',
+        test: ctx => sideHasAbility(ctx.foe, 'techShieldE') && nameHas(ctx.attacker, 'e'),
+        apply: (ctx, dmg) => passiveBonus('techShieldE', dmg - 20)
+    },
+    {
+        id: 'celestialArmor',
+        label: 'Celestial Armor',
+        test: ctx => accessoryOn(ctx.defender, 'celestialArmor'),
+        apply: (ctx, dmg) => dmg - 10
+    },
+    {
+        id: 'mechanicToolkit',
+        label: 'Mechanic Toolkit',
+        test: ctx => accessoryOn(ctx.defender, 'mechanicToolkit') && !!ctx.defender.data.abilityEffect,
+        apply: (ctx, dmg) => dmg - 20
+    },
+    {
+        id: 'anchoredTerrain',
+        label: 'Anchored Terrain',
+        test: ctx => Timing.active(ctx.defender.flags.anchoredUntil) && ctx.attackerType === 'Mechanic',
+        apply: () => 0
+    },
+    {
+        id: 'stealthMode',
+        label: 'Stealth Mode',
+        test: ctx => cardAbilityOn(ctx.defender, 'stealthMode') && ctx.attacker.energy < ctx.defender.energy,
+        apply: (ctx, dmg) => passiveBonus('stealthMode', Math.ceil(dmg / 2))
+    },
+    {
+        id: 'bloomshroud',
+        label: 'Bloomshroud',
+        test: ctx => bloomshroudSafe(ctx.defender),
+        apply: () => 0
+    },
+    // Last of the defences: it reads the damage the attack would really deal.
+    {
+        id: 'overloadGuard',
+        label: 'Overload Guard',
+        test: ctx => cardAbilityOn(ctx.defender, 'overloadGuard'),
+        apply: (ctx, dmg) => dmg >= 50 ? passiveBonus('overloadGuard', 0) : dmg
+    },
+
     // --- "Deals no damage" restrictions on the attacking side -------------
     {
         id: 'tidalIllusion',
@@ -198,6 +275,16 @@ const DAMAGE_MODIFIERS = [
         apply: () => 0
     }
 ];
+
+/** Tech Shield: does this creature's name contain the letter (any case)? */
+function nameHas(card, letter) {
+    return !!card && !!card.data && card.data.name.toLowerCase().includes(letter);
+}
+
+/** Bloomshroud: the opponent flipped tails this turn, so nothing can touch it. */
+function bloomshroudSafe(card) {
+    return !!card && card.flags.bloomshroudSafeTurn === gameState.turnNumber;
+}
 
 /** Records an always-on ability firing (for test coverage) and passes the value through. */
 function passiveBonus(abilityId, value) {
@@ -243,6 +330,19 @@ function adjustCrossDamage(target, targetSide, amount, source) {
     if (source.kind === 'move' && cardAbilityOn(target, 'metalicProtection') && sourceType === 'Mechanic') {
         dmg = passiveBonus('metalicProtection', 0);
     }
+    // Temporal Rift: protections for the active creature apply to any damage
+    // it takes; accessories that name "attacks" only to moves.
+    const isActive = gameState[targetSide] && gameState[targetSide].active === target;
+    if (isActive && sideHasAbility(targetSide, 'foxyArmor')) {
+        const n = vulpettaEvolutions(targetSide).length;
+        if (n) dmg = passiveBonus('foxyArmor', dmg - 10 * n);
+    }
+    if (isActive && sideHasAbility(targetSide, 'techShieldA') && nameHas(source.card, 'a')) dmg = passiveBonus('techShieldA', dmg - 20);
+    if (isActive && sideHasAbility(targetSide, 'techShieldE') && nameHas(source.card, 'e')) dmg = passiveBonus('techShieldE', dmg - 20);
+    if (source.kind === 'move' && accessoryOn(target, 'celestialArmor')) dmg -= 10;
+    if (source.kind === 'move' && accessoryOn(target, 'mechanicToolkit') && target.data.abilityEffect) dmg -= 20;
+    if (source.kind === 'move' && Timing.active(target.flags.anchoredUntil) && sourceType === 'Mechanic') dmg = 0;
+    if (bloomshroudSafe(target)) dmg = 0;
     return Math.max(0, dmg);
 }
 

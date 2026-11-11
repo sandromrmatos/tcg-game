@@ -700,7 +700,7 @@ EffectRegistry.register('invincibleGambit', {
             await ctx.say('No heads: the gambit fails.', { kind: 'info', pace: 0.5 });
         }
         // The attacker faints regardless. Knockout resolution sweeps it up.
-        ctx.attacker.damage = ctx.attacker.data.hp;
+        ctx.attacker.damage = maxHp(ctx.attacker);
         await ctx.say(
             `${creatureName(ctx.attacker, ctx.side)} collapses from the effort.`,
             { kind: 'ko', icon: '☠️' }
@@ -755,8 +755,8 @@ EffectRegistry.register('gulpSwap', {
         const defenderHp = remainingHp(ctx.defender);
 
         // Each creature receives the other's remaining HP, capped at its own max.
-        ctx.attacker.damage = Math.max(0, ctx.attacker.data.hp - defenderHp);
-        ctx.defender.damage = Math.max(0, ctx.defender.data.hp - attackerHp);
+        ctx.attacker.damage = Math.max(0, maxHp(ctx.attacker) - defenderHp);
+        ctx.defender.damage = Math.max(0, maxHp(ctx.defender) - attackerHp);
 
         Render.board();
         await ctx.say(
@@ -865,7 +865,7 @@ EffectRegistry.register('tripleThreatFlip', {
             await ctx.say('Not both heads: no effect.', { kind: 'info', pace: 0.5 });
             return;
         }
-        ctx.defender.damage = ctx.defender.data.hp;
+        ctx.defender.damage = maxHp(ctx.defender);
         Render.board();
         await ctx.say(
             `Both heads! ${creatureName(ctx.defender, ctx.foe)} is knocked out outright!`,
@@ -961,7 +961,7 @@ function bestEnergyTarget(candidates, type = null) {
 /** Healthiest creature that can actually threaten something. */
 function healthiestAttacker(candidates) {
     const score = entry => {
-        const hpFraction = remainingHp(entry.card) / entry.card.data.hp;
+        const hpFraction = remainingHp(entry.card) / maxHp(entry.card);
         const best = movesOf(entry.card.data)
             .filter(m => canPayMove(entry.card, m))
             .reduce((max, m) => Math.max(max, m.damage || 0), 0);
@@ -984,6 +984,327 @@ EffectRegistry.register('infernoWing', {
             location: 'active',
             reason: 'Inferno Wing backlash'
         });
+    }
+});
+
+// ===========================================================================
+// TEMPORAL RIFT
+// ===========================================================================
+
+/** Flakette, Canelette and Rollinette this side has in play (the attacker included). */
+const SWEET_TRIO = ['Flakette', 'Canelette', 'Rollinette'];
+function sweetCount(side) {
+    return creaturesInPlay(side).filter(c => SWEET_TRIO.includes(c.data.name)).length;
+}
+
+/** "Heal N HP from a creature of your choice": one of your own damaged creatures. */
+function healChosenOwnCreature(amount) {
+    return {
+        async onResolve(ctx) {
+            if (!creaturesInPlay(ctx.side).some(c => c.damage > 0)) {
+                await ctx.say('No damaged creature to heal.', { kind: 'info', pace: 0.5 });
+                return;
+            }
+            const target = await ctx.chooseMyCreature({
+                title: `Heal one of your creatures ${amount} HP`,
+                filter: c => c.card.damage > 0,
+                aiPick: candidates => mostHurt(candidates)
+            });
+            if (target) await ctx.heal(target.card, amount);
+        }
+    };
+}
+
+/** "Your opponent can't X next turn": a restriction on the other side for one of its turns. */
+function foeRestriction(flag, message, icon, coin = true) {
+    return {
+        async onResolve(ctx) {
+            if (coin) {
+                const flip = await ctx.flip(ctx.move.name);
+                if (flip !== 'heads') {
+                    await ctx.say('No effect.', { kind: 'info', pace: 0.5 });
+                    return;
+                }
+            }
+            ctx.them.flags[flag] = Timing.opponentTurns(1);
+            await ctx.say(`${subject(ctx.foe)} ${message}`, { kind: 'status', icon });
+        }
+    };
+}
+
+/** The defending creature's printed stage is 2 or 3. */
+function evolvedDefender(ctx) {
+    return !!ctx.defender && (ctx.defender.data.stage === 'Stage 2' || ctx.defender.data.stage === 'Stage 3');
+}
+
+// "This move does 20 damage for each Flakette, Canelette or Rollinette you have in play."
+EffectRegistry.register('sweetTackle', damagePerCount(
+    20,
+    n => `${n} sweet creature${n === 1 ? '' : 's'} in play`,
+    ctx => sweetCount(ctx.side)
+));
+
+// "This move heals this creature 10 HP for each Flakette, Canelette or Rollinette you have in play."
+EffectRegistry.register('sweetHeal', {
+    async onResolve(ctx) {
+        await ctx.heal(ctx.attacker, 10 * sweetCount(ctx.side));
+    }
+});
+
+// "Deal 10 damage for each Flakette, Canelette or Rollinette you have in play
+// to a random opponent's bench creature."
+EffectRegistry.register('sweetSneak', {
+    async onResolve(ctx) {
+        const bench = benchCreatures(ctx.foe);
+        if (bench.length === 0) {
+            await ctx.say(`${possessive(ctx.foe)} bench is empty.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const target = Rng.pick(bench);
+        await ctx.hit(target, 10 * sweetCount(ctx.side), { side: ctx.foe, location: 'bench', reason: 'Sweet Sneak' });
+    }
+});
+
+// "Flip a coin. If heads, your opponent can't attack next turn."
+EffectRegistry.register('tailNuzzle', foeRestriction('cantAttackUntil', "can't attack next turn!", '🚫'));
+
+// "Flip a coin. If heads, your opponent's active creature has Lock. If tails, it has Hallucination."
+EffectRegistry.register('destinedFate', {
+    async onResolve(ctx) {
+        const flip = await ctx.flip(ctx.move.name);
+        await ctx.status(ctx.defender, flip === 'heads' ? 'lock' : 'hallucination');
+    }
+});
+
+EffectRegistry.register('duoGale', damagePerHeads(2, 50));
+EffectRegistry.register('drillPincer', damagePerHeads(4, 10));
+EffectRegistry.register('galeScatter2', damagePerHeads(2, 20));
+EffectRegistry.register('galeScatter3', damagePerHeads(3, 20));
+
+// "Flip 2 coins. If both are heads, your opponent chooses a card from their hand and discards it."
+EffectRegistry.register('magnetarcNeedle', {
+    async onResolve(ctx) {
+        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        if (heads < 2) {
+            await ctx.say('Not both heads: no discard.', { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const hand = ctx.them.hand;
+        if (hand.length === 0) {
+            await ctx.say(`${subject(ctx.foe)} ${verb(ctx.foe, 'has', 'have')} no cards in hand.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        // The opponent chooses; the AI gives up the card it can least use.
+        const index = await ctx.chooseCardOf(ctx.foe, {
+            cards: hand.slice(),
+            title: 'Magnetarc Needle: discard a card from your hand',
+            aiPick: cards => {
+                let worst = 0;
+                cards.forEach((c, i) => { if (handCardKeepScore(c) < handCardKeepScore(cards[worst])) worst = i; });
+                return worst;
+            }
+        });
+        const card = hand[index === null ? 0 : index];
+        if (!card) return;
+        hand.splice(hand.indexOf(card), 1);
+        ctx.them.discardPile.push(card);
+        Render.all();
+        await ctx.say(`${subject(ctx.foe)} discarded ${card.data.name}.`, { kind: 'item', icon: '🗑️' });
+    }
+});
+
+/** How much the AI wants to keep a hand card (higher keeps it). */
+function handCardKeepScore(card) {
+    if (isCreature(card.data)) return card.data.stage === 'Stage 1' ? 30 : 40;
+    if (isAccessory(card.data)) return 25;
+    return card.data.itemEffect === 'cardDraw' ? 20 : 15;
+}
+
+// "Flip a coin. If tails, discard all energy from your creatures. You can't use this move next turn."
+EffectRegistry.register('stormsChance', {
+    async onResolve(ctx) {
+        ctx.attacker.flags.cooldowns.stormsChance = Timing.myTurns(1);
+        const flip = await ctx.flip(ctx.move.name);
+        if (flip === 'heads') {
+            await ctx.say('The storm passes.', { kind: 'info', pace: 0.5 });
+        } else {
+            await ctx.say(`The storm drains all of ${possessive(ctx.side).toLowerCase()} energy!`, { kind: 'status', icon: '🌪️' });
+            for (const card of creaturesInPlay(ctx.side)) {
+                if (card.energy > 0) await ctx.unenergy(card, card.energy, ctx.side);
+            }
+        }
+        await ctx.say(`Storm's Chance can't be used next turn.`, { kind: 'info', icon: '🔧', pace: 0.5 });
+    }
+});
+
+EffectRegistry.register('citrusBloom', healChosenOwnCreature(10));
+EffectRegistry.register('vitaminBurst', healChosenOwnCreature(20));
+
+// "This creature takes 20 / 40 less damage next turn."
+EffectRegistry.register('oreLash', creatureShield('oreLash', 20, 'Ore Lash'));
+EffectRegistry.register('coreTangle', creatureShield('coreTangle', 40, 'Core Tangle'));
+
+// "Next turn, this creature can't be damaged by attacks from Mechanic creatures."
+EffectRegistry.register('anchoredTerrain', {
+    async onResolve(ctx) {
+        ctx.attacker.flags.anchoredUntil = Timing.throughOpponentTurn();
+        await ctx.say(`${creatureName(ctx.attacker, ctx.side)} can't be damaged by Mechanic attacks next turn.`,
+            { kind: 'ability', icon: '⚓' });
+    }
+});
+
+// "This attack does 70 damage if your opponent is affected by Flux."
+EffectRegistry.register('whimCurse', {
+    async onDamageCalc(ctx) {
+        if (Status.has(ctx.defender, 'flux')) {
+            await ctx.say('The curse feeds on Flux: 70 damage!', { kind: 'damage', pace: 0.5 });
+            return 70;
+        }
+        await ctx.say('No Flux to feed on: no damage.', { kind: 'info', pace: 0.5 });
+        return 0;
+    }
+});
+
+// "Flip 2 coins. If both are heads, this attack does 10 damage."
+EffectRegistry.register('funkyScent', {
+    async onDamageCalc(ctx) {
+        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        return heads === 2 ? 10 : 0;
+    }
+});
+
+// "Remove an energy attached to your opponent's active creature and attach it to this creature."
+EffectRegistry.register('energyDrain', {
+    async onResolveIfTargetAlive(ctx) {
+        if (ctx.defender.energy === 0) {
+            await ctx.say(`${creatureName(ctx.defender, ctx.foe)} has no energy to drain.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const moved = [];
+        await ctx.unenergy(ctx.defender, 1, ctx.foe, moved);
+        if (moved.length) await ctx.energy(ctx.attacker, 1, ctx.side, moved[0]);
+    }
+});
+
+// "Flip a coin. If heads, heal all HP of this creature."
+EffectRegistry.register('violetVeil', {
+    async onResolve(ctx) {
+        const flip = await ctx.flip(ctx.move.name);
+        if (flip === 'heads') await ctx.heal(ctx.attacker, ctx.attacker.damage);
+        else await ctx.say('No healing.', { kind: 'info', pace: 0.5 });
+    }
+});
+
+// "Next turn, your opponent can't use abilities." Always-on ones included.
+EffectRegistry.register('mementoEcho', {
+    async onResolve(ctx) {
+        ctx.them.flags.abilitiesBlockedTurn = gameState.turnNumber + 1;
+        await ctx.say(`${subject(ctx.foe)} can't use abilities next turn!`, { kind: 'status', icon: '🔇' });
+    }
+});
+
+// "This attack deals 20 damage to each of your opponent's creatures." The
+// active takes the move's own 20; the bench is swept here.
+EffectRegistry.register('tempestDive', {
+    async onResolve(ctx) {
+        await hitOpponentBench(ctx, 20, 'Tempest Dive');
+    }
+});
+
+// "Flip a coin. If heads, your opponent can't evolve next turn."
+EffectRegistry.register('cuddleStorm', foeRestriction('cantEvolveUntil', "can't evolve next turn!", '🧸'));
+
+// "Flip 2 coins. If both are heads, this attack does 50 extra damage."
+EffectRegistry.register('ignitionJab', {
+    async onDamageCalc(ctx) {
+        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        if (heads < 2) return ctx.damage;
+        await ctx.say('+50 damage!', { kind: 'damage', pace: 0.5 });
+        return ctx.damage + 50;
+    }
+});
+
+// "Flip a coin. If heads, your opponent can't use accessory cards next turn."
+EffectRegistry.register('cryoRoar', foeRestriction('cantUseAccessoriesUntil', "can't use accessory cards next turn!", '🧊'));
+// "Your opponent can't use Accessory cards next turn."
+EffectRegistry.register('alloyClutch', foeRestriction('cantUseAccessoriesUntil', "can't use accessory cards next turn!", '🔩', false));
+
+// "If your opponent's creature has a status condition, do 40 extra damage."
+EffectRegistry.register('telepondLeap', {
+    async onDamageCalc(ctx) {
+        if (!Status.any(ctx.defender)) return ctx.damage;
+        await ctx.say(`${creatureName(ctx.defender, ctx.foe)} is afflicted: +40 damage.`, { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 40;
+    }
+});
+
+// "Next turn, your opponent flips a coin. If tails, this creature takes no
+// damage or status effects." The coin is flipped as their turn starts (turn.js).
+EffectRegistry.register('bloomshroud', {
+    async onResolve(ctx) {
+        ctx.attacker.flags.bloomshroudTurn = gameState.turnNumber + 1;
+        await ctx.say(`${creatureName(ctx.attacker, ctx.side)} hides in a shroud of petals.`, { kind: 'ability', icon: '🌸' });
+    }
+});
+
+// "This move does 10 extra damage for each evolution you made this game."
+EffectRegistry.register('canopyDrift', {
+    async onDamageCalc(ctx) {
+        const n = ctx.me.evolutionsMade || 0;
+        if (!n) return ctx.damage;
+        await ctx.say(`${n} evolution${n === 1 ? '' : 's'} this game: +${10 * n} damage.`, { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 10 * n;
+    }
+});
+
+// "Flip a coin. If heads, your opponent switches their active creature." They choose.
+EffectRegistry.register('superRoar', {
+    async onResolveIfTargetAlive(ctx) {
+        const flip = await ctx.flip(ctx.move.name);
+        if (flip !== 'heads') {
+            await ctx.say('No switch.', { kind: 'info', pace: 0.5 });
+            return;
+        }
+        if (benchCreatures(ctx.foe).length === 0) {
+            await ctx.say(`${possessive(ctx.foe)} bench is empty — nothing to switch to.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const choice = await ctx.chooseCreatureOf(ctx.foe, {
+            title: 'Super Roar: choose your new active creature',
+            filter: c => c.location === 'bench',
+            aiPick: candidates => healthiestAttacker(candidates)
+        });
+        if (choice) await swapActiveWithBench(ctx.foe, choice.index, { free: true });
+    }
+});
+
+// "If you used an attack with Dive in its name last turn, this move does 40
+// extra damage." Any move with "Dive" in its name counts, so future ones do too.
+function usedDiveLastTurn(side) {
+    const last = gameState[side].lastAttack;
+    return !!last && last.turn === gameState.turnNumber - 2 && /dive/i.test(last.name);
+}
+EffectRegistry.register('reverieTalon', {
+    async onDamageCalc(ctx) {
+        if (!usedDiveLastTurn(ctx.side)) return ctx.damage;
+        await ctx.say('Last turn was a dive: +40 damage!', { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 40;
+    }
+});
+
+// "If your opponent's creature is a Stage 2 or 3, it now has Flux."
+EffectRegistry.register('mistralVeil', {
+    async onResolve(ctx) {
+        if (evolvedDefender(ctx)) await ctx.status(ctx.defender, 'flux');
+    }
+});
+
+// "This move deals 30 extra damage if your opponent's creature is a Stage 2 or 3."
+EffectRegistry.register('pixieDraft', {
+    async onDamageCalc(ctx) {
+        if (!evolvedDefender(ctx)) return ctx.damage;
+        await ctx.say(`${creatureName(ctx.defender, ctx.foe)} is evolved: +30 damage.`, { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 30;
     }
 });
 
@@ -1044,7 +1365,21 @@ const EXPECTED_DAMAGE = {
     tripleThreatFlip: () => 60,               // 25% outright knockout
     gulpSwap: () => 0,
     // Suicidal: only picked when there is nothing else to do.
-    invincibleGambit: () => 0
+    invincibleGambit: () => 0,
+
+    // Temporal Rift
+    sweetTackle: (move, v) => sweetCount(v.side) * 20,
+    duoGale: () => 50,                        // 2 coins x 50
+    drillPincer: () => 20,                    // 4 coins x 10
+    galeScatter2: () => 20,                   // 2 coins x 20
+    galeScatter3: () => 30,                   // 3 coins x 20
+    whimCurse: (move, v) => Status.has(v.defender, 'flux') ? 70 : 0,
+    funkyScent: () => 3,                      // 25% of 10
+    ignitionJab: move => move.damage + 12.5,  // 25% of +50
+    telepondLeap: (move, v) => move.damage + (Status.any(v.defender) ? 40 : 0),
+    canopyDrift: (move, v) => move.damage + 10 * (gameState[v.side].evolutionsMade || 0),
+    reverieTalon: (move, v) => move.damage + (usedDiveLastTurn(v.side) ? 40 : 0),
+    pixieDraft: (move, v) => move.damage + (v.defender && /Stage [23]/.test(v.defender.data.stage) ? 30 : 0)
 };
 
 for (const [id, estimator] of Object.entries(EXPECTED_DAMAGE)) {

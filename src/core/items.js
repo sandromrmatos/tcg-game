@@ -398,3 +398,263 @@ function findMysticStage1InDeck(side) {
         return data && data.stage === 'Stage 1' && getCardType(data) === 'Mystic';
     });
 }
+
+// ===========================================================================
+// ACCESSORIES (Temporal Rift)
+//
+// An accessory card is attached from the hand to one of your creatures of the
+// accessory's type: at most one accessory per creature, one accessory per
+// turn (separate from the item card), and none while the opponent's Cryo Roar
+// or Alloy Clutch is in effect. Lock and Mirage Shield name items, so they
+// don't stop accessories.
+//
+// It stays on through retreats and through an evolution into a creature of
+// the same type. Evolving (or Elemental Shift) into another type discards it,
+// and it goes to the discard pile with the creature when it is knocked out.
+//
+// Each entry may define:
+//   hpBonus, attackBonus, retreatReduction         read by util.js / damage.js
+//   onTurnStart(card, side)                         Celestial Armor
+//   activate: { label, use(card, side) }            Neutral Elixir's button
+// Damage reductions live in the damage table (damage.js), like every shield.
+// ===========================================================================
+
+const AccessoryRegistry = {
+    accessories: new Map(),
+    used: new Map(),          // coverage counts for the test page
+
+    register(id, definition) {
+        if (this.accessories.has(id)) console.error(`[Accessories] duplicate registration for "${id}"`);
+        this.accessories.set(id, Object.assign({ id }, definition));
+    },
+    get(id) { return id ? this.accessories.get(id) || null : null; },
+    has(id) { return this.accessories.has(id); },
+    ids() { return Array.from(this.accessories.keys()); },
+    note(id) { this.used.set(id, (this.used.get(id) || 0) + 1); },
+
+    /** Can this side attach an accessory at all this turn? */
+    sideCanAttach(side) {
+        const s = gameState[side];
+        if (gameState.phase !== 'playing') return { ok: false, reason: 'Not in play.' };
+        if (gameState.currentTurn !== side) return { ok: false, reason: 'Not your turn.' };
+        if (s.hasAttacked) return { ok: false, reason: 'You have already attacked this turn.' };
+        if (s.accessoryUsedThisTurn) return { ok: false, reason: 'Only one accessory card per turn.' };
+        if (Timing.active(s.flags.cantUseAccessoriesUntil)) {
+            return { ok: false, reason: "You can't use accessory cards this turn." };
+        }
+        return { ok: true };
+    },
+
+    /** The creatures this accessory could go on. */
+    targets(card, side) {
+        return boardCandidates(side, c => !c.card.accessory && accessoryFits(card.data, c.card));
+    },
+
+    canUse(card, side) {
+        if (!card || !isAccessory(card.data)) return { ok: false, reason: 'Not an accessory.' };
+        const base = this.sideCanAttach(side);
+        if (!base.ok) return base;
+        if (!this.get(card.data.accessoryEffect)) {
+            return { ok: false, reason: `Accessory "${card.data.accessoryEffect}" is not implemented.` };
+        }
+        if (this.targets(card, side).length === 0) {
+            return { ok: false, reason: `${card.data.name} needs one of your ${card.data.accessoryType} creatures without an accessory.` };
+        }
+        return { ok: true };
+    },
+
+    /** Attaches an accessory from hand to `target` (a board candidate, or chosen here). */
+    async attach(card, side, target = null) {
+        const check = this.canUse(card, side);
+        if (!check.ok) { Log.warn(check.reason); return false; }
+        if (!target) {
+            target = await chooseCreatureOf(side, {
+                title: `Attach ${card.data.name} to which creature?`,
+                filter: c => !c.card.accessory && accessoryFits(card.data, c.card),
+                cancellable: side === 'player',
+                aiPick: candidates => aiAccessoryTarget(card, candidates)
+            });
+        }
+        if (!target || target.card.accessory || !accessoryFits(card.data, target.card)) return false;
+
+        const s = gameState[side];
+        const index = s.hand.indexOf(card);
+        if (index === -1) return false;
+
+        await showcaseCard(side, card.id, {
+            label: `${subject(side)} ${verb(side, 'attaches', 'attach')} ${card.data.name}`,
+            target: { side, location: target.location, index: target.index }
+        });
+        s.hand.splice(index, 1);
+        target.card.accessory = card;
+        s.accessoryUsedThisTurn = true;
+        trackPlayed(side, card.id);
+        this.note(card.data.accessoryEffect);
+        Render.all();
+        await Log.say(`${subject(side)} ${verb(side, 'attaches', 'attach')} ${card.data.name} to ${target.card.data.name}.`,
+            { kind: 'item', icon: '🧿', side });
+        return true;
+    },
+
+    /** The accessory's own button on the creature (Neutral Elixir). */
+    activation(creature) {
+        const def = creature && creature.accessory && this.get(creature.accessory.data.accessoryEffect);
+        return def && def.activate ? def.activate : null;
+    },
+
+    canActivate(creature, side) {
+        const act = this.activation(creature);
+        if (!act) return { ok: false, reason: 'Nothing to activate.' };
+        if (gameState.phase !== 'playing' || gameState.currentTurn !== side) return { ok: false, reason: 'Not your turn.' };
+        if (gameState[side].hasAttacked) return { ok: false, reason: 'You have already attacked this turn.' };
+        return act.requires ? act.requires(creature, side) : { ok: true };
+    },
+
+    async activate(creature, side) {
+        const check = this.canActivate(creature, side);
+        if (!check.ok) { Log.warn(check.reason); return false; }
+        const act = this.activation(creature);
+        this.note(creature.accessory.data.accessoryEffect);
+        await act.use(creature, side);
+        Render.all();
+        return true;
+    }
+};
+
+/** Does accessory card data `acc` fit this creature (by its current type)? */
+function accessoryFits(acc, creature) {
+    return !!acc && !!creature && isCreature(creature.data) && getCardType(creature.data) === acc.accessoryType;
+}
+
+/** The creature wears an accessory with this effect id. */
+function accessoryOn(card, effectId) {
+    return !!card && !!card.accessory && card.accessory.data.accessoryEffect === effectId;
+}
+
+function accessoryDef(card) {
+    return card && card.accessory ? AccessoryRegistry.get(card.accessory.data.accessoryEffect) : null;
+}
+
+/** Read by util.js maxHp(). */
+function accessoryHpBonus(card) {
+    const def = accessoryDef(card);
+    return def && def.hpBonus ? def.hpBonus : 0;
+}
+
+/** Read by util.js retreatCost(). */
+function accessoryRetreatReduction(card) {
+    const def = accessoryDef(card);
+    return def && def.retreatReduction ? def.retreatReduction : 0;
+}
+
+/** Puts a creature's accessory in its owner's discard pile. */
+function discardAccessory(card, side, reason) {
+    if (!card || !card.accessory) return null;
+    const acc = card.accessory;
+    card.accessory = null;
+    const owner = side || (locateCard(card) || {}).side;
+    if (owner) gameState[owner].discardPile.push(acc);
+    if (reason) Log.write(`${acc.data.name} falls off ${card.data.name} (${reason}).`, { kind: 'item', icon: '🧿' });
+    return acc;
+}
+
+/** After a type change: an accessory for another type is discarded. */
+function checkAccessoryFits(card, side) {
+    if (card && card.accessory && !accessoryFits(card.accessory.data, card)) {
+        discardAccessory(card, side, `${card.data.name} is no longer ${card.accessory.data.accessoryType}`);
+    }
+}
+
+/** Start of a side's turn: Celestial Armor heals its creature. */
+async function accessoriesOnTurnStart(side) {
+    for (const card of creaturesInPlay(side)) {
+        const def = accessoryDef(card);
+        if (def && def.onTurnStart) await def.onTurnStart(card, side);
+    }
+}
+
+/** Which creature the AI puts an accessory on. */
+function aiAccessoryTarget(acc, candidates) {
+    const score = entry => {
+        const c = entry.card;
+        let s = remainingHp(c) + (entry.location === 'active' ? 40 : 0);
+        if (acc.accessoryEffect === 'windFeather') s += retreatCost(c) * 25;
+        if (acc.accessoryEffect === 'mechanicToolkit' && c.data.abilityEffect) s += 60;
+        if (acc.accessoryEffect === 'mysticAmulet') s += movesOf(c.data).some(m => canPayMove(c, m)) ? 30 : 0;
+        return s;
+    };
+    return candidates.slice().sort((a, b) => score(b) - score(a))[0] || null;
+}
+
+// "Attach to a Mystic creature. This creature gains 10 extra HP and its attacks deal 10 additional damage."
+AccessoryRegistry.register('mysticAmulet', { hpBonus: 10 });
+
+// "Attach to a Wind creature. This creature's retreat cost is reduced by one Energy."
+AccessoryRegistry.register('windFeather', { retreatReduction: 1 });
+
+// "Attach to a Celestial creature. This creature takes 10 less damage from
+// attacks and heals 10 HP at the start of each turn." (each of its owner's turns)
+AccessoryRegistry.register('celestialArmor', {
+    async onTurnStart(card, side) {
+        if (card.damage <= 0) return;
+        AccessoryRegistry.note('celestialArmor');
+        await Log.say(`${creatureName(card, side)}'s Celestial Armor glows.`, { kind: 'heal', icon: '🧿', pace: 0.5 });
+        await healCreature(card, 10, { side });
+    }
+});
+
+// "Attach to a Mechanic creature. If this creature has an ability, it takes 20
+// less damage from attacks."
+AccessoryRegistry.register('mechanicToolkit', {});
+
+// "Attach to a Neutral creature. You can move it to your hand, recovering all
+// its HP. Discard this card if you do." The creature (with its earlier stages)
+// goes back to the hand fully healed; its energy and the Elixir are discarded.
+AccessoryRegistry.register('neutralElixir', {
+    activate: {
+        label: 'Use Neutral Elixir',
+        requires(card, side) {
+            const s = gameState[side];
+            if (s.active === card && benchCreatures(side).length === 0) {
+                return { ok: false, reason: 'You need a bench creature to take its place.' };
+            }
+            return { ok: true };
+        },
+        async use(card, side) {
+            const s = gameState[side];
+            const wasActive = s.active === card;
+            const elixir = discardAccessory(card, side);
+            const name = card.data.name;
+            // The whole evolution line returns to the hand, every card fresh.
+            const line = (card.evolutionChain || []).map(e => {
+                const inst = makeCardInstance(e.id);
+                inst.fullArt = !!e.fullArt;
+                return inst;
+            });
+            await Status.clear(card, { silent: true });
+            const energyTotal = card.energy;
+            if (wasActive) s.active = null;
+            else s.bench[s.bench.indexOf(card)] = null;
+            resetCardInstance(card);
+            card.evolutionChain = [];
+            card.evolutionId = newEvolutionId();
+            s.hand.push(...line, card);
+            Render.all();
+            await Log.say(
+                `${subject(side)} ${verb(side, 'uses', 'use')} ${elixir ? elixir.data.name : 'Neutral Elixir'}: ` +
+                `${name} returns to the hand, fully healed` + (energyTotal ? ` (${energyTotal} energy discarded).` : '.'),
+                { kind: 'heal', icon: '🧪', side });
+            if (wasActive) await promoteFromBench(side);
+        }
+    }
+});
+
+/** Should the AI pull this creature back to its hand with Neutral Elixir? */
+function aiWantsElixir(card, side) {
+    if (!accessoryOn(card, 'neutralElixir')) return false;
+    if (!AccessoryRegistry.canActivate(card, side).ok) return false;
+    const s = gameState[side];
+    const hurt = remainingHp(card) <= Math.max(30, maxHp(card) * 0.35);
+    // A creature about to be knocked out: saving it denies the opponent a point.
+    return hurt && (s.active !== card || benchCreatures(side).length > 0);
+}

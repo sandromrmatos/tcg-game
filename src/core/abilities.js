@@ -94,6 +94,9 @@ const AbilityRegistry = {
         if (card.abilityUsedThisTurn) {
             return { ok: false, reason: `${card.data.name} already used its ability this turn.` };
         }
+        if (abilitiesBlocked(side)) {
+            return { ok: false, reason: 'Memento Echo: no abilities can be used this turn.' };
+        }
 
         const required = card.data.abilityLocation || 'any';
         if (required !== 'any' && required !== location) {
@@ -189,22 +192,33 @@ function abilityWorksAt(card, location) {
     return where === 'any' || where === location;
 }
 
+/**
+ * Memento Echo (Wraithrift): "Next turn, your opponent can't use abilities."
+ * On that side's next turn none of its abilities work, always-on ones included.
+ */
+function abilitiesBlocked(side) {
+    const s = side && gameState[side];
+    return !!s && s.flags.abilitiesBlockedTurn === gameState.turnNumber;
+}
+
 /** This creature has ability `id` and is standing where it works. */
 function hasAbilityAt(card, id, location) {
-    return !!card && !!card.data && card.data.abilityEffect === id && abilityWorksAt(card, location);
+    if (!card || !card.data || card.data.abilityEffect !== id || !abilityWorksAt(card, location)) return false;
+    const spot = locateCard(card);
+    return !(spot && abilitiesBlocked(spot.side));
 }
 
 /** This creature is in play, has ability `id`, and it is in effect where it stands. */
 function cardAbilityOn(card, id) {
     if (!card || !card.data || card.data.abilityEffect !== id) return false;
     const spot = locateCard(card);
-    return !!spot && abilityWorksAt(card, spot.location);
+    return !!spot && abilityWorksAt(card, spot.location) && !abilitiesBlocked(spot.side);
 }
 
 /** A side's creatures whose always-on ability `id` is currently in effect. */
 function creaturesWithAbility(side, id) {
     const s = gameState[side];
-    if (!s) return [];
+    if (!s || abilitiesBlocked(side)) return [];
     const out = [];
     if (hasAbilityAt(s.active, id, 'active')) out.push(s.active);
     for (const card of s.bench) if (hasAbilityAt(card, id, 'bench')) out.push(card);
@@ -335,7 +349,7 @@ AbilityRegistry.register('guardian', {
     // Worth spending only when the active creature is in real danger.
     aiWants(ctx) {
         const active = ctx.me.active;
-        return !!active && remainingHp(active) <= active.data.hp * 0.4;
+        return !!active && remainingHp(active) <= maxHp(active) * 0.4;
     }
 });
 
@@ -407,7 +421,7 @@ AbilityRegistry.register('phaseShift', {
         const active = ctx.me.active;
         return sideWillAttackThisTurn(ctx.side) &&
             benchCreatures(ctx.side).length > 0 &&
-            !!active && remainingHp(active) <= active.data.hp * 0.5;
+            !!active && remainingHp(active) <= maxHp(active) * 0.5;
     }
 });
 
@@ -527,3 +541,246 @@ AbilityRegistry.register('gnawingPrecision', {
         await resolveKnockouts();
     }
 });
+
+// ===========================================================================
+// TEMPORAL RIFT
+// ===========================================================================
+
+/** Noctivane, Zephyraun, Florvulpa, Rustarok: the creatures that evolve from Vulpetta. */
+function isVulpettaEvolution(card) {
+    return !!card && !!card.data && card.data.prevStage === 'Vulpetta';
+}
+
+function vulpettaEvolutions(side) {
+    return creaturesInPlay(side).filter(isVulpettaEvolution);
+}
+
+/** Twist of Fate: true while any Aurorion's ability is in effect, on either side. */
+function twistOfFateActive() {
+    if (typeof gameState === 'undefined' || !gameState.player) return false;
+    const on = SIDES.some(side => sideHasAbility(side, 'twistOfFate'));
+    if (on) AbilityRegistry.noteTriggered('twistOfFate');
+    return on;
+}
+
+// --- Always on ---------------------------------------------------------------
+
+// "If this creature evolved this turn, draw a card." Fires as it evolves (actions.js).
+AbilityRegistry.register('lookerFate', passiveAbility(
+    'When a creature evolves into this one, you draw a card.'));
+
+// "Your active creature takes 10 less damage for each Vulpetta evolution you have in play."
+AbilityRegistry.register('foxyArmor', passiveAbility(
+    'Your active creature takes 10 less damage for each Vulpetta evolution you have in play.'));
+
+// "When your turn ends, you may search your deck for a card that evolves from
+// Vulpetta and add it to your hand." Runs at the end of the owner's turn (turn.js).
+AbilityRegistry.register('forestKin', passiveAbility(
+    'At the end of your turn, you may take a card that evolves from Vulpetta from your deck into your hand.'));
+
+// "This creature takes no damage from attacks that deal 50 or more damage."
+AbilityRegistry.register('overloadGuard', passiveAbility(
+    'Attacks that would deal this creature 50 or more damage deal it none.'));
+
+// "Your active creature takes 20 less damage from creatures with an "A" / "E" in their name."
+AbilityRegistry.register('techShieldA', passiveAbility(
+    'Your active creature takes 20 less damage from creatures with an "A" in their name.'));
+AbilityRegistry.register('techShieldE', passiveAbility(
+    'Your active creature takes 20 less damage from creatures with an "E" in their name.'));
+
+// "This creature takes half damage (rounded up) from attacks by creatures with
+// fewer energy cards attached than it."
+AbilityRegistry.register('stealthMode', passiveAbility(
+    'This creature takes half damage (rounded up) from attacks by creatures with fewer energy attached than it.'));
+
+// "All type weaknesses are reversed." (util.js isSuperEffective)
+AbilityRegistry.register('twistOfFate', passiveAbility(
+    'While this creature is in play, every type weakness is reversed, for both players.'));
+
+// --- Activated -----------------------------------------------------------------
+
+// "Once during your turn, you may move one energy from a Vulpetta evolution to another one."
+AbilityRegistry.register('fastLink', {
+    requires(ctx) {
+        const line = vulpettaEvolutions(ctx.side);
+        if (line.length < 2 || !line.some(c => c.energy > 0)) {
+            return { ok: false, reason: 'Fast Link needs two Vulpetta evolutions in play, one with energy.' };
+        }
+        return { ok: true };
+    },
+    async use(ctx) {
+        const from = await ctx.chooseMyCreature({
+            title: 'Move energy FROM which Vulpetta evolution?',
+            filter: c => isVulpettaEvolution(c.card) && c.card.energy > 0,
+            cancellable: true,
+            aiPick: candidates => candidates.slice().sort((a, b) => b.card.energy - a.card.energy)[0]
+        });
+        if (!from) return;
+        const to = await ctx.chooseMyCreature({
+            title: 'Move energy TO which Vulpetta evolution?',
+            filter: c => isVulpettaEvolution(c.card) && c.card !== from.card,
+            cancellable: true,
+            aiPick: candidates => candidates.find(c => c.location === 'active') || bestEnergyTarget(candidates)
+        });
+        if (!to) return;
+        const moved = [];
+        await ctx.unenergy(from.card, 1, ctx.side, moved);
+        if (moved.length) await ctx.energy(to.card, 1, ctx.side, moved[0]);
+    },
+    // Worth it when it gets the active creature closer to a move.
+    aiWants(ctx) {
+        const active = ctx.me.active;
+        if (!isVulpettaEvolution(active)) return false;
+        return energyHelpScore(active, null) > 0 &&
+            vulpettaEvolutions(ctx.side).some(c => c !== active && c.energy > 0);
+    }
+});
+
+// "If active, choose a benched opponent creature and deal 10 damage per
+// Vulpetta evolution you have in play."
+AbilityRegistry.register('skyGrace', {
+    requires(ctx) {
+        if (benchCreatures(ctx.foe).length === 0) return { ok: false, reason: 'Your opponent has no benched creature.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const amount = 10 * vulpettaEvolutions(ctx.side).length;
+        const target = await ctx.chooseTheirCreature({
+            title: `Deal ${amount} damage to one of your opponent's benched creatures`,
+            filter: c => c.location === 'bench',
+            aiPick: candidates => {
+                const lethal = candidates.filter(c => remainingHp(c.card) <= amount);
+                return lethal.length ? lethal[0] : mostHurt(candidates) || candidates[0];
+            }
+        });
+        if (!target) return;
+        await ctx.hit(target.card, amount, { side: ctx.foe, location: 'bench', reason: 'Sky Grace' });
+        await resolveKnockouts();
+    }
+});
+
+// "Once per turn, you may heal 20 HP of a creature, but this creature loses 30 HP."
+AbilityRegistry.register('natureHarmony', {
+    requires(ctx) {
+        if (!creaturesInPlay(ctx.side).some(c => c !== ctx.card && c.damage > 0)) {
+            return { ok: false, reason: 'No other damaged creature to heal.' };
+        }
+        return { ok: true };
+    },
+    async use(ctx) {
+        const target = await ctx.chooseMyCreature({
+            title: 'Heal which creature 20 HP?',
+            filter: c => c.card !== ctx.card && c.card.damage > 0,
+            cancellable: true,
+            aiPick: candidates => mostHurt(candidates)
+        });
+        if (!target) return;
+        await ctx.heal(target.card, 20);
+        await damageCreature(ctx.card, 30, { side: ctx.side, reason: 'Nature Harmony' });
+        await resolveKnockouts();
+    },
+    // Only to rescue the active creature, and never when it would sink Solyssa.
+    aiWants(ctx) {
+        const active = ctx.me.active;
+        return !!active && active !== ctx.card && active.damage >= 20 && remainingHp(ctx.card) > 50;
+    }
+});
+
+// "Flip a coin. If heads, switch your opponent's active creature with one of
+// their benched creatures." The opponent picks which one comes in.
+AbilityRegistry.register('windSweep', {
+    requires(ctx) {
+        if (benchCreatures(ctx.foe).length === 0) return { ok: false, reason: 'Your opponent has no benched creature.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const flip = await ctx.flip('Wind Sweep');
+        if (flip !== 'heads') {
+            await ctx.say('The wind dies down.', { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const choice = await ctx.chooseCreatureOf(ctx.foe, {
+            title: 'Wind Sweep: choose your new active creature',
+            filter: c => c.location === 'bench',
+            aiPick: candidates => healthiestAttacker(candidates)
+        });
+        if (choice) await swapActiveWithBench(ctx.foe, choice.index, { free: true });
+    },
+    // Worth it when their active creature is the one to fear, or nearly ready to attack.
+    aiWants(ctx) {
+        const them = ctx.them.active;
+        return !!them && usableMovesFor(them).length > 0;
+    }
+});
+
+// "Once per turn, you may heal 50 HP of both active creatures."
+AbilityRegistry.register('sharedBlessing', {
+    requires(ctx) {
+        if (!(ctx.me.active && ctx.me.active.damage > 0) && !(ctx.them.active && ctx.them.active.damage > 0)) {
+            return { ok: false, reason: 'Neither active creature is damaged.' };
+        }
+        return { ok: true };
+    },
+    async use(ctx) {
+        if (ctx.me.active) await ctx.heal(ctx.me.active, 50, { side: ctx.side });
+        if (ctx.them.active) await ctx.heal(ctx.them.active, 50, { side: ctx.foe });
+    },
+    // Only when it helps this side more than the other.
+    aiWants(ctx) {
+        const mine = ctx.me.active ? Math.min(50, ctx.me.active.damage) : 0;
+        const theirs = ctx.them.active ? Math.min(50, ctx.them.active.damage) : 0;
+        return mine >= 30 && mine > theirs;
+    }
+});
+
+// "Allows you to change the type of this creature to any other type." It
+// keeps the new type until it leaves play.
+AbilityRegistry.register('elementalShift', {
+    async use(ctx) {
+        const current = getCardType(ctx.card.data);
+        const options = CREATURE_TYPES.filter(t => t !== current);
+        const type = await chooseOptionOf(ctx.side, {
+            title: `Change ${ctx.card.data.name} to which type?`,
+            options: options.map(t => ({ label: t, value: t })),
+            cancellable: true,
+            aiPick: () => bestShiftType(ctx)
+        });
+        if (!type) return;
+        setCreatureType(ctx.card, type);
+        await ctx.say(`${creatureName(ctx.card, ctx.side)} is now ${type} type.`, { kind: 'ability', icon: '🔄' });
+    },
+    aiWants(ctx) {
+        const best = bestShiftType(ctx);
+        return !!best && best !== getCardType(ctx.card.data);
+    }
+});
+
+/** A creature changes type in play (Elemental Shift). Its printed card is unchanged. */
+function setCreatureType(card, type) {
+    card.data = Object.assign({}, card.data, { type });
+    // An accessory for the old type falls off (items.js).
+    if (typeof checkAccessoryFits === 'function') checkAccessoryFits(card);
+}
+
+/**
+ * The AI's Elemental Shift choice: a type that beats the opposing active
+ * creature, and otherwise one that stops it being beaten.
+ */
+function bestShiftType(ctx) {
+    const card = ctx.card;
+    const foe = ctx.them.active;
+    if (!foe || ctx.me.active !== card) return null;
+    const foeType = getCardType(foe.data);
+    const current = getCardType(card.data);
+    const beats = CREATURE_TYPES.find(t => t !== current && isSuperEffective(t, foeType));
+    if (beats && !isSuperEffective(current, foeType)) return beats;
+    if (isSuperEffective(foeType, current)) {
+        return CREATURE_TYPES.find(t => t !== current && !isSuperEffective(foeType, t)) || null;
+    }
+    return null;
+}
+
+/** Moves a creature could pay for, as the AI sees it. */
+function usableMovesFor(card) {
+    return movesOf(card.data).filter(m => canPayMove(card, m));
+}

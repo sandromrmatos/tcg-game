@@ -15,6 +15,13 @@
  */
 function discardCreature(side, card) {
     const pile = gameState[side].discardPile;
+    // Its accessory goes with it.
+    if (card.accessory) {
+        pile.push(card.accessory);
+        card.accessory = null;
+    }
+    // A creature that changed type in play (Elemental Shift) is its printed card again.
+    card.data = getCardData(card.id) || card.data;
     if (card.evolutionChain && card.evolutionChain.length > 0) {
         for (const previous of card.evolutionChain) pile.push(previous);
     }

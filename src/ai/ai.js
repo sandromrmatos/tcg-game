@@ -37,6 +37,9 @@ async function runAiTurn(side = 'opponent') {
         // step below also pauses (Log.aiPause), so its turn can be followed.
         await Log.aiPause(side, 0.6);
 
+        await aiUseElixirs(side);
+        assertRunning();
+
         await aiConsiderRetreat(side);
         assertRunning();
 
@@ -47,6 +50,10 @@ async function runAiTurn(side = 'opponent') {
         assertRunning();
 
         await aiEvolveAll(side);
+        assertRunning();
+
+        // After evolving, so the accessory goes on the final form's type.
+        await aiPlayAccessory(side);
         assertRunning();
 
         await aiAttachEnergy(side);
@@ -74,7 +81,7 @@ async function aiConsiderRetreat(side) {
     if (!active) return;
 
     const hp = remainingHp(active);
-    const inTrouble = hp < active.data.hp * 0.4 || hp < 30;
+    const inTrouble = hp < maxHp(active) * 0.4 || hp < 30;
     if (!inTrouble) return;
 
     // Goes through the shared legality check, so Tempest Hold and Ethereal
@@ -111,6 +118,26 @@ async function aiPlayItem(side) {
         await ItemRegistry.use(card, side, gameState[side].hand.indexOf(card));
         await resolveKnockouts();
         return;   // one item per turn
+    }
+}
+
+/** One accessory a turn, on the creature it helps most. */
+async function aiPlayAccessory(side) {
+    if (!AccessoryRegistry.sideCanAttach(side).ok) return;
+    const options = gameState[side].hand.filter(c => isAccessory(c.data) && AccessoryRegistry.canUse(c, side).ok);
+    if (options.length === 0) return;
+    const card = options[0];
+    await AccessoryRegistry.attach(card, side);
+    await Log.aiPause(side, 0.5);
+}
+
+/** Neutral Elixir: pull a creature about to be knocked out back to the hand. */
+async function aiUseElixirs(side) {
+    for (const card of creaturesInPlay(side)) {
+        if (!aiWantsElixir(card, side)) continue;
+        await AccessoryRegistry.activate(card, side);
+        assertRunning();
+        await Log.aiPause(side, 0.5);
     }
 }
 
@@ -250,7 +277,7 @@ function estimateMoveTacticalValue(move, side) {
     const defender = gameState[foeOf(side)].active;
     if (!attacker || !defender || !move.effect) return 0;
 
-    const missingHp = card => Math.max(0, (card.data.hp || 0) - remainingHp(card));
+    const missingHp = card => Math.max(0, maxHp(card) - remainingHp(card));
     const ownBench = gameState[side].bench.filter(Boolean);
     const foeBench = gameState[foeOf(side)].bench.filter(Boolean);
     const defenderHas = status => defender.status?.has(status);
@@ -312,8 +339,59 @@ function estimateMoveTacticalValue(move, side) {
         case 'overdriveSmash': case 'wingSlap': return -14;
         case 'tempestHold': return -5;
         case 'invincibleGambit': return -80;
+
+        // Temporal Rift
+        case 'destinedFate': return defender.status?.size ? 0 : 14;
+        case 'mistralVeil':
+            return /Stage [23]/.test(defender.data.stage) ? statusValue('flux', 12) : 0;
+        case 'tailNuzzle': return 12;                 // 50% of a lost attack
+        case 'cuddleStorm': return 5;
+        case 'cryoRoar': return 3;
+        case 'alloyClutch': return 6;
+        case 'mementoEcho': return 10;
+        case 'bloomshroud': return 10;
+        case 'oreLash': return 12;
+        case 'coreTangle': return 20;
+        case 'anchoredTerrain': return getCardType(defender.data) === 'Mechanic' ? 25 : 4;
+        case 'energyDrain': return defender.energy > 0 ? 14 : 0;
+        case 'violetVeil': return Math.min(maxHp(attacker), missingHp(attacker)) * 0.45;
+        case 'sweetHeal': return Math.min(10 * sweetCount(side), missingHp(attacker)) * 0.8;
+        case 'citrusBloom': case 'vitaminBurst': {
+            const amount = move.effect === 'citrusBloom' ? 10 : 20;
+            const best = Math.max(0, ...creaturesInPlay(side).map(missingHp));
+            return Math.min(amount, best) * 0.75;
+        }
+        case 'sweetSneak':
+            return foeBench.length ? Math.min(10 * sweetCount(side), Math.min(...foeBench.map(remainingHp))) * 0.4 : 0;
+        case 'tempestDive':
+            return foeBench.reduce((sum, card) => sum + Math.min(20, remainingHp(card)) * 0.45, 0);
+        case 'magnetarcNeedle': return gameState[foeOf(side)].hand.length ? 6 : 0;
+        case 'superRoar': return foeBench.length ? 5 : 0;
+        case 'stormsChance': return -Math.min(20, creaturesInPlay(side).reduce((s, c) => s + c.energy, 0) * 4) - 10;
         default: return 0;
     }
+}
+
+/**
+ * The damage a move would really deal after every bonus and shield, except
+ * Overload Guard itself. Read-only: runs the modifier table without spending
+ * single-use bonuses or logging.
+ */
+function aiProjectedDamage(move, side, baseDamage) {
+    const attacker = gameState[side].active;
+    const defender = gameState[foeOf(side)].active;
+    if (!attacker || !defender || !(baseDamage > 0)) return 0;
+    const ctx = makeContext(side, {
+        attacker, defender, move, damage: baseDamage,
+        attackerType: getCardType(attacker.data),
+        defenderType: getCardType(defender.data)
+    });
+    let damage = baseDamage;
+    for (const mod of DAMAGE_MODIFIERS) {
+        if (mod.id === 'overloadGuard' || !mod.test(ctx)) continue;
+        damage = Math.max(0, mod.apply(ctx, damage));
+    }
+    return damage;
 }
 
 /** Picks the best legal move, prioritising a real knockout over tactical value. */
@@ -329,7 +407,13 @@ function aiChooseMove(side) {
     const defenderHp = defender ? remainingHp(defender) : 0;
 
     const scored = legal.map(move => {
-        const damage = estimateMoveDamage(move, side);
+        let damage = estimateMoveDamage(move, side);
+        // Overload Guard (Ignivault): an attack that lands 50 or more does
+        // nothing, so a smaller hit is the better move.
+        if (defender && cardAbilityOn(defender, 'overloadGuard') &&
+            aiProjectedDamage(move, side, damage) >= 50) {
+            damage = 0;
+        }
         const tactical = estimateMoveTacticalValue(move, side);
         // A knockout is worth far more than any tactical upside.
         const lethal = defender && damage >= defenderHp;

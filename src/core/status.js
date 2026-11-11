@@ -78,6 +78,13 @@ const Status = {
             return false;
         }
 
+        // Bloomshroud (Wispetal): on tails, no status effects this turn.
+        if (typeof bloomshroudSafe === 'function' && bloomshroudSafe(card)) {
+            await Log.say(`${creatureName(card, targetSide)} is protected from ${condition.name} by Bloomshroud!`,
+                { kind: 'status', icon: '🌸' });
+            return false;
+        }
+
         // Hydration (always on, while active): no status conditions at all.
         if (cardAbilityOn(card, 'hydration')) {
             AbilityRegistry.noteTriggered('hydration');

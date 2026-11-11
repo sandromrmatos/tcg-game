@@ -372,7 +372,168 @@ const CARD_TEXT = {
     },
     "Galactic Adventures_86.png": {
         "move1": "Flip a coin. If heads, this move causes Flux. If tails, this move causes Lock."
+    },
+    // ---- Temporal Rift ----
+    "Temporal Rift_01.png": {
+        "move1": "This move does 20 damage for each Flakette, Canelette or Rollinette you have in play..."
+    },
+    "Temporal Rift_02.png": {
+        "move1": "This move heals this creature 10 HP for each Flakette, Canelette or Rollinette you have in play."
+    },
+    "Temporal Rift_03.png": {
+        "move1": "Deal 10 damage for each Flakette, Canelette or Rollinette you have in play to a random opponent's bench creature."
+    },
+    "Temporal Rift_05.png": {
+        "ability": "If this creature evolved this turn, draw a card."
+    },
+    "Temporal Rift_06.png": {
+        "ability": "If this creature evolved this turn, draw a card."
+    },
+    "Temporal Rift_07.png": {
+        "move1": "Flip a coin. If heads, your opponent can't attack next turn."
+    },
+    "Temporal Rift_08.png": {
+        "move1": "Flip a coin. If heads, your opponent's active creature has Lock. If tails, it has Hallucination.",
+        "move2": "If your opponent's creature has a status condition, this move does 30 extra damage.",
+        "ability": "Once during your turn, you may move one energy from a Vulpetta evolution to another one."
+    },
+    "Temporal Rift_09.png": {
+        "move1": "Flip 2 coins. This attack does 50 damage for each heads.",
+        "ability": "If active, choose a benched opponent creature and deal 10 damage per Vulpetta evolution you have in play."
+    },
+    "Temporal Rift_10.png": {
+        "ability": "When your turn ends, you may search your deck for a card that evolves from Vulpetta and add it to your hand."
+    },
+    "Temporal Rift_11.png": {
+        "ability": "Your active creature takes 10 less damage for each Vulpetta evolution you have in play."
+    },
+    "Temporal Rift_12.png": {
+        "ability": "Once per turn, you may heal 20 HP of a creature, but this creature loses 30 HP."
+    },
+    "Temporal Rift_13.png": {
+        "move1": "Flip 4 coins. This attack does 10 damage for each heads."
+    },
+    "Temporal Rift_15.png": {
+        "move1": "Flip 2 coins. If both are heads, your opponent chooses a card from their hand and discards it."
+    },
+    "Temporal Rift_16.png": {
+        "move1": "Flip a coin. If tails, discard all energy from your creatures. You can't use this move next turn."
+    },
+    "Temporal Rift_17.png": {
+        "move1": "Heal 10 HP from a creature of your choice."
+    },
+    "Temporal Rift_18.png": {
+        "move1": "Heal 20 HP from a creature of your choice."
+    },
+    "Temporal Rift_19.png": {
+        "move1": "This creature takes 20 less damage next turn."
+    },
+    "Temporal Rift_20.png": {
+        "move1": "This creature takes 40 less damage next turn.",
+        "move2": "Next turn, this creature can't be damaged by attacks from Mechanic creatures."
+    },
+    "Temporal Rift_21.png": {
+        "move1": "Your opponent's creature is now affected by Flux."
+    },
+    "Temporal Rift_22.png": {
+        "move1": "Your opponent's creature is now affected by Flux."
+    },
+    "Temporal Rift_23.png": {
+        "move1": "Your opponent's creature is now affected by Flux.",
+        "move2": "This attack does 70 damage if your opponent is affected by Flux."
+    },
+    "Temporal Rift_24.png": {
+        "move1": "Flip 2 coins. If both are heads, this attack does 10 damage."
+    },
+    "Temporal Rift_26.png": {
+        "move1": "Remove an energy attached to your opponent's active creature and attach it to this creature.",
+        "move2": "Flip a coin. If heads, heal all HP of this creature."
+    },
+    "Temporal Rift_28.png": {
+        "move1": "Next turn, your opponent can't use abilities."
+    },
+    "Temporal Rift_29.png": {
+        "move1": "Flip 2 coins. This attack deals 20 damage for each heads."
+    },
+    "Temporal Rift_30.png": {
+        "move1": "Flip 3 coins. This attack deals 20 damage for each heads.",
+        "move2": "This attack deals 20 damage to each of your opponent's creatures."
+    },
+    "Temporal Rift_33.png": {
+        "ability": "Flip a coin. If heads, switch your opponent's active creature with one of their benched creatures."
+    },
+    "Temporal Rift_34.png": {
+        "move1": "Flip a coin. If heads, your opponent can't evolve next turn."
+    },
+    "Temporal Rift_35.png": {
+        "move1": "Flip 2 coins. If both are heads, this attack does 50 extra damage.",
+        "ability": "This creature takes no damage from attacks that deal 50 or more damage..."
+    },
+    "Temporal Rift_36.png": {
+        "move1": "Flip a coin. If heads, your opponent can't use accessory cards next turn.",
+        "ability": "Your active creature takes 20 less damage from creatures with an \"A\" in their name."
+    },
+    "Temporal Rift_37.png": {
+        "move1": "Your opponent's creature has Hallucination."
+    },
+    "Temporal Rift_38.png": {
+        "move1": "If your opponent's creature has a status condition, do 40 extra damage."
+    },
+    "Temporal Rift_40.png": {
+        "ability": "Your active creature takes 20 less damage from creatures with an \"E\" in their name."
+    },
+    "Temporal Rift_42.png": {
+        "move1": "Your opponent can't use Accessory cards next turn."
+    },
+    "Temporal Rift_44.png": {
+        "move1": "Next turn, your opponent flips a coin. If tails, this creature takes no damage or status effects."
+    },
+    "Temporal Rift_46.png": {
+        "move1": "Heal a creature from your bench 10 HP",
+        "ability": "Once per turn, you may heal 50 HP of both active creatures."
+    },
+    "Temporal Rift_47.png": {
+        "move1": "This move does 10 extra damage for each evolution you made this game."
+    },
+    "Temporal Rift_49.png": {
+        "move2": "Remove 2 energy from this creature."
+    },
+    "Temporal Rift_51.png": {
+        "ability": "Allows you to change the type of this creature to any other type."
+    },
+    "Temporal Rift_54.png": {
+        "move1": "Flip a coin. If heads, your opponent switches their active creature.",
+        "move2": "Your opponent's active creature has Lock.",
+        "ability": "All type weaknesses are reversed."
+    },
+    "Temporal Rift_56.png": {
+        "move2": "If you used an attack with Dive in its name last turn, this move does 40 extra damage."
+    },
+    "Temporal Rift_58.png": {
+        "ability": "This creature takes half damage (rounded up) from attacks by creatures with fewer energy cards attached than it."
+    },
+    "Temporal Rift_59.png": {
+        "move1": "If your opponent's creature is a Stage 2 or 3, it now has Flux."
+    },
+    "Temporal Rift_60.png": {
+        "move1": "This move deals 30 extra damage if your opponent's creature is a Stage 2 or 3"
+    },
+    "Temporal Rift_61.png": {
+        "accessory": "Attach to a Mystic creature. This creature gains 10 extra HP and its attacks deal 10 additional damage."
+    },
+    "Temporal Rift_62.png": {
+        "accessory": "Attach to a Wind creature. This creature's retreat cost is reduced by one Energy..."
+    },
+    "Temporal Rift_63.png": {
+        "accessory": "Attach to a Celestial creature. This creature takes 10 less damage from attacks and heals 10 HP at the start of each turn."
+    },
+    "Temporal Rift_64.png": {
+        "accessory": "Attach to a Mechanic creature. If this creature has an ability, it takes 20 less damage from attacks."
+    },
+    "Temporal Rift_65.png": {
+        "accessory": "Attach to a Neutral creature. You can move it to your hand, recovering all its HP. Discard this card if you do."
     }
+
 };
 
 /** Rules text for one part of a card: "move1", "move2", "ability" or "item". */

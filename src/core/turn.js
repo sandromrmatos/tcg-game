@@ -53,6 +53,7 @@ function resetTurnBudget(side) {
     s.energyAttachedThisTurn = false;
     s.hasAttacked = false;
     s.itemUsedThisTurn = false;
+    s.accessoryUsedThisTurn = false;
     s.retreatedThisTurn = false;
     s.flags.fluxCheckDone = false;
     s.flags.fluxCheckPassed = false;
@@ -82,6 +83,10 @@ async function endTurn() {
     }
     if (steel.length) await resolveKnockouts();
     if (isGameOver()) return;
+
+    // Forest Kin (Florvulpa), always on: "When your turn ends, you may search
+    // your deck for a card that evolves from Vulpetta and add it to your hand."
+    await forestKinSearch(ending);
 
     // Turn limit is checked before handing over, so turn 30 is really the last.
     if (gameState.turnNumber >= MAX_TURNS) {
@@ -131,6 +136,13 @@ async function beginTurn() {
         }
     }
 
+    // Start-of-turn rules: Celestial Armor heals; a Bloomshroud the other
+    // side set up is flipped for now.
+    await accessoriesOnTurnStart(side);
+    await flipBloomshrouds(side);
+    await resolveKnockouts();
+    if (isGameOver()) return;
+
     await announceActiveRestrictions(side);
 
     Render.all();
@@ -154,8 +166,17 @@ async function announceActiveRestrictions(side) {
         );
     }
     if (Timing.active(s.flags.cantAttackUntil)) {
-        await Log.say(`${subject(side)} cannot attack this turn (Quick Reflexes).`,
+        await Log.say(`${subject(side)} cannot attack this turn.`,
             { kind: 'status', icon: '🚫', pace: 0.6 });
+    }
+    if (Timing.active(s.flags.cantEvolveUntil)) {
+        await Log.say(`${subject(side)} cannot evolve this turn (Cuddle Storm).`, { kind: 'status', icon: '🧸', pace: 0.6 });
+    }
+    if (Timing.active(s.flags.cantUseAccessoriesUntil)) {
+        await Log.say(`${subject(side)} cannot use accessory cards this turn.`, { kind: 'status', icon: '🧊', pace: 0.6 });
+    }
+    if (abilitiesBlocked(side)) {
+        await Log.say(`${subject(side)} cannot use abilities this turn (Memento Echo).`, { kind: 'status', icon: '🔇', pace: 0.6 });
     }
     if (Timing.active(s.flags.cantDealDamageUntil)) {
         await Log.say(`${subject(side)} will deal no damage this turn (Tidal Illusion).`,
@@ -169,6 +190,58 @@ async function announceActiveRestrictions(side) {
     if (s.active && Timing.active(s.active.flags.cantAttackUntil)) {
         await Log.say(`${creatureName(s.active, side)} cannot attack this turn (Wing Slap).`,
             { kind: 'status', icon: '💤', pace: 0.6 });
+    }
+}
+
+/** Forest Kin: once per turn end, take a Vulpetta evolution from the deck (optional). */
+async function forestKinSearch(side) {
+    const kin = creaturesWithAbility(side, 'forestKin')[0];
+    if (!kin) return;
+    const s = gameState[side];
+    const ids = [...new Set(s.deck.filter(id => {
+        const d = getCardData(id);
+        return d && isCreature(d) && d.prevStage === 'Vulpetta';
+    }))];
+    if (ids.length === 0) return;
+    const options = ids.map(id => makeCardInstance(id));
+    const index = await chooseCardOf(side, {
+        cards: options,
+        title: "Forest Kin: take a Vulpetta evolution from your deck?",
+        subtitle: 'It goes into your hand.',
+        cancellable: true,
+        cancelLabel: 'No thanks',
+        // The AI takes one it doesn't already hold.
+        aiPick: cards => {
+            const held = new Set(s.hand.map(c => c.id));
+            const fresh = cards.findIndex(c => !held.has(c.id));
+            return fresh === -1 ? 0 : fresh;
+        }
+    });
+    if (index === null || index === undefined || !options[index]) return;
+    const id = options[index].id;
+    s.deck.splice(s.deck.indexOf(id), 1);
+    s.hand.push(instanceFromDeck(side, id));
+    AbilityRegistry.noteTriggered('forestKin');
+    Render.all();
+    await Log.say(`${creatureName(kin, side)}'s Forest Kin: ${subject(side).toLowerCase()} ${verb(side, 'takes', 'take')} ` +
+        (side === 'player' ? getCardData(id).name : 'a Vulpetta evolution') + ' from the deck.',
+        { kind: 'ability', icon: '🦊', pace: 0.6 });
+}
+
+/** Bloomshroud: as this side's turn starts, it flips for each shrouded enemy creature. */
+async function flipBloomshrouds(side) {
+    for (const card of creaturesInPlay(foeOf(side))) {
+        if (card.flags.bloomshroudTurn !== gameState.turnNumber) continue;
+        card.flags.bloomshroudTurn = null;
+        const flip = Rng.flip();
+        await Log.coin(flip, `Bloomshroud on ${card.data.name}`);
+        if (flip === 'tails') {
+            card.flags.bloomshroudSafeTurn = gameState.turnNumber;
+            await Log.say(`${creatureName(card, foeOf(side))} can't be damaged or given status conditions this turn!`,
+                { kind: 'status', icon: '🌸' });
+        } else {
+            await Log.say('The petals scatter: Bloomshroud fails.', { kind: 'info', pace: 0.5 });
+        }
     }
 }
 

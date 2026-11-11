@@ -51,7 +51,7 @@ async function swapActiveWithBench(side, benchIndex, opts = {}) {
     if (!outgoing || !incoming) return;
 
     if (!opts.free) {
-        await discardEnergyFrom(outgoing, outgoing.data.retreat, { side, silent: true });
+        await discardEnergyFrom(outgoing, retreatCost(outgoing), { side, silent: true });
     }
 
     // Leaving the active slot always clears status conditions.
@@ -227,6 +227,11 @@ function canEvolveOnto(evolutionCard, targetCard) {
     if (turnTracker.evolvedThisTurn.has(targetCard.evolutionId)) {
         return { ok: false, reason: `${targetCard.data.name} has already evolved this turn.` };
     }
+    // Cuddle Storm: "your opponent can't evolve next turn".
+    const spot = locateCard(targetCard);
+    if (spot && Timing.active(gameState[spot.side].flags.cantEvolveUntil)) {
+        return { ok: false, reason: "You can't evolve this turn (Cuddle Storm)." };
+    }
     return { ok: true };
 }
 
@@ -283,9 +288,24 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
     // Recharge): the next attack is still the creature's next attack.
     evolution.flags.sproutBoostReady = target.flags.sproutBoostReady;
     evolution.flags.chillRecharge = target.flags.chillRecharge;
+    // The accessory stays on if the new form still has its type; otherwise
+    // it goes to the discard pile.
+    const accessory = target.accessory;
+    target.accessory = null;
 
     if (location === 'active') s.active = evolution;
     else s.bench[benchIndex] = evolution;
+
+    if (accessory) {
+        if (accessoryFits(accessory.data, evolution)) {
+            evolution.accessory = accessory;
+        } else {
+            s.discardPile.push(accessory);
+            await Log.say(`${accessory.data.name} falls off: ${evolution.data.name} is not ${accessory.data.accessoryType} type.`,
+                { kind: 'item', icon: '🧿', pace: 0.6 });
+        }
+    }
+    s.evolutionsMade = (s.evolutionsMade || 0) + 1;
 
     s.hand.splice(handIndex, 1);
     turnTracker.evolvedThisTurn.add(evolution.evolutionId);
@@ -299,6 +319,20 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
         `${creatureName(target, side)} evolved into ${evolution.data.name}!`,
         { kind: 'info', icon: '✨', side }
     );
+
+    // Looker Fate (Anukara, Anukalith), always on: "If this creature evolved
+    // this turn, draw a card."
+    if (cardAbilityOn(evolution, 'lookerFate')) {
+        AbilityRegistry.noteTriggered('lookerFate');
+        const drawn = drawCards(side, 1);
+        Render.all();
+        await Log.say(drawn
+            ? `${creatureName(evolution, side)}'s Looker Fate: ${subject(side).toLowerCase()} ${verb(side, 'draws', 'draw')} a card.`
+            : `${creatureName(evolution, side)}'s Looker Fate: the deck is empty.`,
+            { kind: 'ability', icon: '🎴', pace: 0.6 });
+    }
+    // Losing an accessory's extra HP can knock a creature out.
+    if (isFainted(evolution)) await resolveKnockouts();
     return true;
 }
 
