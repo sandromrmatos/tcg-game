@@ -211,6 +211,9 @@ Object.assign(Hub, {
     // -----------------------------------------------------------------------
 
     renderPuzzle() {
+        // Measured while the page still has its content.
+        const pageEl = document.getElementById('page-puzzle');
+        if (pageEl && pageEl.clientWidth) this._puzzleWidth = pageEl.clientWidth - 8;
         const host = this.pageHost('puzzle');
         const st = Profile.arcadeStatus('puzzle');
         this.stopArcadeTimer();
@@ -237,67 +240,101 @@ Object.assign(Hub, {
         host.appendChild(clock);
         this.arcade.timer = setInterval(() => { clock.textContent = arcadeClock(Date.now() - g.startedAt); }, 250);
 
-        // Tiles keep the card's 2:3 shape; the board fits the page width.
-        const width = Math.min(336, Math.max(240, (host.clientWidth || 340) - 24));
-        const tw = Math.floor(width / PUZZLE_SIZE), th = Math.floor(tw * 1.5);
-        // The pieces tray is drawn smaller, so the board and the pieces fit on a phone.
-        const tileStyle = (index, scale = 1) => {
-            const w = Math.floor(tw * scale), hgt = Math.floor(th * scale);
-            return {
-                width: `${w}px`, height: `${hgt}px`,
-                backgroundImage: `url("${encodeURI(game.image)}")`,
-                backgroundSize: `${w * PUZZLE_SIZE}px ${hgt * PUZZLE_SIZE}px`,
-                backgroundPosition: `-${(index % PUZZLE_SIZE) * w}px -${Math.floor(index / PUZZLE_SIZE) * hgt}px`
-            };
-        };
-        const TRAY = 0.7;
+        // The board and the pieces sit side by side, each half the page
+        // width, so a phone shows both at once. Tiles keep the card's 2:3 shape.
+        // The width is measured before anything is redrawn (pageHost empties
+        // the page, and measuring an empty page made it jump to the top).
+        if (!game.tw) {
+            const avail = Math.min(720, this._puzzleWidth || 340);
+            game.tw = Math.max(18, Math.floor((avail - 14) / 2 / PUZZLE_SIZE));
+            game.th = Math.floor(game.tw * 1.5);
+        }
+        const tw = game.tw, th = game.th;
+        const url = `url("${encodeURI(game.image)}")`;
+        const paint = (el, index) => Object.assign(el.style, {
+            backgroundImage: url,
+            backgroundSize: `${tw * PUZZLE_SIZE}px ${th * PUZZLE_SIZE}px`,
+            backgroundPosition: `-${(index % PUZZLE_SIZE) * tw}px -${Math.floor(index / PUZZLE_SIZE) * th}px`
+        });
+        const size = { width: `${tw}px`, height: `${th}px` };
         const gridStyle = { gridTemplateColumns: `repeat(${PUZZLE_SIZE}, ${tw}px)` };
-        const trayStyle = { gridTemplateColumns: `repeat(${PUZZLE_SIZE}, ${Math.floor(tw * TRAY)}px)` };
 
-        const preview = h('div', { class: 'puzzle-preview', style: { backgroundImage: `url("${encodeURI(game.image)}")` }, title: 'The finished picture' });
+        game.cells = [];
+        game.pieces = new Map();
         const board = h('div', { class: 'puzzle-grid puzzle-board', style: gridStyle });
         for (let i = 0; i < PUZZLE_SIZE * PUZZLE_SIZE; i++) {
-            const placed = game.placed.has(i);
-            board.appendChild(h('button', {
-                class: `puzzle-cell${placed ? ' placed' : ''}`, type: 'button', 'aria-label': `Spot ${i + 1}`,
-                style: placed ? tileStyle(i) : { width: `${tw}px`, height: `${th}px` },
+            const cell = h('button', {
+                class: 'puzzle-cell', type: 'button', 'aria-label': `Spot ${i + 1}`, style: size,
                 on: { click: () => this.puzzleTapCell(i) }
-            }));
+            });
+            if (game.placed.has(i)) { cell.classList.add('placed'); paint(cell, i); }
+            game.cells[i] = cell;
+            board.appendChild(cell);
         }
-        const tray = h('div', { class: 'puzzle-grid puzzle-tray', style: trayStyle });
+        const tray = h('div', { class: 'puzzle-grid puzzle-tray', style: gridStyle });
         for (const index of game.order) {
-            const used = game.placed.has(index);
-            tray.appendChild(h('button', {
-                class: `puzzle-piece${used ? ' used' : ''}${game.selected === index ? ' selected' : ''}`, type: 'button',
-                'aria-label': 'Puzzle piece', disabled: used,
-                style: used ? { width: `${Math.floor(tw * TRAY)}px`, height: `${Math.floor(th * TRAY)}px` } : tileStyle(index, TRAY),
+            const piece = h('button', {
+                class: 'puzzle-piece', type: 'button', 'aria-label': 'Puzzle piece', style: size,
                 on: { click: () => this.puzzleTapPiece(index) }
-            }));
+            });
+            paint(piece, index);
+            if (game.placed.has(index)) { piece.classList.add('used'); piece.disabled = true; }
+            if (game.selected === index) piece.classList.add('selected');
+            game.pieces.set(index, piece);
+            tray.appendChild(piece);
         }
-        host.appendChild(h('div', { class: 'puzzle-layout' }, preview, board,
-            h('p', { class: 'page-sub', text: `${game.placed.size} of ${PUZZLE_SIZE * PUZZLE_SIZE} pieces placed. Pieces:` }), tray));
+        game.paint = paint;
+        game.counter = h('p', { class: 'page-sub puzzle-count' });
+        this.puzzleCount();
+
+        const preview = h('div', { class: 'puzzle-preview', style: { backgroundImage: url }, title: 'The finished picture' });
+        host.appendChild(h('div', { class: 'puzzle-top' }, preview, game.counter));
+        host.appendChild(h('div', { class: 'puzzle-layout' },
+            h('div', { class: 'puzzle-col' }, h('p', { class: 'page-sub', text: 'Board' }), board),
+            h('div', { class: 'puzzle-col' }, h('p', { class: 'page-sub', text: 'Pieces' }), tray)));
+    },
+
+    puzzleCount() {
+        const game = this.arcade.puzzle;
+        if (game && game.counter) {
+            game.counter.textContent = `${game.placed.size} of ${PUZZLE_SIZE * PUZZLE_SIZE} placed. Tap a piece, then its spot on the board.`;
+        }
+    },
+
+    /** Taps change only the tiles involved, so the page never redraws or scrolls. */
+    puzzleSelect(index) {
+        const game = this.arcade.puzzle;
+        if (game.selected !== null && game.pieces.has(game.selected)) game.pieces.get(game.selected).classList.remove('selected');
+        game.selected = index;
+        if (index !== null && game.pieces.has(index)) game.pieces.get(index).classList.add('selected');
     },
 
     puzzleTapPiece(index) {
         const game = this.arcade.puzzle;
         if (!game || game.placed.has(index)) return;
-        game.selected = game.selected === index ? null : index;
-        this.renderPuzzle();
+        this.puzzleSelect(game.selected === index ? null : index);
     },
 
     puzzleTapCell(cell) {
         const game = this.arcade.puzzle;
         if (!game || game.selected === null || game.placed.has(cell)) return;
         // Only the right piece fits; a wrong spot just drops the selection.
-        if (game.selected === cell) game.placed.add(cell);
-        game.selected = null;
-        if (game.placed.size === PUZZLE_SIZE * PUZZLE_SIZE) {
-            this.finishArcadeGame('puzzle', {});
-            return;
+        if (game.selected === cell) {
+            game.placed.add(cell);
+            const el = game.cells[cell];
+            el.classList.add('placed');
+            game.paint(el, cell);
+            const piece = game.pieces.get(cell);
+            piece.classList.add('used');
+            piece.disabled = true;
+        } else {
+            game.cells[cell].classList.add('wrong');
+            setTimeout(() => game.cells[cell] && game.cells[cell].classList.remove('wrong'), 350);
         }
-        this.renderPuzzle();
+        this.puzzleSelect(null);
+        this.puzzleCount();
+        if (game.placed.size === PUZZLE_SIZE * PUZZLE_SIZE) this.finishArcadeGame('puzzle', {});
     },
-
     // -----------------------------------------------------------------------
     // Tetris (hard: starts at 500 ms a step, 20 ms faster per line, down to 100)
     // -----------------------------------------------------------------------
