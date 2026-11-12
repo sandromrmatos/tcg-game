@@ -569,9 +569,46 @@ const Persist = (() => {
 
         // ---------- manual backup ----------
 
-        download(data, filename = SAVE_FILENAME) {
+        /** True on iPhone / iPad (iPadOS reports itself as a Mac with a touch screen). */
+        isIOS() {
+            const ua = navigator.userAgent || '';
+            return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+        },
+
+        /**
+         * Saves a backup file. Must be called straight from a tap: the share
+         * sheet is only allowed during the tap itself.
+         *
+         * iOS ignores a link's `download` attribute in many cases (always in
+         * the home-screen app and inside the arcade's frame) and does so
+         * silently, so on iPhone/iPad the file goes through the share sheet,
+         * where "Save to Files" keeps it.
+         *
+         * @returns {Promise<'shared'|'downloaded'|'opened'|'cancelled'>}
+         */
+        async download(data, filename = SAVE_FILENAME) {
             const payload = Object.assign({}, data, { savedAt: Date.now() });
-            const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+            const text = JSON.stringify(payload, null, 2);
+
+            if (this.isIOS()) {
+                const file = typeof File === 'function' ? new File([text], filename, { type: 'application/json' }) : null;
+                if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({ files: [file], title: 'TCG backup' });
+                        return 'shared';
+                    } catch (err) {
+                        if (err && err.name === 'AbortError') return 'cancelled';
+                        console.warn('[persist] share failed', err);
+                    }
+                }
+                // Older iOS: show the file in a new tab, where it can be shared or saved.
+                const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+                const opened = window.open(url, '_blank');
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+                if (opened) return 'opened';
+            }
+
+            const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
@@ -579,6 +616,7 @@ const Persist = (() => {
             a.click();
             a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 4000);
+            return 'downloaded';
         },
 
         async importFile(file) {

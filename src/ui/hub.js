@@ -1517,15 +1517,19 @@ const Hub = {
 
         const fileInput = h('input', { type: 'file', accept: 'application/json,.json,text/plain,.txt', hidden: true, on: { change: e => this.importFile(e) } });
         card.appendChild(row(
-            h('button', { class: 'btn btn-primary', type: 'button', text: 'Download backup', on: { click: () => {
-                Persist.download(Profile.s);
-                this.toast('Backup downloaded', 'good');
+            h('button', { class: 'btn btn-primary', type: 'button', text: 'Download backup', on: { click: async () => {
+                const how = await Persist.download(Profile.s);
+                if (how === 'shared') this.toast('Backup saved', 'good');
+                else if (how === 'cancelled') this.toast('Backup not saved', 'warn');
+                else if (how === 'opened') this.toast('Backup opened in a new tab: use Share → Save to Files there', 'good');
+                else this.toast('Backup downloaded', 'good');
             } } }),
             h('button', { class: 'btn btn-ghost', type: 'button', text: 'Import backup…', on: { click: () => fileInput.click() } }),
             fileInput));
 
         card.appendChild(h('p', { class: 'page-sub', text:
             'On a phone: open the game, tap Download backup, and keep the file somewhere safe (Files / Downloads / cloud drive). ' +
+            'On an iPhone or iPad, Download backup opens the share menu: choose "Save to Files". ' +
             'To move progress, open the game on the other device and tap Import backup. Importing replaces the progress on that device.' }));
         if (st.supportsFS) {
             card.appendChild(h('p', { class: 'page-sub', text:
