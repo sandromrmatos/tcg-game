@@ -170,7 +170,8 @@ const Profile = {
             cardAch: {},                 // cardId -> per-card achievement counters
             cardAchClaimed: {},          // cardId -> { bronze, silver, gold } claimed-at timestamps
             fullArt: {},                 // cardId -> full-art copies owned (raid rewards)
-            raids: {}                    // bossId -> raid record (see raids.js)
+            raids: {},                   // bossId -> raid record (see raids.js)
+            daily: { date: null, modes: null, unclaimed: [] }   // today's challenges (see daily.js)
         };
     },
 
@@ -256,6 +257,7 @@ const Profile = {
             }
         }
         s.raids = Raids.sanitize(raw.raids);
+        s.daily = typeof Daily !== 'undefined' ? Daily.sanitize(raw.daily) : base.daily;
 
         s.unlockedSets = Object.assign({}, base.unlockedSets);
         if (raw.unlockedSets && typeof raw.unlockedSets === 'object') {
@@ -335,6 +337,9 @@ const Profile = {
                 opponent: String(am.opponent || 'AI'),
                 wentFirst: typeof am.wentFirst === 'boolean' ? am.wentFirst : null,
                 pvp: !!am.pvp,
+                daily: am.daily && typeof am.daily === 'object' && typeof DAILY_REWARDS !== 'undefined' && DAILY_REWARDS[am.daily.mode]
+                    ? { mode: am.daily.mode, date: String(am.daily.date || '') }
+                    : null,
                 raid: am.raid && typeof am.raid === 'object' && raidBossById(am.raid.bossId)
                     ? { bossId: am.raid.bossId, types: (Array.isArray(am.raid.types) ? am.raid.types : []).filter(t => RAID_TYPES.includes(t)) }
                     : null
@@ -444,6 +449,7 @@ const Profile = {
             const m = this.s.activeMatch;
             this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst, pvp: m.pvp });
             if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
+            if (m.daily) Daily.onResult(m.daily, 'loss', { forfeit: true });
             this.s.activeMatch = null;
             this.bootNotices.push(`Your last game (${m.deck} vs ${m.opponent}) was left unfinished, so it counted as a loss.`);
         }
@@ -1076,10 +1082,11 @@ const Profile = {
      * @param {object} [opts] { raid: { bossId, types } } for a raid game: the
      *   boss, and the types the player's deck counts for (raidQualifyingTypes)
      */
-    startMatch(deckName, opponentName, { raid = null, pvp = false } = {}) {
+    startMatch(deckName, opponentName, { raid = null, pvp = false, daily = null } = {}) {
         this.s.activeMatch = {
             startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null,
             pvp: !!pvp,
+            daily: daily ? { mode: daily.mode, date: daily.date } : null,
             raid: raid ? { bossId: raid.bossId, types: (raid.types || []).slice() } : null
         };
         // Immediate: closing the page mid-game must still count as a loss.
@@ -1135,6 +1142,11 @@ const Profile = {
             if (raid.lines.length) reward.message += '\n' + raid.lines.join('\n');
             reward.raid = raid;
         }
+        if (m.daily) {
+            const daily = Daily.onResult(m.daily, result);
+            if (daily.lines.length) reward.message += '\n' + daily.lines.join('\n');
+            reward.daily = daily;
+        }
         this.touch('match-end', { immediate: true });
         return reward;
     },
@@ -1146,6 +1158,7 @@ const Profile = {
         this.s.activeMatch = null;
         this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst, pvp: m.pvp });
         if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
+        if (m.daily) Daily.onResult(m.daily, 'loss', { forfeit: true });
         if (report && !m.pvp) this.recordCardAchievements(Object.assign({}, report, { won: false, survivors: [] }));
         this.touch('match-end', { immediate: true });
     },

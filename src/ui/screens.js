@@ -544,6 +544,45 @@ const Screens = {
         Log.write(`🐉 Raid boss battle: ${boss.card.name}!`, { kind: 'turn', icon: '🐉' });
     },
 
+    /**
+     * Starts a daily challenge game: one of the player's decks that follows
+     * the mode's rules, against the mode's deck for today. Recorded at once,
+     * so leaving it counts as a loss (and resets that mode's streak).
+     */
+    async startDaily(modeId, index) {
+        if (typeof Daily === 'undefined' || typeof Profile === 'undefined' || !Profile.s) return;
+        const mode = Daily.mode(modeId);
+        const day = Daily.today();
+        const st = mode && day.modes[mode.id];
+        const deck = DeckLibrary.get(index);
+        if (!st || !st.deck || !deck || deck.type !== 'custom') return;
+        if (st.done) {
+            Log.warn(`You've already completed today's ${mode.name} challenge.`);
+            return;
+        }
+        const problem = this._deckProblem(deck);
+        if (problem) {
+            Log.warn(`That deck can't be played: ${problem}`);
+            return;
+        }
+        const broken = Daily.violations(mode.id, deck.cards);
+        if (broken.length) {
+            Log.warn(`"${deck.name}" breaks today's ${mode.name} rules. ${broken[0]}`);
+            return;
+        }
+        if (!(await this._confirmNoWinCredit('The daily challenge still counts.'))) return;
+
+        gameState.player.selectedDeck = index;
+        gameState.opponent.selectedDeck = DeckLibrary.setRaidDeck(Object.assign({}, st.deck, { fullArt: {} }));
+        Profile.startMatch(deck.name, st.deck.name, { daily: { mode: mode.id, date: day.date } });
+        this.returnPage = 'daily';
+        this.beginGame();
+        const leader = st.deck.leader && getCardData(st.deck.leader);
+        Log.write(`📅 ${mode.name} daily challenge${leader ? `: a ${st.deck.mainType} deck led by ${leader.name}` : ''}. ` +
+            `Win ${mode.wins === 1 ? 'once' : `${mode.wins} in a row (${st.streak}/${mode.wins} so far)`}.`,
+            { kind: 'turn', icon: '📅' });
+    },
+
     /** "Leave game": a running real match counts as a loss, so confirm first. */
     async requestLeaveGame() {
         const running = gameState.phase !== 'gameOver'

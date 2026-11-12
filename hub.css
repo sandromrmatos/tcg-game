@@ -941,3 +941,30 @@
 @media (prefers-reduced-motion: reduce) {
     .pvp-clock-low { animation: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Daily Challenges
+   -------------------------------------------------------------------------- */
+
+.daily-list { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.daily-card { display: flex; flex-direction: column; gap: 10px; border-top: 4px solid var(--daily-color, #888); }
+.daily-easy { --daily-color: #5fd38d; }
+.daily-medium { --daily-color: #f0a142; }
+.daily-hard { --daily-color: #ff6b6b; }
+.daily-done { opacity: 0.75; }
+.daily-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.daily-head h3 { margin: 0; }
+.daily-target { font-size: 12px; color: var(--text-dim); }
+.daily-body { display: flex; gap: 12px; align-items: flex-start; }
+.daily-art { width: 84px; flex: 0 0 auto; border-radius: 8px; }
+.daily-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.daily-info p { margin: 0; }
+.daily-opponent { font-weight: 600; }
+.daily-rules-title { font-size: 12px; color: var(--text-dim); margin-top: 4px !important; }
+.daily-rules { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.daily-status { font-weight: 700; color: var(--gold); }
+.daily-status.done { color: #7bf0b6; }
+.daily-broken { margin: 4px 0 0; padding-left: 18px; color: #ffd9a8; font-size: 13px; width: 100%; }
+.daily-claims { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.daily-claims .section-title { margin: 0; }
+.daily-claim-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }

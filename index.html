@@ -73,6 +73,7 @@
         <section id="page-missions" class="hub-page"></section>
         <section id="page-achievements" class="hub-page"></section>
         <section id="page-raids" class="hub-page"></section>
+        <section id="page-daily" class="hub-page"></section>
         <section id="page-minigames" class="hub-page"></section>
         <section id="page-wheel" class="hub-page"></section>
         <section id="page-guess" class="hub-page"></section>
@@ -514,6 +515,7 @@
                     <li><strong>🛒 Store</strong>: buy any specific card with gems.</li>
                     <li><strong>📋 Missions</strong>: objectives that pay credits and gems.</li>
                     <li><strong>🏅 Achievements</strong>: tasks for every single card, with credits, gems and promo cards as rewards.</li>
+                    <li><strong>📅 Daily Challenges</strong>: three challenges a day (Easy, Medium, Hard) with deck rules to follow, for credits and cards.</li>
                     <li><strong>🐉 Raid Bosses</strong>: beat a boss deck to win the full-art version of its card.</li>
                     <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, each free once a day for credits and gems. Each game shows whether you've played it today and what you earned.</li>
                     <li><strong>📈 Collection</strong>: your progress through each set.</li>
@@ -539,6 +541,16 @@
                     <li>Whoever goes first doesn't draw and can't attack on turn 1. Your Stats show your win rate going first and going second.</li>
                     <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>. If your credits are full when you start, a win earns nothing, and the game warns you first.</li>
                     <li>Leaving a game before it ends, or closing the page mid-game, counts as a loss.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>📅 Daily Challenges</summary>
+                <ul>
+                    <li>Every day at midnight three new challenges appear: <strong>Easy</strong>, <strong>Medium</strong> and <strong>Hard</strong>. Each has its own AI deck, built from strong cards of the sets you have unlocked, and the same deck all day.</li>
+                    <li>Each challenge has rules for your deck, picked at random for the day: for example no cards of a type, no items, only cards from one set, only creatures that evolve, only 1 copy of each card. Easy has 1 rule, Medium 2 and Hard 3 tougher ones. The rules always leave a deck you can build from your own cards.</li>
+                    <li>Easy needs 1 win. Medium needs 2 wins in a row and Hard 3 in a row; losing, drawing or leaving resets the streak.</li>
+                    <li>Rewards: Easy 🪙 1 credit. Medium 🪙 1 credit and a card (Uncommon or better) from a random unlocked set. Hard 🪙 2 credits, a 50% chance of 💜 1 gem and a card (Uncommon or better) from the set you choose.</li>
+                    <li>Rewards wait on the page until you claim them; the credits need room under the 12-credit cap. Challenge wins also count as normal wins, including the daily win credits.</li>
                 </ul>
             </details>
             <details>
@@ -661,6 +673,7 @@
 <script src="src/meta/profile.js"></script>
 <script src="src/meta/missions.js"></script>
 <script src="src/meta/raids.js"></script>
+<script src="src/meta/daily.js"></script>
 
 <!-- ui surfaces the core logs and prompts through -->
 <script src="src/ui/log.js"></script>

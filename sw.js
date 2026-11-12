@@ -52,6 +52,7 @@ const CORE = [
     'src/meta/profile.js',
     'src/meta/missions.js',
     'src/meta/raids.js',
+    'src/meta/daily.js',
     'src/ui/log.js',
     'src/ui/prompt.js',
     'src/core/status.js',

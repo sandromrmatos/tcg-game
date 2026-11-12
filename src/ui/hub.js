@@ -84,6 +84,7 @@ const Hub = {
         { id: 'missions',   label: '📋 Missions' },
         { id: 'achievements', label: '🏅 Achievements' },
         { id: 'raids',      label: '🐉 Raid Bosses' },
+        { id: 'daily',      label: '📅 Daily Challenges' },
         { id: 'minigames',  label: '🎮 Mini-games' },
         // The games themselves open from the Mini-games page, not the tab bar.
         { id: 'wheel',      label: '🎡 Spin the Wheel',   parent: 'minigames' },
@@ -192,6 +193,7 @@ const Hub = {
         setBadge('missions', Missions.claimableCount());
         setBadge('achievements', CardAchievements.claimableCount());
         setBadge('raids', Raids.pendingCount());
+        setBadge('daily', Daily.claimableCount());
         setBadge('minigames', this.minigameList().filter(g => g.status.canPlay || g.status.active).length);
     },
 
@@ -338,6 +340,7 @@ const Hub = {
             missions: () => this.renderMissions(),
             achievements: () => this.renderAchievements(),
             raids: () => this.renderRaids(),
+            daily: () => this.renderDaily(),
             minigames: () => this.renderMinigames(),
             wheel: () => this.renderWheel(),
             guess: () => this.renderGuess(),
@@ -794,6 +797,161 @@ const Hub = {
                     controls)));
         }
         host.appendChild(list);
+    },
+
+    // -----------------------------------------------------------------------
+    // Daily Challenges: three modes a day, each with deck rules and a target
+    // of wins in a row against the same AI deck. Rules in daily.js.
+    // -----------------------------------------------------------------------
+
+    dailyChoice: {},
+
+    renderDaily(error = '') {
+        const host = this.pageHost('daily');
+        const day = Daily.today();
+        const now = new Date();
+        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        const mins = Math.max(1, Math.round((midnight - now) / 60000));
+        const resetIn = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+
+        host.appendChild(this.pageTitle('📅 Daily Challenges',
+            `Three new challenges every day (next in ${resetIn}). Build a deck that follows the challenge's rules and beat its AI deck. ` +
+            'The rules and the AI decks stay the same all day, however many times you play.'));
+        host.appendChild(h('ul', { class: 'raid-rules' },
+            h('li', { text: 'Easy: 1 rule, win once. Medium: 2 rules, win 2 games in a row. Hard: 3 tougher rules, win 3 games in a row.' }),
+            h('li', { text: 'Losing, drawing or leaving a game resets that challenge\'s streak. Each challenge can be completed once a day.' }),
+            h('li', { text: `Challenge wins also count as normal wins, including your daily win credits (up to ${WIN_CREDITS_PER_DAY} a day).` })));
+        if (error) host.appendChild(this.notice(error, 'bad'));
+
+        // Rewards waiting
+        if (day.unclaimed.length) {
+            const box = h('div', { class: 'panel daily-claims' }, h('h3', { class: 'section-title', text: '🎁 Rewards to claim' }));
+            day.unclaimed.forEach((entry, index) => {
+                const mode = Daily.mode(entry.mode);
+                box.appendChild(h('div', { class: 'daily-claim-row' },
+                    h('span', { text: `${mode.icon} ${mode.name}${entry.date !== day.date ? ` (${entry.date})` : ''}: ${Daily.rewardText(mode.id)}` }),
+                    h('button', { class: 'btn btn-primary', type: 'button', text: 'Claim', on: { click: () => this.claimDaily(index) } })));
+            });
+            host.appendChild(box);
+        }
+
+        DeckLibrary.load();
+        const decks = DeckLibrary.playerDecks()
+            .map(d => ({ deck: d, index: DeckLibrary.indexOf(d), problem: Screens._deckProblem(d) }))
+            .filter(d => !d.problem);
+
+        const list = h('div', { class: 'daily-list' });
+        for (const mode of DAILY_MODES) {
+            const st = day.modes[mode.id];
+            const leader = st.deck && st.deck.leader ? getCardData(st.deck.leader) : null;
+
+            const rules = h('ul', { class: 'daily-rules' });
+            if (!st.restrictions.length) rules.appendChild(h('li', { text: 'No rules today: any of your decks can play.' }));
+            for (const r of st.restrictions) rules.appendChild(h('li', { text: `🚫 ${Daily.describe(r)}` }));
+
+            const progress = st.done
+                ? h('p', { class: 'daily-status done', text: '✓ Completed today' })
+                : h('p', { class: 'daily-status', text: mode.wins === 1
+                    ? 'Win 1 game to complete it.'
+                    : `Wins in a row: ${st.streak}/${mode.wins}` });
+
+            const controls = h('div', { class: 'raid-controls' });
+            if (st.done) {
+                controls.appendChild(this.notice('Come back tomorrow for a new challenge.'));
+            } else if (!st.deck) {
+                controls.appendChild(this.notice("Today's AI deck couldn't be built.", 'bad'));
+            } else if (!decks.length) {
+                controls.appendChild(this.notice('Build a deck on the Play tab to take on this challenge.'));
+            } else {
+                const rated = decks.map(d => Object.assign({}, d, { broken: Daily.violations(mode.id, d.deck.cards) }));
+                const fits = rated.filter(d => !d.broken.length);
+                let chosen = this.dailyChoice[mode.id];
+                if (!rated.some(d => d.deck.name === chosen)) chosen = (fits[0] || rated[0]).deck.name;
+                this.dailyChoice[mode.id] = chosen;
+                const select = h('select', {
+                    class: 'raid-deck-select', 'aria-label': `Deck for the ${mode.name} challenge`,
+                    on: { change: e => { this.dailyChoice[mode.id] = e.target.value; this.renderDaily(); } }
+                });
+                for (const d of fits.concat(rated.filter(x => x.broken.length))) {
+                    select.appendChild(h('option', {
+                        value: d.deck.name, selected: d.deck.name === chosen,
+                        text: `${d.broken.length ? '✗' : '✓'} ${d.deck.name}${d.broken.length ? ' (breaks the rules)' : ''}`
+                    }));
+                }
+                const pick = rated.find(d => d.deck.name === chosen);
+                controls.appendChild(select);
+                controls.appendChild(h('button', {
+                    class: 'btn btn-primary', type: 'button', text: '⚔️ Challenge', disabled: pick.broken.length > 0,
+                    on: { click: () => Screens.startDaily(mode.id, pick.index) }
+                }));
+                if (pick.broken.length) {
+                    controls.appendChild(h('ul', { class: 'daily-broken' }, pick.broken.map(b => h('li', { text: b }))));
+                }
+                if (!fits.length) {
+                    controls.appendChild(this.notice('None of your decks follow these rules yet. Build one in the deck builder: your cards can make one.'));
+                    controls.appendChild(h('button', { class: 'btn btn-ghost', type: 'button', text: 'Build a deck', on: { click: () => DeckBuilder.open() } }));
+                }
+            }
+
+            const art = leader ? h('img', { class: 'daily-art', src: cardImage(leader.id), alt: leader.name, loading: 'lazy' }) : null;
+            if (art) CardZoom.bind(art, leader.id);
+
+            list.appendChild(h('div', { class: `panel daily-card daily-${mode.id} ${st.done ? 'daily-done' : ''}` },
+                h('div', { class: 'daily-head' },
+                    h('h3', { text: `${mode.icon} ${mode.name}` }),
+                    h('span', { class: 'daily-target', text: mode.wins === 1 ? '1 win' : `${mode.wins} wins in a row` })),
+                h('div', { class: 'daily-body' },
+                    art,
+                    h('div', { class: 'daily-info' },
+                        h('p', { class: 'daily-opponent', text: st.deck
+                            ? `Opponent: a ${st.deck.mainType} deck${leader ? ` led by ${leader.name}` : ''}`
+                            : 'Opponent: unavailable' }),
+                        h('p', { class: 'daily-rules-title', text: 'Your deck must follow:' }),
+                        rules,
+                        h('p', { class: 'raid-reward', text: `Reward: ${Daily.rewardText(mode.id)}` }),
+                        progress,
+                        h('p', { class: 'raid-record', text: `Today: ${st.won} won of ${st.played} played · best streak ${st.bestStreak}` }))),
+                controls));
+        }
+        host.appendChild(list);
+    },
+
+    async claimDaily(index) {
+        const day = Daily.today();
+        const entry = day.unclaimed[index];
+        if (!entry) return;
+        let setId = null;
+        if (DAILY_REWARDS[entry.mode].card === 'choose') {
+            const sets = Profile.unlockedSets();
+            if (sets.length === 1) {
+                setId = sets[0].id;
+            } else {
+                const answer = await this.dialog({
+                    title: '🎁 Choose a set for your card',
+                    message: 'You get one random card from the set you pick, Uncommon or better: 🔵 Uncommon 62% · ⭐ Rare 29% · 💎 Epic 9%.',
+                    buttons: [{ label: 'Cancel', value: false }].concat(sets.map(s => ({ label: s.name, value: s.id, kind: 'primary' })))
+                });
+                if (!answer || !answer.value) return;
+                setId = answer.value;
+            }
+        }
+        const res = Daily.claim(index, { setId });
+        if (res.error) { this.renderDaily(res.error); return; }
+        const r = res.reward;
+        this.renderHeader();
+        this.renderDaily();
+        const extras = `🪙 +${r.credits}${r.gems ? ' and 💜 +1 gem' : ''}`;
+        if (r.card) {
+            const rarity = Collection.rarity(r.card.rarity);
+            await this.dialog({
+                title: `🎉 ${r.isNew ? 'New card!' : 'Daily reward!'}`,
+                message: `${extras}, plus ${r.card.name} · ${rarity.icon} ${rarity.name}. You now own ${r.quantity}.`,
+                image: cardImage(r.card.id),
+                buttons: [{ label: 'Awesome!', value: true, kind: 'primary' }]
+            });
+        } else {
+            this.toast(`Claimed ${extras}`, 'gold');
+        }
     },
 
     // -----------------------------------------------------------------------
