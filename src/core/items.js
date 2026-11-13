@@ -196,8 +196,9 @@ ItemRegistry.register('booster', {
         await ctx.say(`${possessive(ctx.side)} next attack deals +20 damage.`,
             { kind: 'item', icon: '⬆️' });
     },
-    // Pointless unless it can actually attack this turn.
-    aiWants: ctx => sideWillAttackThisTurn(ctx.side)
+    // Only when this turn's attack really deals the extra damage (ai.js).
+    late: true,
+    aiWants: ctx => !ctx.me.flags.booster && aiBoostPaysOff(ctx.side, { bonus: 20 })
 });
 
 ItemRegistry.register('powerUp', {
@@ -206,7 +207,8 @@ ItemRegistry.register('powerUp', {
         await ctx.say(`${possessive(ctx.side)} next 3 attacks deal +10 damage.`,
             { kind: 'item', icon: '⬆️' });
     },
-    aiWants: ctx => ctx.me.flags.powerUpAttacks === 0 && sideWillAttackThisTurn(ctx.side)
+    late: true,
+    aiWants: ctx => ctx.me.flags.powerUpAttacks === 0 && aiBoostPaysOff(ctx.side, { bonus: 10 })
 });
 
 ItemRegistry.register('remedy', {
@@ -351,9 +353,12 @@ ItemRegistry.register('amulet', {
             { kind: 'item', icon: '⬆️' }
         );
     },
+    // Only when the active creature is Neutral and its attack this turn
+    // really deals the extra 20 (not a Mystic active with a Neutral benched).
+    late: true,
     aiWants(ctx) {
         if (Timing.active(ctx.me.flags.amuletUntil)) return false;
-        return creaturesInPlay(ctx.side).some(c => getCardType(c.data) === 'Neutral');
+        return aiBoostPaysOff(ctx.side, { bonus: 20, neutralOnly: true });
     }
 });
 
@@ -365,13 +370,18 @@ ItemRegistry.register('galeShield', {
             { kind: 'item', icon: '🛡️' }
         );
     },
-    aiWants: ctx => creaturesInPlay(ctx.side).some(c => getCardType(c.data) === 'Wind')
+    // The active creature is the one that gets hit, so it should be Wind.
+    aiWants: ctx => !!ctx.me.active && getCardType(ctx.me.active.data) === 'Wind'
 });
 
 // Searches the DECK, which holds card ids. The original filtered the deck as if
 // it held card instances, so this item always failed and wasted the turn.
 ItemRegistry.register('mysticScroll', {
     endsTurn: true,
+    // It ends the turn, so the AI plays it last, and only on a turn it
+    // couldn't attack anyway.
+    late: true,
+    aiWants: ctx => !sideWillAttackThisTurn(ctx.side),
     requires(ctx) {
         if (findMysticStage1InDeck(ctx.side) === -1) {
             return { ok: false, reason: 'No Mystic Stage 1 creature left in your deck.' };

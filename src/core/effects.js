@@ -897,7 +897,8 @@ EffectRegistry.register('forcefulFlip', {
             aiPick: candidates => healthiestAttacker(candidates)
         });
         if (!choice) return;
-        await swapActiveWithBench(ctx.foe, choice.index);
+        // A forced switch, not a retreat: the creature keeps all its energy.
+        await swapActiveWithBench(ctx.foe, choice.index, { free: true });
     }
 });
 

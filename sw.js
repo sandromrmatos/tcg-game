@@ -55,6 +55,7 @@ const CORE = [
     'src/meta/daily.js',
     'src/ui/log.js',
     'src/ui/prompt.js',
+    'src/ui/sfx.js',
     'src/core/status.js',
     'src/core/heal.js',
     'src/core/damage.js',

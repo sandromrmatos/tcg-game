@@ -145,6 +145,30 @@ const DAILY_RESTRICTIONS = {
         label: () => 'No creatures with an ability',
         allows: (r, c) => !isCreature(c) || !c.abilityName
     },
+    noMoveEffects: {
+        group: 'effects',
+        label: () => 'No creatures with a move that has an effect (only plain damage moves)',
+        allows: (r, c) => !isCreature(c) || !movesOf(c).some(m => m.effect)
+    },
+    minRarity: {
+        group: 'rarity',
+        label: r => `At least ${r.count} ${Collection.rarity(r.rarity).name} cards`,
+        deckCheck: (r, ids) => {
+            const n = ids.filter(id => (getCardData(id) || {}).rarity === r.rarity).length;
+            return n < r.count ? `The deck has ${n}.` : null;
+        },
+        make: (ctx, rng, tier) => {
+            // Rarer cards ask for fewer copies; Hard asks for more than Medium.
+            const options = { 2: [5, 8], 3: [3, 5], 4: [2, 3] };
+            const rarities = [2, 3, 4].filter(r => (ctx.copiesByRarity[r] || 0) >= options[r][0]);
+            if (!rarities.length) return null;
+            const rarity = rng.pick(rarities);
+            const [low, high] = options[rarity];
+            const count = tier === 'hard' ? high : low + rng.int(high - low);
+            if ((ctx.copiesByRarity[rarity] || 0) < count) return null;
+            return { rarity, count };
+        }
+    },
     singleton: {
         group: 'copies',
         label: () => 'Only 1 copy of each card',
@@ -159,9 +183,9 @@ const DAILY_RESTRICTIONS = {
 /** Which restrictions each mode draws from. Medium and Hard need at least `core` from their own list. */
 const DAILY_POOLS = {
     easy:   { own: ['noStage3', 'noType', 'noAccessories', 'noEpic', 'maxItems'], core: 1 },
-    medium: { own: ['noItems', 'noType', 'onlySet', 'noAbilities', 'evolvingOnly', 'nonEvolvingOnly'],
+    medium: { own: ['noItems', 'noType', 'onlySet', 'noAbilities', 'evolvingOnly', 'nonEvolvingOnly', 'noMoveEffects', 'minRarity'],
               extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems'], core: 1 },
-    hard:   { own: ['noType', 'commonUncommon', 'singleton', 'onlySet', 'noItems', 'evolvingOnly', 'nonEvolvingOnly', 'noAbilities'],
+    hard:   { own: ['noType', 'commonUncommon', 'singleton', 'onlySet', 'noItems', 'evolvingOnly', 'nonEvolvingOnly', 'noAbilities', 'noMoveEffects', 'minRarity'],
               extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems'], core: 2 }
 };
 
@@ -200,11 +224,15 @@ const Daily = {
             accessoriesOpen: cardDatabase.some(c => isAccessory(c) && sets.includes(c.set)),
             ownedTypes: [],
             ownsStage3: false,
-            ownsRarity: { 1: 0, 2: 0, 3: 0, 4: 0 }
+            ownsRarity: { 1: 0, 2: 0, 3: 0, 4: 0 },
+            copiesByRarity: { 1: 0, 2: 0, 3: 0, 4: 0 }   // usable copies (up to 2 each) in unlocked sets
         };
         const types = new Set();
         for (const card of cardDatabase) {
             if (this._copies(card.id) <= 0) continue;
+            if (sets.includes(card.set) && ctx.copiesByRarity[card.rarity] !== undefined) {
+                ctx.copiesByRarity[card.rarity] += Math.min(MAX_COPIES, this._copies(card.id));
+            }
             if (isCreature(card)) types.add(getCardType(card));
             if (card.stage === 'Stage 3') ctx.ownsStage3 = true;
             if (ctx.ownsRarity[card.rarity] !== undefined) ctx.ownsRarity[card.rarity]++;
@@ -276,7 +304,8 @@ const Daily = {
         });
         const single = restrictions.some(r => r.id === 'singleton');
         const itemCap = restrictions.some(r => r.id === 'maxItems') ? DAILY_MAX_ITEMS : Infinity;
-        let total = 0, items = 0, stage1 = false;
+        const need = restrictions.find(r => r.id === 'minRarity');
+        let total = 0, items = 0, stage1 = false, rareCreatures = 0, rareItems = 0;
         for (const card of cardDatabase) {
             const owned = this._copies(card.id);
             if (owned <= 0 || !Profile.isSetUnlocked(card.set) || !allowed(card)) continue;
@@ -284,7 +313,12 @@ const Daily = {
             if (isItem(card)) items += n;
             else total += n;
             if (card.stage === 'Stage 1') stage1 = true;
+            if (need && card.rarity === need.rarity) {
+                if (isItem(card)) rareItems += n;
+                else rareCreatures += n;
+            }
         }
+        if (need && rareCreatures + Math.min(rareItems, itemCap) < need.count) return false;
         return stage1 && total + Math.min(items, itemCap) >= DECK_SIZE;
     },
 

@@ -188,6 +188,7 @@
         <aside class="log-column">
             <header class="log-header">
                 <h2>Battle log</h2>
+                <button id="sfx-btn" class="btn btn-ghost btn-sm sfx-btn" type="button" aria-pressed="true" aria-label="Turn battle sounds off">🔊</button>
                 <label class="speed-control">
                     Pace
                     <select id="speed-select">
@@ -547,7 +548,7 @@
                 <summary>📅 Daily Challenges</summary>
                 <ul>
                     <li>Every day at midnight three new challenges appear: <strong>Easy</strong>, <strong>Medium</strong> and <strong>Hard</strong>. Each has its own AI deck, built from strong cards of the sets you have unlocked, and the same deck all day.</li>
-                    <li>Each challenge has rules for your deck, picked at random for the day: for example no cards of a type, no items, only cards from one set, only creatures that evolve, only 1 copy of each card. Easy has 1 rule, Medium 2 and Hard 3 tougher ones. The rules always leave a deck you can build from your own cards.</li>
+                    <li>Each challenge has rules for your deck, picked at random for the day: for example no cards of a type, no items, only cards from one set, only creatures that evolve, no creatures with move effects, at least a number of cards of one rarity, only 1 copy of each card. Easy has 1 rule, Medium 2 and Hard 3 tougher ones. The rules always leave a deck you can build from your own cards.</li>
                     <li>Easy needs 1 win. Medium needs 2 wins in a row and Hard 3 in a row; losing, drawing or leaving resets the streak.</li>
                     <li>Rewards: Easy 🪙 1 credit. Medium 🪙 1 credit and a card (Uncommon or better) from a random unlocked set. Hard 🪙 2 credits, a 50% chance of 💜 1 gem and a card (Uncommon or better) from the set you choose.</li>
                     <li>Rewards wait on the page until you claim them; the credits need room under the 12-credit cap. Challenge wins also count as normal wins, including the daily win credits.</li>
@@ -678,6 +679,7 @@
 <!-- ui surfaces the core logs and prompts through -->
 <script src="src/ui/log.js"></script>
 <script src="src/ui/prompt.js"></script>
+<script src="src/ui/sfx.js"></script>
 
 <!-- rules -->
 <script src="src/core/status.js"></script>

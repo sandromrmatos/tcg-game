@@ -12,6 +12,7 @@ async function bootstrap() {
 
     // 2. UI surfaces.
     Log.init();
+    if (typeof Sfx !== 'undefined') Sfx.init();
     Showcase.init();
     Prompt.init();
     CardZoom.init();

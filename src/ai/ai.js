@@ -62,6 +62,9 @@ async function runAiTurn(side = 'opponent') {
         await aiUseAbilities(side);
         assertRunning();
 
+        await aiPlayBoostItem(side);
+        assertRunning();
+
         await Log.aiPause(side, 0.8);
         await aiAttackOrPass(side);
     } catch (err) {
@@ -114,6 +117,9 @@ async function aiPlayItem(side) {
 
     const items = gameState[side].hand.filter(c => isItem(c.data));
     for (const card of items) {
+        // Damage boosts wait for aiPlayBoostItem, just before the attack.
+        const def = ItemRegistry.get(card.data.itemEffect);
+        if (def && def.late) continue;
         if (!ItemRegistry.aiWants(card, side)) continue;
         await ItemRegistry.use(card, side, gameState[side].hand.indexOf(card));
         await resolveKnockouts();
@@ -373,6 +379,47 @@ function estimateMoveTacticalValue(move, side) {
 }
 
 /**
+ * Would a damage-boosting item change THIS turn's attack? True only when the
+ * side can attack now, the move it will use deals damage, the boost applies
+ * to the active creature (Amulet: Neutral only), and the extra damage isn't
+ * cancelled (Tidal Illusion, Bloomshroud...) or wasted into Overload Guard.
+ * Read-only.
+ * @param {object} o { bonus, neutralOnly }
+ */
+function aiBoostPaysOff(side, { bonus, neutralOnly = false }) {
+    if (!sideWillAttackThisTurn(side)) return false;
+    const active = gameState[side].active;
+    const defender = gameState[foeOf(side)].active;
+    if (!active || !defender) return false;
+    if (neutralOnly && getCardType(active.data) !== 'Neutral') return false;
+    const move = aiChooseMove(side, { explore: false });
+    if (!move) return false;
+    const base = estimateMoveDamage(move, side);
+    if (!(base > 0)) return false;
+    const without = aiProjectedDamage(move, side, base);
+    const withBoost = aiProjectedDamage(move, side, base + bonus);
+    if (cardAbilityOn(defender, 'overloadGuard') && withBoost >= 50) return false;
+    return withBoost > without;
+}
+
+/**
+ * Items marked `late` (the damage boosts, and Mystic Scroll, which ends the
+ * turn) go in last, after energy and abilities, so the AI knows whether it
+ * really attacks this turn and with what.
+ */
+async function aiPlayBoostItem(side) {
+    if (!sideCanUseItem(side).ok) return;
+    for (const card of gameState[side].hand.filter(c => isItem(c.data))) {
+        const def = ItemRegistry.get(card.data.itemEffect);
+        if (!def || !def.late || !ItemRegistry.aiWants(card, side)) continue;
+        await ItemRegistry.use(card, side, gameState[side].hand.indexOf(card));
+        await resolveKnockouts();
+        await Log.aiPause(side, 0.5);
+        return;
+    }
+}
+
+/**
  * The damage a move would really deal after every bonus and shield, except
  * Overload Guard itself. Read-only: runs the modifier table without spending
  * single-use bonuses or logging.
@@ -395,11 +442,11 @@ function aiProjectedDamage(move, side, baseDamage) {
 }
 
 /** Picks the best legal move, prioritising a real knockout over tactical value. */
-function aiChooseMove(side) {
+function aiChooseMove(side, { explore = true } = {}) {
     const legal = usableMoves(side);
     if (legal.length === 0) return null;
 
-    if (Automation.exploreRate > 0 && Rng.float() < Automation.exploreRate) {
+    if (explore && Automation.exploreRate > 0 && Rng.float() < Automation.exploreRate) {
         return Rng.pick(legal);
     }
 
