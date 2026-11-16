@@ -327,6 +327,7 @@ async function resolveAttack(side, moveNumber) {
     // ---- Phase E: application ------------------------------------------
     const redirected = await applyGuardianRedirect(ctx);
     if (!redirected) {
+        if (ctx.damage > 0 && await dozeGuardBlocks(defender, foe)) ctx.damage = 0;
         if (ctx.damage > 0) {
             defender.damage += ctx.damage;
             Render.board();
@@ -356,6 +357,21 @@ async function resolveAttack(side, moveNumber) {
 
     await resolveKnockouts();
     await endTurn();
+}
+
+/**
+ * Doze Guard (Snoozoth, always on, active or benched): attacked while it has
+ * no damage, it flips a coin, and heads means the attack deals it no damage.
+ * The move's other effects still happen.
+ */
+async function dozeGuardBlocks(card, side) {
+    if (!card || card.damage > 0 || !cardAbilityOn(card, 'dozeGuard')) return false;
+    AbilityRegistry.noteTriggered('dozeGuard');
+    const flip = Rng.flip();
+    await Log.coin(flip, `${creatureName(card, side)}'s Doze Guard`);
+    if (flip !== 'heads') return false;
+    await Log.say(`${creatureName(card, side)} dozes through it: no damage!`, { kind: 'ability', icon: '💤', pace: 0.6 });
+    return true;
 }
 
 /**

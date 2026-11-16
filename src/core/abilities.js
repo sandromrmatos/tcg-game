@@ -597,7 +597,71 @@ AbilityRegistry.register('stealthMode', passiveAbility(
 AbilityRegistry.register('twistOfFate', passiveAbility(
     'While this creature is in play, every type weakness is reversed, for both players.'));
 
+// Temporal Rift promos. The "when knocked out" ones fire from knockout.js
+// (knockoutAbilities), wherever the creature was and whatever knocked it out.
+AbilityRegistry.register('graniteGuard', passiveAbility(
+    'This creature takes 20 less damage from attacks, on the bench too.'));
+AbilityRegistry.register('dozeGuard', passiveAbility(
+    "Attacked while it has no damage, it flips a coin: heads, the attack deals it no damage (the move's other effects still happen)."));
+AbilityRegistry.register('paperJam', passiveAbility(
+    'When this creature is knocked out, your opponent discards the top 2 cards of their deck.'));
+AbilityRegistry.register('cursedGaze', passiveAbility(
+    "When this creature is knocked out, the opponent's active creature is affected by Lock."));
+AbilityRegistry.register('umbrellaSnap', passiveAbility(
+    "When this creature is knocked out, it deals 20 damage to the opponent's active creature."));
+AbilityRegistry.register('stormCanopy', passiveAbility(
+    "When this creature is knocked out, it deals 50 damage to the opponent's active creature and causes Hallucination."));
+
 // --- Activated -----------------------------------------------------------------
+
+// Noctonona — "Flip a coin for each card in your discard pile. Heal your active creature 10 HP per heads."
+AbilityRegistry.register('middayHeal', {
+    requires(ctx) {
+        if (!ctx.me.discardPile.length) return { ok: false, reason: 'Your discard pile is empty.' };
+        if (!ctx.me.active || ctx.me.active.damage <= 0) return { ok: false, reason: 'Your active creature has no damage to heal.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const { heads } = await ctx.flipMany(ctx.me.discardPile.length, 'Midday Heal');
+        if (heads) await ctx.heal(ctx.me.active, 10 * heads, { side: ctx.side });
+        else await ctx.say('No heads: no healing.', { kind: 'info', pace: 0.5 });
+    },
+    aiWants: ctx => !!ctx.me.active && ctx.me.active.damage >= 20 && ctx.me.discardPile.length >= 2
+});
+
+// Solflare — "You may discard a card from your hand to heal this creature 40 HP."
+AbilityRegistry.register('sunriseMend', {
+    requires(ctx) {
+        if (!ctx.me.hand.length) return { ok: false, reason: 'You have no card in your hand to discard.' };
+        if (ctx.card.damage <= 0) return { ok: false, reason: `${ctx.card.data.name} has no damage to heal.` };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const hand = ctx.me.hand.slice();
+        const index = await ctx.chooseCard({
+            cards: hand,
+            title: `Sunrise Mend: discard which card to heal ${ctx.card.data.name} 40 HP?`,
+            cancellable: true,
+            cancelLabel: 'Cancel',
+            // The card the AI least wants to keep.
+            aiPick: cards => {
+                let worst = 0;
+                cards.forEach((c, i) => { if (handCardKeepScore(c) < handCardKeepScore(cards[worst])) worst = i; });
+                return worst;
+            }
+        });
+        if (index === null || index === undefined || !hand[index]) return;
+        const card = hand[index];
+        const at = ctx.me.hand.indexOf(card);
+        if (at === -1) return;
+        ctx.me.hand.splice(at, 1);
+        ctx.me.discardPile.push(card);
+        Render.all();
+        await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'discards', 'discard')} ${card.data.name}.`, { kind: 'ability', icon: '☀️', pace: 0.5 });
+        await ctx.heal(ctx.card, 40, { side: ctx.side });
+    },
+    aiWants: ctx => ctx.card.damage >= 30 && ctx.me.hand.length >= 2
+});
 
 // "Once during your turn, you may move one energy from a Vulpetta evolution to another one."
 AbilityRegistry.register('fastLink', {

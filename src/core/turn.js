@@ -199,7 +199,7 @@ async function announceActiveRestrictions(side) {
             { kind: 'status', icon: '🔮', pace: 0.6 });
     }
     if (s.active && Timing.active(s.active.flags.cantAttackUntil)) {
-        await Log.say(`${creatureName(s.active, side)} cannot attack this turn (Wing Slap).`,
+        await Log.say(`${creatureName(s.active, side)} cannot attack this turn.`,
             { kind: 'status', icon: '💤', pace: 0.6 });
     }
 }

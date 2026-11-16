@@ -59,6 +59,11 @@ function dailyRng(seedText) {
     };
 }
 
+/** A creature card with two moves printed. */
+function dailyTwoMoves(card) {
+    return !!card && isCreature(card) && movesOf(card).length === 2;
+}
+
 /** Part of an evolution line (evolves, or evolves from something). */
 function dailyEvolves(card) {
     return (card.prevStageIds || []).length > 0 || (card.nextStageIds || []).length > 0;
@@ -145,6 +150,29 @@ const DAILY_RESTRICTIONS = {
         label: () => 'No creatures with an ability',
         allows: (r, c) => !isCreature(c) || !c.abilityName
     },
+    noHighHp: {
+        group: 'hp',
+        label: () => 'No creatures with 100 HP or more',
+        allows: (r, c) => !isCreature(c) || c.hp < 100
+    },
+    twoMovesMin: {
+        group: 'moves',
+        label: r => `At least ${r.count} creature cards with 2 moves`,
+        deckCheck: (r, ids) => {
+            const n = ids.filter(id => dailyTwoMoves(getCardData(id))).length;
+            return n < r.count ? `The deck has ${n}.` : null;
+        },
+        make: () => ({ count: 5 })
+    },
+    twoMovesMax: {
+        group: 'moves',
+        label: r => `At most ${r.count} creature cards with 2 moves`,
+        deckCheck: (r, ids) => {
+            const n = ids.filter(id => dailyTwoMoves(getCardData(id))).length;
+            return n > r.count ? `The deck has ${n}.` : null;
+        },
+        make: () => ({ count: 5 })
+    },
     noMoveEffects: {
         group: 'effects',
         label: () => 'No creatures with a move that has an effect (only plain damage moves)',
@@ -182,11 +210,13 @@ const DAILY_RESTRICTIONS = {
 
 /** Which restrictions each mode draws from. Medium and Hard need at least `core` from their own list. */
 const DAILY_POOLS = {
-    easy:   { own: ['noStage3', 'noType', 'noAccessories', 'noEpic', 'maxItems'], core: 1 },
-    medium: { own: ['noItems', 'noType', 'onlySet', 'noAbilities', 'evolvingOnly', 'nonEvolvingOnly', 'noMoveEffects', 'minRarity'],
-              extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems'], core: 1 },
-    hard:   { own: ['noType', 'commonUncommon', 'singleton', 'onlySet', 'noItems', 'evolvingOnly', 'nonEvolvingOnly', 'noAbilities', 'noMoveEffects', 'minRarity'],
-              extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems'], core: 2 }
+    easy:   { own: ['noStage3', 'noType', 'noAccessories', 'noEpic', 'maxItems', 'twoMovesMax'], core: 1 },
+    medium: { own: ['noItems', 'noType', 'onlySet', 'noAbilities', 'evolvingOnly', 'nonEvolvingOnly', 'noMoveEffects', 'minRarity',
+                    'noHighHp', 'singleton', 'twoMovesMin'],
+              extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems', 'twoMovesMax'], core: 1 },
+    hard:   { own: ['noType', 'commonUncommon', 'singleton', 'onlySet', 'noItems', 'evolvingOnly', 'nonEvolvingOnly', 'noAbilities', 'noMoveEffects', 'minRarity',
+                    'noHighHp', 'twoMovesMin'],
+              extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems', 'twoMovesMax'], core: 2 }
 };
 
 const Daily = {
@@ -305,7 +335,9 @@ const Daily = {
         const single = restrictions.some(r => r.id === 'singleton');
         const itemCap = restrictions.some(r => r.id === 'maxItems') ? DAILY_MAX_ITEMS : Infinity;
         const need = restrictions.find(r => r.id === 'minRarity');
-        let total = 0, items = 0, stage1 = false, rareCreatures = 0, rareItems = 0;
+        const twoMin = restrictions.find(r => r.id === 'twoMovesMin');
+        const twoMax = restrictions.find(r => r.id === 'twoMovesMax');
+        let total = 0, items = 0, stage1 = false, rareCreatures = 0, rareItems = 0, twoMoves = 0;
         for (const card of cardDatabase) {
             const owned = this._copies(card.id);
             if (owned <= 0 || !Profile.isSetUnlocked(card.set) || !allowed(card)) continue;
@@ -313,12 +345,16 @@ const Daily = {
             if (isItem(card)) items += n;
             else total += n;
             if (card.stage === 'Stage 1') stage1 = true;
+            if (dailyTwoMoves(card)) twoMoves += n;
             if (need && card.rarity === need.rarity) {
                 if (isItem(card)) rareItems += n;
                 else rareCreatures += n;
             }
         }
         if (need && rareCreatures + Math.min(rareItems, itemCap) < need.count) return false;
+        if (twoMin && twoMoves < twoMin.count) return false;
+        // With a cap on 2-move creatures, the copies over the cap can't be used.
+        if (twoMax) total -= Math.max(0, twoMoves - twoMax.count);
         return stage1 && total + Math.min(items, itemCap) >= DECK_SIZE;
     },
 

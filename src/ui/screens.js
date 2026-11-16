@@ -638,6 +638,25 @@ const Screens = {
     // Discard viewer
     // -----------------------------------------------------------------------
 
+    /** Shows a set of cards for a few seconds (Solar Burst reveals the opponent's hand). */
+    async revealHand(cards, title, ms = 3000) {
+        const modal = document.getElementById('discard-modal');
+        const grid = document.getElementById('discard-grid');
+        if (!modal || !grid) return;
+        setText('discard-title', title);
+        grid.innerHTML = '';
+        for (const card of cards) {
+            const img = document.createElement('img');
+            img.className = 'discard-card';
+            img.src = cardArt(card.id, card.fullArt);
+            img.alt = card.data.name;
+            grid.appendChild(img);
+        }
+        this.openModal('discard-modal');
+        await delay(ms);
+        this.closeModal('discard-modal');
+    },
+
     showDiscard(side) {
         const pile = gameState[side].discardPile;
         setText('discard-title', side === 'player' ? 'Your discard pile' : "Opponent's discard pile");

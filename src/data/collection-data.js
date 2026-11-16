@@ -242,6 +242,22 @@ const CARD_COLLECTION_DATA = {
     "Temporal Rift_62.png": { rarity: 3, promo: false },
     "Temporal Rift_63.png": { rarity: 3, promo: false },
     "Temporal Rift_64.png": { rarity: 3, promo: false },
-    "Temporal Rift_65.png": { rarity: 3, promo: false }
+    "Temporal Rift_65.png": { rarity: 3, promo: false },
+    "Temporal Rift_66.png": { rarity: 2, promo: true },
+    "Temporal Rift_67.png": { rarity: 1, promo: true },
+    "Temporal Rift_68.png": { rarity: 3, promo: true },
+    "Temporal Rift_69.png": { rarity: 2, promo: true },
+    "Temporal Rift_70.png": { rarity: 3, promo: true },
+    "Temporal Rift_71.png": { rarity: 1, promo: true },
+    "Temporal Rift_72.png": { rarity: 2, promo: true },
+    "Temporal Rift_73.png": { rarity: 3, promo: true },
+    "Temporal Rift_74.png": { rarity: 3, promo: true },
+    "Temporal Rift_75.png": { rarity: 2, promo: true },
+    "Temporal Rift_76.png": { rarity: 3, promo: true },
+    "Temporal Rift_77.png": { rarity: 2, promo: true },
+    "Temporal Rift_78.png": { rarity: 1, promo: true },
+    "Temporal Rift_79.png": { rarity: 2, promo: true },
+    "Temporal Rift_80.png": { rarity: 1, promo: true },
+    "Temporal Rift_81.png": { rarity: 3, promo: true }
 
 };

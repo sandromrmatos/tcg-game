@@ -16,7 +16,21 @@ const DeckBuilder = {
     setFilter: 'all',    // 'all' or a set id
     typeFilter: 'all',
     stageFilter: 'all',
+    rarityFilter: 'all',
+    traitFilter: 'all',
     search: '',
+
+    /** Card features to filter by, each with its opposite. */
+    TRAITS: [
+        { id: 'evolves',    label: 'Evolves / evolved',      test: c => isCreature(c) && ((c.prevStageIds || []).length > 0 || (c.nextStageIds || []).length > 0) },
+        { id: 'noEvolve',   label: "Doesn't evolve",         test: c => isCreature(c) && !(c.prevStageIds || []).length && !(c.nextStageIds || []).length },
+        { id: 'ability',    label: 'Has an ability',         test: c => isCreature(c) && !!c.abilityName },
+        { id: 'noAbility',  label: 'No ability',             test: c => isCreature(c) && !c.abilityName },
+        { id: 'effects',    label: 'Move with an effect',    test: c => isCreature(c) && movesOf(c).some(m => m.effect) },
+        { id: 'plain',      label: 'Only plain-damage moves', test: c => isCreature(c) && !movesOf(c).some(m => m.effect) },
+        { id: 'twoMoves',   label: '2 moves',                test: c => isCreature(c) && movesOf(c).length === 2 },
+        { id: 'oneMove',    label: '1 move',                 test: c => isCreature(c) && movesOf(c).length === 1 }
+    ],
 
     /**
      * @param {string} [existingName] deck to edit
@@ -30,6 +44,8 @@ const DeckBuilder = {
         this.setFilter = 'all';
         this.typeFilter = 'all';
         this.stageFilter = 'all';
+        this.rarityFilter = 'all';
+        this.traitFilter = 'all';
         this.search = '';
         // Energy types: a new deck follows its main type until the player
         // picks types themselves.
@@ -85,6 +101,10 @@ const DeckBuilder = {
         if (typeSelect) typeSelect.value = this.typeFilter;
         const stageSelect = document.getElementById('builder-stage-filter');
         if (stageSelect) stageSelect.value = this.stageFilter;
+        const raritySelect = document.getElementById('builder-rarity-filter');
+        if (raritySelect) raritySelect.value = this.rarityFilter;
+        const traitSelect = document.getElementById('builder-trait-filter');
+        if (traitSelect) traitSelect.value = this.traitFilter;
         const searchInput = document.getElementById('builder-search');
         if (searchInput) searchInput.value = this.search;
     },
@@ -205,6 +225,27 @@ const DeckBuilder = {
             });
         }
 
+        const fillSelect = (id, options, onChange) => {
+            const select = document.getElementById(id);
+            if (!select || select.options.length) return;
+            for (const [value, text] of options) {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = text;
+                select.appendChild(option);
+            }
+            select.addEventListener('change', () => { onChange(select.value); this.renderPool(); });
+        };
+        fillSelect('builder-rarity-filter',
+            [['all', 'All rarities']].concat([1, 2, 3, 4].map(r => {
+                const info = typeof Collection !== 'undefined' ? Collection.rarity(r) : { icon: '', name: `Rarity ${r}` };
+                return [String(r), `${info.icon} ${info.name}`.trim()];
+            })),
+            v => { this.rarityFilter = v; });
+        fillSelect('builder-trait-filter',
+            [['all', 'All features']].concat(this.TRAITS.map(t => [t.id, t.label])),
+            v => { this.traitFilter = v; });
+
         const searchInput = document.getElementById('builder-search');
         if (searchInput && !searchInput.dataset.bound) {
             searchInput.dataset.bound = 'true';
@@ -283,6 +324,11 @@ const DeckBuilder = {
             if (this.setFilter !== 'all' && card.set !== this.setFilter) return false;
             if (this.typeFilter !== 'all' && getCardType(card) !== this.typeFilter) return false;
             if (this.stageFilter !== 'all' && card.stage !== this.stageFilter) return false;
+            if (this.rarityFilter !== 'all' && String(card.rarity) !== this.rarityFilter) return false;
+            if (this.traitFilter !== 'all') {
+                const trait = this.TRAITS.find(t => t.id === this.traitFilter);
+                if (trait && !trait.test(card)) return false;
+            }
             if (this.search) {
                 const haystack = [
                     card.name,

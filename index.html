@@ -315,6 +315,8 @@
                    placeholder="Search name, move or ability…">
             <select id="builder-type-filter" class="select-input"></select>
             <select id="builder-stage-filter" class="select-input"></select>
+            <select id="builder-rarity-filter" class="select-input" aria-label="Rarity"></select>
+            <select id="builder-trait-filter" class="select-input" aria-label="Card features"></select>
             <span class="builder-pool-meta"><b id="builder-pool-count">0</b> shown</span>
         </div>
 
@@ -503,52 +505,110 @@
         <div class="info-accordion">
             <details open>
                 <summary>🎮 What is this game?</summary>
-                <p>Collect creature cards from the Elemental Awakening set (and later Galactic Adventures), build
-                   decks from the cards you own, and battle the AI. Draw cards with credits, buy specific ones in the
-                   Store with gems, complete missions and play the daily mini-games for more credits and gems.</p>
+                <p>Collect creature cards from three sets (Elemental Awakening, Galactic Adventures and Temporal Rift), build
+                   decks from the cards you own and battle: against the AI, raid bosses, the daily challenges, or a friend online.
+                   Draw cards with credits, buy specific ones in the Store with gems, and earn more credits and gems from
+                   wins, missions, achievements and the daily mini-games.</p>
             </details>
             <details>
                 <summary>🗂️ What each section does</summary>
                 <ul>
-                    <li><strong>⚔️ Play</strong>: your decks, the deck builder, and games against the AI.</li>
+                    <li><strong>⚔️ Play</strong>: your decks, the deck builder, games against the AI (pick its deck or leave it random) and <strong>🌐 Play online</strong> against a friend.</li>
                     <li><strong>📚 Card Dex</strong>: every card in a set and how many of each you own.</li>
                     <li><strong>🎰 Draw a Card</strong>: spend 1 credit for a random card from an unlocked set.</li>
                     <li><strong>🛒 Store</strong>: buy any specific card with gems.</li>
                     <li><strong>📋 Missions</strong>: objectives that pay credits and gems.</li>
                     <li><strong>🏅 Achievements</strong>: tasks for every single card, with credits, gems and promo cards as rewards.</li>
-                    <li><strong>📅 Daily Challenges</strong>: three challenges a day (Easy, Medium, Hard) with deck rules to follow, for credits and cards.</li>
                     <li><strong>🐉 Raid Bosses</strong>: beat a boss deck to win the full-art version of its card.</li>
-                    <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, each free once a day for credits and gems. Each game shows whether you've played it today and what you earned.</li>
+                    <li><strong>📅 Daily Challenges</strong>: three challenges a day (Easy, Medium, Hard) with deck rules to follow, for credits and cards.</li>
+                    <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, plus Creature Sorting, Puzzle and Tetris once Temporal Rift is unlocked. Each is free once a day for credits and gems.</li>
                     <li><strong>📈 Collection</strong>: your progress through each set.</li>
-                    <li><strong>🏆 Stats</strong>: games played, won and lost against the AI, and your online games and win rate.</li>
+                    <li><strong>🏆 Stats</strong>: games played, won and lost against the AI, each AI deck and raid boss, and your online games and win rate.</li>
                     <li><strong>💾 Save data</strong>: download and import backups, or move your save to another device.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>⚔️ How a battle works</summary>
+                <ul>
+                    <li><strong>Goal</strong>: score <strong>3 points</strong>. You score 1 each time one of your opponent's creatures is knocked out, active or benched. If nobody has 3 by turn 30, the higher score wins (a tie is a draw). A player with no creatures left loses.</li>
+                    <li><strong>Board</strong>: one <strong>active</strong> creature does the fighting, with up to <strong>3</strong> on the bench behind it.</li>
+                    <li><strong>Setup</strong>: you start with 5 cards (always at least one Stage 1). Place a Stage 1 as your active creature, and any others on the bench, then press Ready. A coin flip decides who goes first.</li>
+                    <li><strong>Going first</strong>: that player doesn't draw and can't attack on turn 1. Everything else is allowed.</li>
+                    <li><strong>On your turn</strong>: draw a card, then in any order: attach <strong>1 energy</strong> to any of your creatures, play Stage 1 creatures to empty bench spots, evolve, play <strong>1 item</strong> card, attach <strong>1 accessory</strong>, use abilities, and <strong>retreat once</strong> (pay the retreat cost in energy to swap your active creature with a benched one).</li>
+                    <li><strong>Attacking</strong> uses one of the active creature's moves and ends your turn, so do everything else first. You can also end your turn without attacking.</li>
+                    <li><strong>Evolving</strong>: put a Stage 2 on its Stage 1 (or a Stage 3 on its Stage 2). Not before turn 3, not on a creature played this turn, and once per creature per turn. Damage, energy and status conditions carry over; an accessory stays on if the new form is still its type.</li>
+                    <li>When your active creature is knocked out, you choose a benched creature to replace it. A knocked-out creature goes to the discard pile with its whole evolution line, energy and accessory.</li>
+                    <li>Tap any icon on a creature or under a player's name to see what it means and how long it lasts.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🃏 Types of cards</summary>
+                <ul>
+                    <li><strong>Creatures</strong> have HP, a type, a retreat cost and one or two moves. <strong>Stage 1</strong> creatures are played directly; <strong>Stage 2</strong> evolves from a Stage 1 and <strong>Stage 3</strong> from a Stage 2.</li>
+                    <li>Some creatures have an <strong>ability</strong>. Abilities you activate show a flashing rainbow border: tap the creature to use it, once per turn, before attacking. Always-on abilities work by themselves.</li>
+                    <li><strong>Item</strong> cards have a one-off effect (heal, draw, boost damage...). One item per turn; it goes to the discard pile after use.</li>
+                    <li><strong>Accessory</strong> cards (Temporal Rift) attach to one of your creatures of their type: one accessory per creature, one per turn. It stays until the creature is knocked out.</li>
+                    <li><strong>Promo</strong> cards are special creatures: drawn only on Sundays, or won from Gold card achievements. <strong>Full-art</strong> cards (✦) are won from raid bosses and play exactly like the normal card.</li>
+                    <li>Rarities: 🟢 Common · 🔵 Uncommon · ⭐ Rare · 💎 Epic.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>⚡ Energy and move costs</summary>
+                <ul>
+                    <li>Each letter in a cost is one energy: <strong>M</strong> Mystic, <strong>W</strong> Wind, <strong>C</strong> Celestial, <strong>K</strong> Mechanic, and <strong>N</strong> any type. "MN" needs 1 Mystic plus 1 of anything.</li>
+                    <li>Each deck picks its energy types in the deck builder. With more than one, each turn's energy is one of them at random, and you see which before attaching it.</li>
+                    <li>Retreat costs accept energy of any type.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🔥 Types and weaknesses</summary>
+                <ul>
+                    <li>An attack against a type it is strong against deals <strong>+10 damage</strong>: Mystic beats Wind, Wind beats Celestial, Celestial beats Mystic, and Mechanic beats Neutral.</li>
+                    <li>Neutral deals no bonus against anything. While Aurorion's Twist of Fate is in play, every weakness is reversed.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>😵 Status conditions</summary>
+                <ul id="hub-info-status"></ul>
+                <p>Only the active creature can have a status condition. It lasts until it is cured (Remedy, some abilities) or the creature leaves the active spot: retreating is the usual way to shake one off.</p>
+            </details>
+            <details>
+                <summary>🧩 Building a deck</summary>
+                <ul>
+                    <li>Exactly <strong>20 cards</strong>, with <strong>at least one Stage 1</strong> creature.</li>
+                    <li>At most <strong>2 copies</strong> of any card, and never more copies than you own (normal and full-art copies together).</li>
+                    <li>Only cards from sets you have unlocked. Types and sets can be mixed freely; a creature whose moves need an energy type your deck doesn't use gets a warning.</li>
+                    <li>The deck builder filters by set, type, stage, rarity and features (creatures that evolve, with abilities, with move effects, with 2 moves, and their opposites), and searches names, moves and abilities.</li>
                 </ul>
             </details>
             <details>
                 <summary>🪙 Currency and draw odds</summary>
                 <ul>
                     <li><strong>Credits</strong>: capped at 12, 1 comes back every hour (even while the game is closed), 1 per card draw.</li>
-                    <li><strong>Gems (💜)</strong>: no cap, start with 5, earned from mini-games and missions, spent in the Store.</li>
+                    <li><strong>Gems (💜)</strong>: no cap, start with 5, earned from mini-games, missions, achievements and challenges, spent in the Store.</li>
                 </ul>
                 <p>Draw odds: 🟢 Common 55% · 🔵 Uncommon 28% · ⭐ Rare 13% · 💎 Epic 4%.</p>
                 <p>Store prices: 🟢 Common 1 · 🔵 Uncommon 5 · ⭐ Rare 10 · 💎 Epic 20 gems.</p>
             </details>
             <details>
-                <summary>⚔️ Decks and games against the AI</summary>
+                <summary>🤖 Games against the AI</summary>
                 <ul>
-                    <li>A deck is 20 cards you own: one main type plus any Neutral and Item cards, at least one Stage 1 creature, at most 2 copies of a card (and no more than you own).</li>
-                    <li>Each deck also picks its energy types (Mystic, Wind, Celestial, Mechanic). It starts as the deck's main type. Pick more than one and each turn's energy is one of them at random; you see which before attaching it.</li>
-                    <li>The AI plays one of its own preset decks, picked at random: Mystic, Wind, Celestial, Mechanic and Neutral decks. Once you unlock Galactic Adventures, 14 more AI decks built around that set join the pool.</li>
-                    <li>Whoever goes first doesn't draw and can't attack on turn 1. Your Stats show your win rate going first and going second.</li>
-                    <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>. If your credits are full when you start, a win earns nothing, and the game warns you first.</li>
+                    <li>Choose the AI's deck on the Play page, or leave it random. AI decks from a set join once you've unlocked that set.</li>
+                    <li>Each win earns <strong>1 credit</strong>, up to <strong>3 a day</strong>, shared with online games, raids and daily challenges. If your credits are full or you've had today's 3, the game warns you before you start.</li>
                     <li>Leaving a game before it ends, or closing the page mid-game, counts as a loss.</li>
+                    <li>Your Stats show your win rate going first and going second, and against each AI deck.</li>
                 </ul>
+            </details>
+            <details>
+                <summary>🔒 Unlocking sets</summary>
+                <ul id="hub-info-sets"></ul>
+                <p>Promo cards don't count. Until a set is unlocked its cards can't be drawn, bought or used in decks. Once unlocked, choose which set to draw from.</p>
             </details>
             <details>
                 <summary>📅 Daily Challenges</summary>
                 <ul>
                     <li>Every day at midnight three new challenges appear: <strong>Easy</strong>, <strong>Medium</strong> and <strong>Hard</strong>. Each has its own AI deck, built from strong cards of the sets you have unlocked, and the same deck all day.</li>
-                    <li>Each challenge has rules for your deck, picked at random for the day: for example no cards of a type, no items, only cards from one set, only creatures that evolve, no creatures with move effects, at least a number of cards of one rarity, only 1 copy of each card. Easy has 1 rule, Medium 2 and Hard 3 tougher ones. The rules always leave a deck you can build from your own cards.</li>
+                    <li>Each challenge has rules for your deck, picked at random for the day: for example no cards of a type, no items, only cards from one set, only creatures that evolve, no creatures with 100 HP or more, no creatures with move effects, at least a number of cards of one rarity, a number of creatures with 2 moves, only 1 copy of each card. Easy has 1 rule, Medium 2 and Hard 3 tougher ones. The rules always leave a deck you can build from your own cards.</li>
                     <li>Easy needs 1 win. Medium needs 2 wins in a row and Hard 3 in a row; losing, drawing or leaving resets the streak.</li>
                     <li>Rewards: Easy 🪙 1 credit. Medium 🪙 1 credit and a card (Uncommon or better) from a random unlocked set. Hard 🪙 2 credits, a 50% chance of 💜 1 gem and a card (Uncommon or better) from the set you choose.</li>
                     <li>Rewards wait on the page until you claim them; the credits need room under the 12-credit cap. Challenge wins also count as normal wins, including the daily win credits.</li>
@@ -565,54 +625,6 @@
                 </ul>
             </details>
             <details>
-                <summary>🔒 Unlocking Galactic Adventures</summary>
-                <p>Galactic Adventures unlocks once you own 90% of the non-promo Elemental Awakening cards
-                   (63 of 69). Promo cards don't count. Until then its cards can't be drawn, bought or used in decks.
-                   Once unlocked, choose which set to draw from.</p>
-            </details>
-            <details>
-                <summary>🎡 Spin the Wheel</summary>
-                <ul>
-                    <li>Once per day, only with 7 or fewer credits (you could win up to 5 more, and credits cap at 12).</li>
-                    <li>10 segments, alternating "No Win" and a prize: +1, +3 or +5 credits, or +1/+2 gems.</li>
-                </ul>
-            </details>
-            <details>
-                <summary>🎯 Guess the Number</summary>
-                <ul>
-                    <li>Once per day, only with 7 or fewer credits.</li>
-                    <li>Guess a number from 1 to 50. 3 or fewer guesses wins 5 credits, 4-5 wins 3, 6-7 wins 2, 8+ wins 1.</li>
-                    <li>50% chance of a bonus gem.</li>
-                    <li>Once you start, you can't leave the page until you guess correctly.</li>
-                </ul>
-            </details>
-            <details>
-                <summary>🧠 Memory Game</summary>
-                <ul>
-                    <li>Once per day, only with 7 or fewer credits.</li>
-                    <li>Find all 8 pairs on the 4×4 board.</li>
-                    <li>Reward: 50% chance of +2 credits, 40% +3, 10% +5, plus a 50% chance of a bonus gem.</li>
-                </ul>
-            </details>
-            <details>
-                <summary>📋 Missions</summary>
-                <ul>
-                    <li>Collect cards (overall, by rarity, by type, with an ability, Promo and Item cards), complete sets, log in on different days, play the mini-games, and play and win games against the AI: beat every deck of a set, and win against each deck type.</li>
-                    <li>Claim only lights up once a mission is complete and there's room under the 12-credit cap for its credits. Gems never block a claim.</li>
-                    <li>Claimed missions move to the bottom and grey out.</li>
-                </ul>
-            </details>
-            <details>
-                <summary>🏅 Achievements</summary>
-                <ul>
-                    <li>Every card in every set has its own tasks: own 2 copies, win 3 games against each type of AI deck (Mystic, Wind, Neutral, Celestial, Mechanic), win 20 games, attack 5 times with it, and still have it in play at the end of 3 wins.</li>
-                    <li>A win only counts for a card you put into play that game: placed during setup, played to the bench, evolved into, or used as an item. Winning on points at turn 30 counts. QA games don't.</li>
-                    <li>Items have 7 tasks (no attack and no "still in play" task).</li>
-                    <li>🥉 Bronze, 5 tasks: +1 credit and a 10% chance of a gem. 🥈 Silver, 7 tasks: another credit and a 25% chance of a gem. 🥇 Gold, all 9: a random promo card from the set you choose, at the normal rarity odds.</li>
-                    <li>Credit rewards wait until you have room under the 12-credit cap.</li>
-                </ul>
-            </details>
-            <details>
                 <summary>🐉 Raid Bosses</summary>
                 <ul>
                     <li>Each raid boss is built around one card. Its raid opens once you own 2 normal copies of that card.</li>
@@ -621,12 +633,43 @@
                     <li>The first clear wins 1 full-art copy of the card. After that the tasks start over, and each new clear pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for the daily win credits.</li>
                     <li>Full-art cards play exactly like the normal ones. They show ✦ in the Card Dex, and the deck builder asks which version you want to add.</li>
                 </ul>
-            </details>            <details>
+            </details>
+            <details>
+                <summary>🎮 Mini-games</summary>
+                <p>Each mini-game is free once a day, and only with 7 or fewer credits (a game can pay up to 5, and credits cap at 12).</p>
+                <ul>
+                    <li><strong>🎡 Spin the Wheel</strong>: 10 segments, alternating "No Win" and a prize: +1, +3 or +5 credits, or +1/+2 gems.</li>
+                    <li><strong>🎯 Guess the Number</strong>: guess a number from 1 to 50. 3 or fewer guesses wins 5 credits, 4-5 wins 3, 6-7 wins 2, 8+ wins 1, plus a 50% chance of a gem. Once you start, you can't leave the page until you guess it.</li>
+                    <li><strong>🧠 Memory Game</strong>: find all 8 pairs on the 4×4 board. 50% chance of +2 credits, 40% +3, 10% +5, plus a 50% chance of a gem.</li>
+                    <li><strong>🗄️ Creature Sorting</strong> (Temporal Rift): move the creatures between shelves until each shelf holds 3 of the same. Under 0:40: 5 credits and a gem · 1:00: 3 credits and maybe a gem · 1:15: 2 credits · slower: 1.</li>
+                    <li><strong>🧩 Puzzle</strong> (Temporal Rift): rebuild a 7×7 full-art picture. 3:00: 5 credits and a gem · 5:00: 3 credits and maybe a gem · 8:00: 2 credits · slower: 1.</li>
+                    <li><strong>🧱 Tetris</strong> (Temporal Rift): each cleared line is a point. 20+: 5 credits and a gem · 10+: 3 credits and maybe a gem · 5+: 2 credits · less: 1.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>📋 Missions</summary>
+                <ul>
+                    <li>Collect cards (overall, by rarity, by type, with an ability, Promo, Item and Accessory cards), complete and unlock sets, log in on different days, play the mini-games, play and win games against the AI (beat every deck of a set, win against each deck type), beat raid bosses, and play and win online games.</li>
+                    <li>Claim only lights up once a mission is complete and there's room under the 12-credit cap for its credits. Gems never block a claim.</li>
+                    <li>Claimed missions move to the bottom and grey out.</li>
+                </ul>
+            </details>
+            <details>
+                <summary>🏅 Achievements</summary>
+                <ul>
+                    <li>Every card in every set, promos included, has its own tasks: own 2 copies, win 3 games against each type of AI deck (Mystic, Wind, Neutral, Celestial, Mechanic), win 20 games, attack 5 times with it, and still have it in play at the end of 3 wins.</li>
+                    <li>A win only counts for a card you put into play that game: placed during setup, played to the bench, evolved into, or used as an item. Winning on points at turn 30 counts. QA and online games don't.</li>
+                    <li>Items have 7 tasks (no attack and no "still in play" task).</li>
+                    <li>🥉 Bronze, 5 tasks: +1 credit and a 10% chance of a gem. 🥈 Silver, 7 tasks: another credit and a 25% chance of a gem. 🥇 Gold, all 9: a random promo card from the set you choose, at the normal rarity odds.</li>
+                    <li>Credit rewards wait until you have room under the 12-credit cap.</li>
+                </ul>
+            </details>
+            <details>
                 <summary>💾 Saving</summary>
                 <ul>
                     <li>Progress saves automatically in this browser.</li>
-                    <li>Use <strong>Save data → Download backup</strong> to keep a file, and <strong>Import backup</strong> to load it, for example to move your progress between your computer and your phone.</li>
-                    <li>Clearing your browser data deletes the browser copy, so keep a recent backup.</li>
+                    <li>Use <strong>Save data → Download backup</strong> to keep a file, and <strong>Import backup</strong> to load it, for example to move your progress between your computer and your phone. On an iPhone or iPad, Download backup opens the share menu: choose "Save to Files".</li>
+                    <li>Clearing your browser data deletes the browser copy, so keep a recent backup. On iPhone, Safari can clear a site's data after a week without a visit; adding the game to the home screen avoids that.</li>
                 </ul>
             </details>
             <details class="highlight" open>
@@ -635,6 +678,7 @@
                     <li><strong>Promo cards join the draw pool</strong>, the only day you can draw them.</li>
                     <li><strong>Spin the Wheel gem prizes are boosted</strong> (from +1/+2 up to +3/+6 gems).</li>
                     <li><strong>Guess the Number's and Memory's bonus gem is guaranteed</strong>.</li>
+                    <li><strong>Creature Sorting, Puzzle and Tetris</strong> pay at least 1 gem for any finished game, and 2 for the best tier.</li>
                 </ul>
             </details>
         </div>

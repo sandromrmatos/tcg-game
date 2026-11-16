@@ -347,7 +347,9 @@ ItemRegistry.register('disruptor', {
 
 ItemRegistry.register('amulet', {
     async use(ctx) {
-        ctx.me.flags.amuletUntil = Timing.myTurns(2);
+        // 2 of this side's turns: this one and the next. myTurns(2) reached
+        // a third turn (T, T+2 and T+4).
+        ctx.me.flags.amuletUntil = Timing.myTurns(1);
         await ctx.say(
             `${possessive(ctx.side)} Neutral creatures deal +20 damage for 2 turns.`,
             { kind: 'item', icon: '⬆️' }

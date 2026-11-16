@@ -206,6 +206,20 @@ const DAMAGE_MODIFIERS = [
         consume: ctx => consumeShield(ctx.defender.flags.shields, 'coreTangle')
     },
     {
+        id: 'searGuard',
+        label: 'Sear Guard',
+        test: ctx => readShield(ctx.defender.flags.shields, 'searGuard'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'searGuard').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'searGuard')
+    },
+    {
+        // Craggit, always on, active or benched: 20 less from attacks.
+        id: 'graniteGuard',
+        label: 'Granite Guard',
+        test: ctx => cardAbilityOn(ctx.defender, 'graniteGuard'),
+        apply: (ctx, dmg) => passiveBonus('graniteGuard', dmg - 20)
+    },
+    {
         id: 'foxyArmor',
         label: 'Foxy Armor',
         test: ctx => sideHasAbility(ctx.foe, 'foxyArmor') && vulpettaEvolutions(ctx.foe).length > 0,
@@ -339,6 +353,8 @@ function adjustCrossDamage(target, targetSide, amount, source) {
     }
     if (isActive && sideHasAbility(targetSide, 'techShieldA') && nameHas(source.card, 'a')) dmg = passiveBonus('techShieldA', dmg - 20);
     if (isActive && sideHasAbility(targetSide, 'techShieldE') && nameHas(source.card, 'e')) dmg = passiveBonus('techShieldE', dmg - 20);
+    // Craggit: 20 less from attacks, benched too; ability damage isn't an attack.
+    if (source.kind === 'move' && cardAbilityOn(target, 'graniteGuard')) dmg = passiveBonus('graniteGuard', dmg - 20);
     if (source.kind === 'move' && accessoryOn(target, 'celestialArmor')) dmg -= 10;
     if (source.kind === 'move' && accessoryOn(target, 'mechanicToolkit') && target.data.abilityEffect) dmg -= 20;
     if (source.kind === 'move' && Timing.active(target.flags.anchoredUntil) && sourceType === 'Mechanic') dmg = 0;

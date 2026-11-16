@@ -971,3 +971,26 @@
 
 /* Battle sounds toggle, in the battle log header */
 .log-header .sfx-btn { margin-left: auto; margin-right: 8px; padding: 4px 9px; font-size: 14px; line-height: 1; }
+
+/* Chips explain themselves when tapped */
+.chip-tappable { cursor: pointer; font-family: inherit; color: inherit; -webkit-appearance: none; appearance: none; }
+.chip-tappable:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.chip-tip {
+    position: fixed;
+    z-index: 3700;
+    display: none;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #1d1840;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    color: var(--text, #e9ebf5);
+    font-size: 13px;
+    line-height: 1.45;
+    pointer-events: auto;
+}
+.chip-tip-show { display: block; }
+.chip-tip[data-kind="good"] { border-color: rgba(123, 240, 182, 0.5); }
+.chip-tip[data-kind="bad"] { border-color: rgba(255, 143, 143, 0.55); }
+.chip-tip-title { font-weight: 700; margin-bottom: 3px; }
+.chip-tip-body { color: var(--text-dim); }

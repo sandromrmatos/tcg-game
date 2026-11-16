@@ -101,6 +101,8 @@ async function damageCreature(card, amount, opts = {}) {
         }
         amount = adjusted;
         if (amount <= 0) return 0;
+        // Doze Guard also covers attacks that hit it on the bench (and Nap Roll hits).
+        if (opts.source.kind === 'move' && typeof dozeGuardBlocks === 'function' && await dozeGuardBlocks(card, side)) return 0;
     }
 
     card.damage += amount;

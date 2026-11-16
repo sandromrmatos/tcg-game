@@ -119,7 +119,7 @@ const Hub = {
         }
 
         const infoBtn = document.getElementById('hub-info-btn');
-        if (infoBtn) infoBtn.addEventListener('click', () => Screens.openModal('hub-info-modal'));
+        if (infoBtn) infoBtn.addEventListener('click', () => this.showInfo());
 
         this.initAudio();
 
@@ -294,6 +294,31 @@ const Hub = {
             modal.classList.add('modal-show');
             setTimeout(() => (opts.input ? input : foot.lastChild).focus(), 30);
         });
+    },
+
+    /** The How to play panel. Status conditions and set unlocks are filled from the game data, so they stay current. */
+    showInfo() {
+        const statuses = document.getElementById('hub-info-status');
+        if (statuses && typeof STATUS_CONDITIONS !== 'undefined') {
+            statuses.innerHTML = '';
+            for (const c of Object.values(STATUS_CONDITIONS)) {
+                statuses.appendChild(h('li', {}, h('strong', { text: `${c.icon} ${c.name}` }), `: ${c.blurb}`));
+            }
+        }
+        const sets = document.getElementById('hub-info-sets');
+        if (sets) {
+            sets.innerHTML = '';
+            sets.appendChild(h('li', {}, h('strong', { text: cardSets[0].name }), ': open from the start.'));
+            for (const set of cardSets.slice(1)) {
+                const req = Profile.unlockRequirement(set.id);
+                const open = Profile.isSetUnlocked(set.id);
+                const extra = set.id === ARCADE_SET ? ' It also opens accessory cards and the Creature Sorting, Puzzle and Tetris mini-games.' : '';
+                sets.appendChild(h('li', {}, h('strong', { text: set.name }),
+                    `: own ${Math.round(SET_UNLOCK_RATIO * 100)}% of the non-promo ${req.prevSet.name} cards (${req.needed} of ${req.total}). ` +
+                    (open ? '✓ Unlocked.' : `You have ${req.have}.`) + extra));
+            }
+        }
+        Screens.openModal('hub-info-modal');
     },
 
     _dialogDismiss: null,

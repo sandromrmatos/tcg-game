@@ -94,7 +94,7 @@ function creatureCanAttack(card, side) {
     if (!sideCheck.ok) return sideCheck;
     if (!card) return { ok: false, reason: 'No active creature.' };
     if (Timing.active(card.flags.cantAttackUntil)) {
-        return { ok: false, reason: `${creatureName(card, side)} can't attack this turn (Wing Slap).` };
+        return { ok: false, reason: `${creatureName(card, side)} can't attack this turn.` };
     }
     return { ok: true };
 }

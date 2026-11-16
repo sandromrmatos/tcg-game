@@ -460,16 +460,29 @@ function handCardPlayability(card) {
 // Chips: the previously invisible state
 // ---------------------------------------------------------------------------
 
+/**
+ * One chip: an icon that explains itself when tapped (or hovered), so "⬆️"
+ * says which boost it is, what it applies to and how long it lasts.
+ */
+function buildChip(chip) {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `chip chip-${chip.kind || 'info'} chip-tappable`;
+    el.textContent = chip.icon;
+    el.title = chip.label;
+    el.setAttribute('aria-label', chip.label);
+    el.addEventListener('click', event => {
+        // Don't also select the creature the chip sits on.
+        event.stopPropagation();
+        ChipTip.toggle(el, chip);
+    });
+    return el;
+}
+
 function buildChipRow(chips, className) {
     const row = document.createElement('div');
     row.className = className;
-    for (const chip of chips) {
-        const el = document.createElement('span');
-        el.className = `chip chip-${chip.kind || 'info'}`;
-        el.textContent = chip.icon;
-        el.title = chip.label;
-        row.appendChild(el);
-    }
+    for (const chip of chips) row.appendChild(buildChip(chip));
     return row;
 }
 
@@ -477,13 +490,75 @@ function renderChips(elementId, chips) {
     const host = document.getElementById(elementId);
     if (!host) return;
     host.innerHTML = '';
-    for (const chip of chips) {
-        const el = document.createElement('span');
-        el.className = `chip chip-${chip.kind || 'info'}`;
-        el.textContent = chip.icon;
-        el.title = chip.label;
-        host.appendChild(el);
+    for (const chip of chips) host.appendChild(buildChip(chip));
+}
+
+/** The small explanation bubble opened by tapping a chip. */
+const ChipTip = {
+    _el: null,
+    _for: null,
+    _timer: null,
+
+    toggle(anchor, chip) {
+        if (this._for === anchor && this._el && this._el.classList.contains('chip-tip-show')) { this.hide(); return; }
+        this.show(anchor, chip);
+    },
+
+    show(anchor, chip) {
+        if (!this._el) {
+            this._el = document.createElement('div');
+            this._el.className = 'chip-tip';
+            this._el.setAttribute('role', 'tooltip');
+            document.body.appendChild(this._el);
+            document.addEventListener('click', e => { if (this._el && !this._el.contains(e.target)) this.hide(); });
+            window.addEventListener('scroll', () => this.hide(), true);
+        }
+        const [name, ...rest] = String(chip.label).split(': ');
+        this._el.innerHTML = '';
+        const title = document.createElement('div');
+        title.className = 'chip-tip-title';
+        title.textContent = `${chip.icon} ${rest.length ? name : ''}`.trim();
+        const body = document.createElement('div');
+        body.className = 'chip-tip-body';
+        const text = rest.length ? rest.join(': ') : chip.label;
+        body.textContent = text.charAt(0).toUpperCase() + text.slice(1);
+        this._el.append(title, body);
+        this._el.dataset.kind = chip.kind || 'info';
+
+        const r = anchor.getBoundingClientRect();
+        this._el.classList.add('chip-tip-show');
+        const w = Math.min(280, window.innerWidth - 16);
+        this._el.style.width = `${w}px`;
+        const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+        const h = this._el.offsetHeight;
+        const below = r.bottom + 8 + h < window.innerHeight;
+        this._el.style.left = `${left}px`;
+        this._el.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - h - 6)}px`;
+        this._for = anchor;
+        clearTimeout(this._timer);
+        this._timer = setTimeout(() => this.hide(), 8000);
+    },
+
+    hide() {
+        clearTimeout(this._timer);
+        if (this._el) this._el.classList.remove('chip-tip-show');
+        this._for = null;
     }
+};
+
+/** How long an effect on `side` lasts, in that side's own turns, for the chips. */
+function turnsLeft(deadline, side) {
+    const n = Timing.remaining(deadline);
+    const now = gameState.currentTurn === side;
+    const whose = side === 'player' ? 'your' : possessive(side).replace(/^The /, 'the ');
+    if (now && n === 1) return 'Ends after this turn.';
+    return `Lasts ${n} more of ${whose} turn${n === 1 ? '' : 's'}${now ? ', counting this one' : ''}.`;
+}
+
+/** Status conditions, for the chips: what they do and when they end. */
+function statusExplanation(condition) {
+    return `${condition.name}: status condition. ${condition.blurb} ` +
+        'It lasts until it is cured (Remedy, some abilities) or the creature leaves the active spot.';
 }
 
 function renderPips(elementId, filled, total) {
@@ -502,44 +577,48 @@ function creatureChips(card) {
     const chips = [];
     const f = card.flags;
 
+    const owner = locateCard(card);
+    const ownerSide = owner ? owner.side : 'player';
+
     for (const status of Status.list(card)) {
         const condition = STATUS_CONDITIONS[status];
-        chips.push({ icon: condition.icon, label: `${condition.name}: ${condition.blurb}`, kind: 'bad' });
+        chips.push({ icon: condition.icon, label: statusExplanation(condition), kind: 'bad' });
     }
 
+    // "Takes N less damage" shields on this creature, each used up by the next attack it takes.
     const shieldLabels = {
         mindRipple: 'Mind Ripple',
         cottonGuard: 'Cotton Guard',
         monksFury: "Monk's Fury",
-        spectralBurst: 'Spectral Burst'
+        spectralBurst: 'Spectral Burst',
+        oreLash: 'Ore Lash',
+        coreTangle: 'Core Tangle',
+        searGuard: 'Sear Guard'
     };
     for (const key of Object.keys(shieldLabels)) {
         const shield = readShield(f.shields, key);
         if (shield) {
-            chips.push({ icon: '🛡️', label: `${shieldLabels[key]}: -${shield.amount} damage`, kind: 'good' });
+            chips.push({ icon: '🛡️', label: `${shieldLabels[key]}: this creature takes ${shield.amount} less damage from the next attack ` +
+                "that hits it, until the end of the opponent's next turn.", kind: 'good' });
         }
     }
 
     if (card.accessory) {
         const text = typeof cardText === 'function' ? cardText(card.accessory.id, 'accessory') : '';
-        chips.push({ icon: '🧿', label: `${card.accessory.data.name}${text ? ': ' + text : ''}`, kind: 'good' });
-    }
-    for (const [key, label] of [['oreLash', 'Ore Lash'], ['coreTangle', 'Core Tangle']]) {
-        const shield = readShield(f.shields, key);
-        if (shield) chips.push({ icon: '🛡️', label: `${label}: -${shield.amount} damage`, kind: 'good' });
+        chips.push({ icon: '🧿', label: `${card.accessory.data.name}: accessory card attached to this creature. ${text}`.trim(), kind: 'good' });
     }
     if (Timing.active(f.anchoredUntil)) {
-        chips.push({ icon: '⚓', label: 'Anchored Terrain: Mechanic attacks deal it no damage', kind: 'good' });
+        chips.push({ icon: '⚓', label: "Anchored Terrain: attacks from Mechanic creatures deal it no damage, until the end of the opponent's next turn.", kind: 'good' });
     }
     if (f.bloomshroudTurn) {
-        chips.push({ icon: '🌸', label: 'Bloomshroud: on tails next turn it takes no damage or status', kind: 'good' });
+        chips.push({ icon: '🌸', label: "Bloomshroud: at the start of the opponent's next turn they flip a coin. Tails: this creature takes no damage or status conditions that turn.", kind: 'good' });
     }
     if (typeof bloomshroudSafe === 'function' && bloomshroudSafe(card)) {
-        chips.push({ icon: '🌸', label: 'Bloomshroud: no damage or status effects this turn', kind: 'good' });
+        chips.push({ icon: '🌸', label: 'Bloomshroud: this creature takes no damage or status conditions this turn.', kind: 'good' });
     }
     const printed = getCardData(card.id);
     if (printed && getCardType(printed) !== getCardType(card.data)) {
-        chips.push({ icon: '🔄', label: `Elemental Shift: now ${getCardType(card.data)} type`, kind: 'info' });
+        chips.push({ icon: '🔄', label: `Elemental Shift: this creature is ${getCardType(card.data)} type (printed ${getCardType(printed)}) until it leaves play.`, kind: 'info' });
     }
 
     // Always-on abilities show while they are in effect where the creature stands.
@@ -550,25 +629,25 @@ function creatureChips(card) {
     }
 
     if (f.chillRecharge) {
-        chips.push({ icon: '❄️', label: 'Chill Recharge: next attack +20', kind: 'good' });
+        chips.push({ icon: '❄️', label: "Chill Recharge: this creature's next attack deals +20 damage.", kind: 'good' });
     }
     if (f.sproutBoostReady) {
-        chips.push({ icon: '🌱', label: 'Sprout Boost: next attack +30', kind: 'good' });
+        chips.push({ icon: '🌱', label: "Sprout Boost: this creature's next attack deals +30 damage.", kind: 'good' });
     }
-    const owner = locateCard(card);
     if (owner && gameState[owner.side] && gameState[owner.side].flags.guardianCard === card &&
         Timing.active(gameState[owner.side].flags.guardianUntil)) {
-        chips.push({ icon: '🛡️', label: 'Guardian: takes the next hit meant for the active creature', kind: 'good' });
+        chips.push({ icon: '🛡️', label: 'Guardian: this benched creature takes the next attack meant for the active creature.', kind: 'good' });
     }
     if (Timing.active(f.cantAttackUntil)) {
-        chips.push({ icon: '💤', label: `Cannot attack for ${Timing.describe(f.cantAttackUntil)}`, kind: 'bad' });
+        chips.push({ icon: '💤', label: `Can't attack: this creature can't attack. ${turnsLeft(f.cantAttackUntil, ownerSide)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantRetreatUntil)) {
-        chips.push({ icon: '⛓️', label: `Cannot retreat for ${Timing.describe(f.cantRetreatUntil)}`, kind: 'bad' });
+        chips.push({ icon: '⛓️', label: `Can't retreat: this creature can't retreat. ${turnsLeft(f.cantRetreatUntil, ownerSide)}`, kind: 'bad' });
     }
     for (const [effectId, deadline] of Object.entries(f.cooldowns)) {
         if (!Timing.active(deadline)) continue;
-        chips.push({ icon: '🔧', label: `${effectId} recharging for ${Timing.describe(deadline)}`, kind: 'bad' });
+        const move = movesOf(card.data).find(m => m.effect === effectId);
+        chips.push({ icon: '🔧', label: `${move ? move.name : effectId}: recharging, can't be used. ${turnsLeft(deadline, ownerSide)}`, kind: 'bad' });
     }
 
     return chips;
@@ -579,51 +658,52 @@ function sideChips(side) {
     const chips = [];
     const f = gameState[side].flags;
 
+    const who = side === 'player' ? 'your' : possessive(side);
     const shieldLabels = {
-        shieldBarrier: 'Shield Barrier',
-        galeShield: 'Gale Shield (Wind defenders)'
+        shieldBarrier: ['Shield Barrier', `${who} active creature takes`],
+        galeShield: ['Gale Shield', `${who} Wind creatures take`]
     };
-    for (const key of Object.keys(shieldLabels)) {
+    for (const [key, [name, takes]] of Object.entries(shieldLabels)) {
         const shield = readShield(f.shields, key);
         if (shield) {
-            chips.push({ icon: '🛡️', label: `${shieldLabels[key]}: -${shield.amount} damage`, kind: 'good' });
+            chips.push({ icon: '🛡️', label: `${name}: ${takes} ${shield.amount} less damage from attacks, until the end of the opponent's next turn.`, kind: 'good' });
         }
     }
 
     if (f.booster) {
-        chips.push({ icon: '⬆️', label: 'Booster: next attack +20', kind: 'good' });
+        chips.push({ icon: '⬆️', label: `Booster (item): ${who} next attack this turn deals +20 damage, whatever creature makes it. Ends with this turn.`, kind: 'good' });
     }
     if (f.powerUpAttacks > 0) {
-        chips.push({ icon: '⬆️', label: `Power-Up: +10 damage for ${f.powerUpAttacks} more attack(s)`, kind: 'good' });
+        chips.push({ icon: '⬆️', label: `Power-Up (item): ${who} next ${f.powerUpAttacks === 1 ? 'attack deals' : `${f.powerUpAttacks} attacks each deal`} +10 damage, whatever creature makes ${f.powerUpAttacks === 1 ? 'it' : 'them'}.`, kind: 'good' });
     }
     if (Timing.active(f.amuletUntil)) {
-        chips.push({ icon: '⬆️', label: 'Amulet: Neutral creatures +20 damage', kind: 'good' });
+        chips.push({ icon: '⬆️', label: `Amulet (item): ${who} Neutral creatures deal +20 damage when they attack. Other types get nothing. ${turnsLeft(f.amuletUntil, side)}`, kind: 'good' });
     }
     if (f.phaseShift) {
-        chips.push({ icon: '🌀', label: 'Phase Shift: must switch out after attacking', kind: 'info' });
+        chips.push({ icon: '🌀', label: 'Phase Shift: after attacking, the active creature switches with a benched one.', kind: 'info' });
     }
     if (Timing.active(f.invincibleLockUntil)) {
-        chips.push({ icon: '🚫', label: `Deals no damage for ${Timing.describe(f.invincibleLockUntil)} (Invincible Gambit)`, kind: 'bad' });
+        chips.push({ icon: '🚫', label: `Invincible Gambit: ${who} attacks and abilities deal no damage. ${turnsLeft(f.invincibleLockUntil, side)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantAttackUntil)) {
-        chips.push({ icon: '🚫', label: 'Cannot attack this turn', kind: 'bad' });
+        chips.push({ icon: '🚫', label: `Can't attack: ${side === 'player' ? 'you' : subject(side)} can't attack. ${turnsLeft(f.cantAttackUntil, side)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantDealDamageUntil)) {
-        chips.push({ icon: '🌊', label: 'Deals no damage this turn (Tidal Illusion)', kind: 'bad' });
+        chips.push({ icon: '🌊', label: `Tidal Illusion: ${who} attacks deal no damage. ${turnsLeft(f.cantDealDamageUntil, side)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantEvolveUntil)) {
-        chips.push({ icon: '🧸', label: 'Cannot evolve this turn (Cuddle Storm)', kind: 'bad' });
+        chips.push({ icon: '🧸', label: `Cuddle Storm: ${side === 'player' ? 'you' : subject(side)} can't evolve creatures. ${turnsLeft(f.cantEvolveUntil, side)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantUseAccessoriesUntil)) {
-        chips.push({ icon: '🧊', label: 'Cannot use accessory cards this turn', kind: 'bad' });
+        chips.push({ icon: '🧊', label: `No accessories: ${side === 'player' ? 'you' : subject(side)} can't attach accessory cards. ${turnsLeft(f.cantUseAccessoriesUntil, side)}`, kind: 'bad' });
     }
     if (f.abilitiesBlockedTurn !== null && f.abilitiesBlockedTurn >= gameState.turnNumber) {
-        chips.push({ icon: '🔇', label: f.abilitiesBlockedTurn === gameState.turnNumber
-            ? 'No abilities this turn (Memento Echo)' : 'No abilities next turn (Memento Echo)', kind: 'bad' });
+        chips.push({ icon: '🔇', label: `Memento Echo: none of ${who} abilities work, always-on ones included, ` +
+            (f.abilitiesBlockedTurn === gameState.turnNumber ? 'this turn.' : 'on the next turn.'), kind: 'bad' });
     }
     const foe = foeOf(side);
     if (gameState[foe] && hasAbilityAt(gameState[foe].active, 'mirageShield', 'active')) {
-        chips.push({ icon: '🔮', label: 'Cannot use items (opponent\'s Mirage Shield)', kind: 'bad' });
+        chips.push({ icon: '🔮', label: `Mirage Shield: ${side === 'player' ? 'you' : subject(side)} can't use item cards while the opponent's ${gameState[foe].active.data.name} is active.`, kind: 'bad' });
     }
 
     return chips;

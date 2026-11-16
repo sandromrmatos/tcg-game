@@ -375,7 +375,7 @@ const CARD_TEXT = {
     },
     // ---- Temporal Rift ----
     "Temporal Rift_01.png": {
-        "move1": "This move does 20 damage for each Flakette, Canelette or Rollinette you have in play..."
+        "move1": "This move does 20 damage for each Flakette, Canelette or Rollinette you have in play."
     },
     "Temporal Rift_02.png": {
         "move1": "This move heals this creature 10 HP for each Flakette, Canelette or Rollinette you have in play."
@@ -467,7 +467,7 @@ const CARD_TEXT = {
     },
     "Temporal Rift_35.png": {
         "move1": "Flip 2 coins. If both are heads, this attack does 50 extra damage.",
-        "ability": "This creature takes no damage from attacks that deal 50 or more damage..."
+        "ability": "This creature takes no damage from attacks that deal 50 or more damage."
     },
     "Temporal Rift_36.png": {
         "move1": "Flip a coin. If heads, your opponent can't use accessory cards next turn.",
@@ -522,7 +522,7 @@ const CARD_TEXT = {
         "accessory": "Attach to a Mystic creature. This creature gains 10 extra HP and its attacks deal 10 additional damage."
     },
     "Temporal Rift_62.png": {
-        "accessory": "Attach to a Wind creature. This creature's retreat cost is reduced by one Energy..."
+        "accessory": "Attach to a Wind creature. This creature's retreat cost is reduced by one Energy."
     },
     "Temporal Rift_63.png": {
         "accessory": "Attach to a Celestial creature. This creature takes 10 less damage from attacks and heals 10 HP at the start of each turn."
@@ -532,6 +532,53 @@ const CARD_TEXT = {
     },
     "Temporal Rift_65.png": {
         "accessory": "Attach to a Neutral creature. You can move it to your hand, recovering all its HP. Discard this card if you do."
+    },
+    "Temporal Rift_66.png": {
+        "move1": "Roll 10 dice. Heal this creature 10 HP for each 6.",
+        "ability": "This creature takes 20 less damage from attacks."
+    },
+    "Temporal Rift_68.png": {
+        "move1": "This creature takes 30 less damage next turn.",
+        "move2": "Flip a coin for each retreat energy of both active creatures. +30 damage for each heads."
+    },
+    "Temporal Rift_69.png": {
+        "ability": "When knocked out, your opponent discards the top 2 cards of their deck."
+    },
+    "Temporal Rift_70.png": {
+        "move1": "+40 damage if there's an accessory in your discard pile.",
+        "move2": "Flip 3 coins: 40 damage for each heads. Flip 6 if your deck has fewer than 5 cards."
+    },
+    "Temporal Rift_73.png": {
+        "ability": "Flip a coin for each card in your discard pile. Heal your active creature 10 HP per heads."
+    },
+    "Temporal Rift_74.png": {
+        "move1": "If your discard pile has more cards than your opponent's, they get Hallucination.",
+        "move2": "+50 damage if your discard pile has more cards than your opponent's.",
+        "ability": "When knocked out, the opponent's active creature is affected by Lock."
+    },
+    "Temporal Rift_75.png": {
+        "move1": "Your opponent shows you their hand.",
+        "ability": "You may discard a card from your hand to heal this creature 40 HP."
+    },
+    "Temporal Rift_76.png": {
+        "move1": "Does nothing if the opponent's active creature has 2 moves.",
+        "move2": "+40 damage if the opponent's active creature has 2 moves."
+    },
+    "Temporal Rift_77.png": {
+        "move1": "Flip a coin per card in both discard piles. Each heads deals 20 to a random enemy. Can't attack next turn.",
+        "ability": "If attacked at full HP, flip a coin. Heads: the attack deals it no damage."
+    },
+    "Temporal Rift_78.png": {
+        "ability": "When knocked out, deal 20 damage to the opponent's active creature."
+    },
+    "Temporal Rift_79.png": {
+        "ability": "When knocked out, deal 50 damage to the opponent's active creature and cause Hallucination."
+    },
+    "Temporal Rift_80.png": {
+        "move1": "10 damage for each A in the name of the opponent's active creature."
+    },
+    "Temporal Rift_81.png": {
+        "move1": "Flip a coin per A in the opponent's name. Heads: 30 to a benched creature you pick. Tails: 10 to itself."
     }
 
 };

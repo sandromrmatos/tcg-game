@@ -1310,6 +1310,210 @@ EffectRegistry.register('pixieDraft', {
 });
 
 // ===========================================================================
+// TEMPORAL RIFT PROMO CREATURES
+// ===========================================================================
+
+/** How many letter A's (either case) a creature's name has. */
+function countLetterA(card) {
+    return card && card.data ? (card.data.name.match(/a/gi) || []).length : 0;
+}
+
+/** This side's discard pile has more cards than the other side's. */
+function biggerDiscard(ctx) {
+    return ctx.me.discardPile.length > ctx.them.discardPile.length;
+}
+
+/** The defending creature has two moves printed. */
+function defenderHasTwoMoves(ctx) {
+    return !!ctx.defender && movesOf(ctx.defender.data).length === 2;
+}
+
+// Craggit — "Roll 10 dice. Heal this creature 10 HP for each 6."
+EffectRegistry.register('stoneThump', {
+    async onResolve(ctx) {
+        const rolls = [];
+        for (let i = 0; i < 10; i++) rolls.push(Rng.roll());
+        const sixes = rolls.filter(r => r === 6).length;
+        Log.write(`${ctx.move.name}: rolled ${rolls.join(', ')} (${sixes} six${sixes === 1 ? '' : 'es'})`, { kind: 'dice', icon: '🎲' });
+        if (typeof Sfx !== 'undefined') Sfx.play('dice');
+        await Log.centerBanner(`🎲 ${sixes} × 6`, `${ctx.move.name}: 10 dice`, { kind: 'dice' });
+        if (sixes) await ctx.heal(ctx.attacker, 10 * sixes);
+        else await ctx.say('No sixes: no healing.', { kind: 'info', pace: 0.5 });
+    }
+});
+
+// Voltfryer — "This creature takes 30 less damage next turn."
+EffectRegistry.register('searGuard', creatureShield('searGuard', 30, 'Sear Guard'));
+
+// Voltfryer — "Flip a coin for each retreat energy of both active creatures. +30 for each heads."
+// The retreat cost after effects such as Wind Feather.
+EffectRegistry.register('burnBurst', {
+    async onDamageCalc(ctx) {
+        const coins = retreatCost(ctx.attacker) + retreatCost(ctx.defender);
+        if (!coins) {
+            await ctx.say('Neither creature has a retreat cost: no coins to flip.', { kind: 'info', pace: 0.5 });
+            return ctx.damage;
+        }
+        const { heads } = await ctx.flipMany(coins, ctx.move.name);
+        if (heads) await ctx.say(`${heads} heads: +${30 * heads} damage.`, { kind: 'damage', pace: 0.5 });
+        return ctx.damage + 30 * heads;
+    }
+});
+
+// Gazorilla — "+40 damage if there's an accessory in your discard pile."
+EffectRegistry.register('gazeJab', {
+    async onDamageCalc(ctx) {
+        if (!ctx.me.discardPile.some(c => isAccessory(c.data))) return ctx.damage;
+        await ctx.say('An accessory in the discard pile: +40 damage.', { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 40;
+    }
+});
+
+// Gazorilla — "Flip 3 coins: 40 damage for each heads. Flip 6 if your deck has fewer than 5 cards."
+EffectRegistry.register('gorillaCrash', {
+    async onDamageCalc(ctx) {
+        const coins = ctx.me.deck.length < 5 ? 6 : 3;
+        const { heads } = await ctx.flipMany(coins, ctx.move.name);
+        await ctx.say(`${heads} heads: ${40 * heads} damage.`, { kind: 'damage', pace: 0.5 });
+        return 40 * heads;
+    }
+});
+
+// Nyamura — "If your discard pile has more cards than your opponent's, they get Hallucination."
+EffectRegistry.register('nyapawSwipe', {
+    async onResolve(ctx) {
+        if (biggerDiscard(ctx)) await ctx.status(ctx.defender, 'hallucination');
+    }
+});
+
+// Nyamura — "+50 damage if your discard pile has more cards than your opponent's."
+EffectRegistry.register('moonlitRake', {
+    async onDamageCalc(ctx) {
+        if (!biggerDiscard(ctx)) return ctx.damage;
+        await ctx.say(`Bigger discard pile (${ctx.me.discardPile.length} vs ${ctx.them.discardPile.length}): +50 damage.`,
+            { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 50;
+    }
+});
+
+// Solflare — "Your opponent shows you their hand." Shown for 3 seconds to the
+// player who attacked (the AI gains nothing from seeing it).
+EffectRegistry.register('solarBurst', {
+    async onResolve(ctx) {
+        const hand = ctx.them.hand;
+        if (!hand.length) {
+            await ctx.say(`${possessive(ctx.foe)} hand is empty.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        if (ctx.side === 'player') {
+            Log.write(`${subject(ctx.foe)}'s hand: ${hand.map(c => c.data.name).join(', ')}.`, { kind: 'info', icon: '☀️' });
+            if (typeof Screens !== 'undefined' && Screens.revealHand && Log.speed > 0 &&
+                !(typeof Automation !== 'undefined' && Automation.active)) {
+                await Screens.revealHand(hand, `☀️ ${possessive(ctx.foe)} hand`, 3000);
+            }
+        } else {
+            await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'looks', 'look')} at your hand (${hand.length} card${hand.length === 1 ? '' : 's'}).`,
+                { kind: 'info', icon: '☀️', pace: 0.6 });
+        }
+    }
+});
+
+// Sanctuarch — "Does nothing if the opponent's active creature has 2 moves."
+EffectRegistry.register('sanctuJab', {
+    async onDamageCalc(ctx) {
+        if (!defenderHasTwoMoves(ctx)) return ctx.damage;
+        await ctx.say(`${creatureName(ctx.defender, ctx.foe)} has 2 moves: ${ctx.move.name} does nothing.`, { kind: 'info', pace: 0.6 });
+        return 0;
+    }
+});
+
+// Sanctuarch — "+40 damage if the opponent's active creature has 2 moves."
+EffectRegistry.register('divineCrash', {
+    async onDamageCalc(ctx) {
+        if (!defenderHasTwoMoves(ctx)) return ctx.damage;
+        await ctx.say(`${creatureName(ctx.defender, ctx.foe)} has 2 moves: +40 damage.`, { kind: 'damage', pace: 0.6 });
+        return ctx.damage + 40;
+    }
+});
+
+// Snoozoth — "Flip a coin per card in both discard piles. Each heads deals 20 to
+// a random enemy. Can't attack next turn." Every heads picks from all the
+// opponent's creatures, and nothing is knocked out until every hit is dealt,
+// so a creature can be picked again after it would have fainted.
+EffectRegistry.register('napRoll', {
+    async onResolve(ctx) {
+        const coins = ctx.me.discardPile.length + ctx.them.discardPile.length;
+        if (coins > 0) {
+            const { heads } = await ctx.flipMany(coins, ctx.move.name);
+            const tally = new Map();
+            for (let i = 0; i < heads; i++) {
+                const target = Rng.pick(creaturesInPlay(ctx.foe));
+                if (!target) break;
+                tally.set(target, (tally.get(target) || 0) + 1);
+            }
+            for (const [card, n] of tally) {
+                let dealt = 0;
+                for (let i = 0; i < n; i++) dealt += await ctx.hit(card, 20, { side: ctx.foe, silent: true });
+                await ctx.say(`${creatureName(card, ctx.foe)} is hit ${n} time${n === 1 ? '' : 's'}: ${dealt} damage.`,
+                    { kind: 'damage', icon: '💤', pace: 0.5 });
+            }
+            Render.board();
+        } else {
+            await ctx.say('Both discard piles are empty: no coins to flip.', { kind: 'info', pace: 0.5 });
+        }
+        ctx.attacker.flags.cantAttackUntil = Timing.myTurns(1);
+        await ctx.say(`${creatureName(ctx.attacker, ctx.side)} dozes off and can't attack next turn.`, { kind: 'status', icon: '💤', pace: 0.6 });
+    }
+});
+
+// Penkit — "10 damage for each A in the name of the opponent's active creature."
+EffectRegistry.register('featherFlick', {
+    async onDamageCalc(ctx) {
+        const n = countLetterA(ctx.defender);
+        await ctx.say(`${n} A${n === 1 ? '' : "'s"} in ${ctx.defender.data.name}: ${10 * n} damage.`, { kind: 'damage', pace: 0.6 });
+        return 10 * n;
+    }
+});
+
+// Penseraph — "Flip a coin per A in the opponent's name. Heads: 30 to a benched
+// creature you pick. Tails: 10 to itself." The same creature can be picked
+// again; with no bench the heads are lost. Knockouts wait until the end.
+EffectRegistry.register('skyBurst', {
+    async onResolve(ctx) {
+        const n = countLetterA(ctx.defender);
+        if (!n) {
+            await ctx.say(`No A in ${ctx.defender.data.name}: no coins to flip.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const { results } = await ctx.flipMany(n, ctx.move.name);
+        const heads = results.filter(r => r === 'heads').length;
+        const tails = n - heads;
+        for (let i = 0; i < heads; i++) {
+            if (benchCreatures(ctx.foe).length === 0) {
+                await ctx.say(`${possessive(ctx.foe)} bench is empty: the heads are lost.`, { kind: 'info', pace: 0.5 });
+                break;
+            }
+            const target = await ctx.chooseTheirCreature({
+                title: `Sky Burst: deal 30 damage to which benched creature? (${i + 1}/${heads})`,
+                filter: c => c.location === 'bench',
+                // A finishing blow first, then the creature closest to fainting.
+                aiPick: candidates => {
+                    const alive = candidates.filter(c => remainingHp(c.card) > 0);
+                    const pool = alive.length ? alive : candidates;
+                    const lethal = pool.filter(c => remainingHp(c.card) <= 30);
+                    return (lethal.length ? lethal : pool).slice().sort((a, b) => remainingHp(a.card) - remainingHp(b.card))[0];
+                }
+            });
+            if (!target) break;
+            await ctx.hit(target.card, 30, { side: ctx.foe, location: 'bench', reason: 'Sky Burst' });
+        }
+        if (tails) {
+            await ctx.hit(ctx.attacker, 10 * tails, { side: ctx.side, reason: 'recoil' });
+        }
+    }
+});
+
+// ===========================================================================
 // AI DAMAGE EXPECTATIONS
 //
 // Move selection needs to know what a move is actually worth, and the printed
@@ -1380,7 +1584,21 @@ const EXPECTED_DAMAGE = {
     telepondLeap: (move, v) => move.damage + (Status.any(v.defender) ? 40 : 0),
     canopyDrift: (move, v) => move.damage + 10 * (gameState[v.side].evolutionsMade || 0),
     reverieTalon: (move, v) => move.damage + (usedDiveLastTurn(v.side) ? 40 : 0),
-    pixieDraft: (move, v) => move.damage + (v.defender && /Stage [23]/.test(v.defender.data.stage) ? 30 : 0)
+    pixieDraft: (move, v) => move.damage + (v.defender && /Stage [23]/.test(v.defender.data.stage) ? 30 : 0),
+
+    // Temporal Rift promos
+    searGuard: () => 0,
+    burnBurst: (move, v) => move.damage + 15 * (retreatCost(v.attacker) + retreatCost(v.defender)),
+    gazeJab: (move, v) => move.damage + (gameState[v.side].discardPile.some(c => isAccessory(c.data)) ? 40 : 0),
+    gorillaCrash: (move, v) => (gameState[v.side].deck.length < 5 ? 6 : 3) * 20,
+    moonlitRake: (move, v) => move.damage +
+        (gameState[v.side].discardPile.length > gameState[foeOf(v.side)].discardPile.length ? 50 : 0),
+    sanctuJab: (move, v) => (movesOf(v.defender.data).length === 2 ? 0 : move.damage),
+    divineCrash: (move, v) => move.damage + (movesOf(v.defender.data).length === 2 ? 40 : 0),
+    // Half the coins land, spread over the opponent's creatures: the active's share.
+    napRoll: (move, v) => (gameState[v.side].discardPile.length + gameState[foeOf(v.side)].discardPile.length) * 10 /
+        Math.max(1, creaturesInPlay(foeOf(v.side)).length),
+    featherFlick: (move, v) => 10 * countLetterA(v.defender)
 };
 
 for (const [id, estimator] of Object.entries(EXPECTED_DAMAGE)) {

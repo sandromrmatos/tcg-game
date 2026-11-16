@@ -374,6 +374,22 @@ function estimateMoveTacticalValue(move, side) {
         case 'magnetarcNeedle': return gameState[foeOf(side)].hand.length ? 6 : 0;
         case 'superRoar': return foeBench.length ? 5 : 0;
         case 'stormsChance': return -Math.min(20, creaturesInPlay(side).reduce((s, c) => s + c.energy, 0) * 4) - 10;
+        // Temporal Rift promos
+        case 'stoneThump': return Math.min(17, missingHp(attacker)) * 0.7;          // 10 dice: 1.7 sixes
+        case 'searGuard': return 18;
+        case 'solarBurst': return 2;
+        case 'nyapawSwipe':
+            return gameState[side].discardPile.length > gameState[foeOf(side)].discardPile.length ? statusValue('hallucination', 15) : 0;
+        case 'napRoll': {
+            // The bench's share of the hits (the active's share is in its expected damage).
+            const coins = gameState[side].discardPile.length + gameState[foeOf(side)].discardPile.length;
+            const targets = 1 + foeBench.length;
+            return coins * 10 * (targets - 1) / targets * 0.6 - 10;    // -10: it can't attack next turn
+        }
+        case 'skyBurst': {
+            const coins = countLetterA(defender);
+            return (foeBench.length ? coins * 15 * 0.6 : 0) - coins * 5;
+        }
         default: return 0;
     }
 }

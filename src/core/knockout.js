@@ -68,12 +68,15 @@ async function resolveKnockouts() {
                     { kind: 'ko', icon: '☠️' }
                 );
                 await Status.clear(card, { silent: true });
+                const onKo = knockoutAbility(card);
                 discardCreature(side, card);
                 bench[i] = null;
                 Render.all();
                 acted = true;
 
                 await awardPoint(foeOf(side));
+                assertRunning();
+                await runKnockoutAbility(onKo, card, side);
                 assertRunning();
             }
         }
@@ -87,12 +90,15 @@ async function resolveKnockouts() {
                 { kind: 'ko', icon: '☠️' }
             );
             await Status.clear(active, { silent: true });
+            const onKo = knockoutAbility(active);
             discardCreature(side, active);
             gameState[side].active = null;
             Render.all();
             acted = true;
 
             await awardPoint(foeOf(side));
+            assertRunning();
+            await runKnockoutAbility(onKo, active, side);
             assertRunning();
 
             await promoteFromBench(side);
@@ -103,6 +109,51 @@ async function resolveKnockouts() {
     }
 
     await checkForEmptyBoard();
+}
+
+/** "When knocked out" abilities, read while the creature is still on the board. */
+const KNOCKOUT_ABILITIES = ['paperJam', 'cursedGaze', 'umbrellaSnap', 'stormCanopy'];
+function knockoutAbility(card) {
+    const id = card && card.data && card.data.abilityEffect;
+    return KNOCKOUT_ABILITIES.includes(id) && cardAbilityOn(card, id) ? id : null;
+}
+
+/**
+ * Runs a knocked-out creature's ability. Its damage is swept by the next pass
+ * of resolveKnockouts, so it can knock the opponent's active creature out.
+ */
+async function runKnockoutAbility(id, card, side) {
+    if (!id) return;
+    const foe = foeOf(side);
+    const them = gameState[foe];
+    AbilityRegistry.noteTriggered(id);
+    await Log.say(`${creatureName(card, side)}'s ${card.data.abilityName} activates!`, { kind: 'ability', icon: '✨', pace: 0.6 });
+    if (id === 'paperJam') {
+        const n = Math.min(2, them.deck.length);
+        if (!n) {
+            await Log.say(`${possessive(foe)} deck is empty: nothing to discard.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const gone = [];
+        for (let i = 0; i < n; i++) {
+            const discarded = instanceFromDeck(foe, them.deck.pop());
+            them.discardPile.push(discarded);
+            gone.push(discarded.data.name);
+        }
+        Render.all();
+        await Log.say(`${subject(foe)} ${verb(foe, 'discards', 'discard')} the top ${n === 1 ? 'card' : `${n} cards`} of the deck: ${gone.join(', ')}.`,
+            { kind: 'info', icon: '📄', pace: 0.6 });
+        return;
+    }
+    const target = them.active;
+    if (!target || isFainted(target)) return;
+    if (id === 'cursedGaze') {
+        await Status.apply(target, 'lock', { targetSide: foe, attackerSide: side });
+        return;
+    }
+    const amount = id === 'stormCanopy' ? 50 : 20;
+    await damageCreature(target, amount, { side: foe, location: 'active', source: { card, side, kind: 'ability' }, reason: card.data.abilityName });
+    if (id === 'stormCanopy') await Status.apply(target, 'hallucination', { targetSide: foe, attackerSide: side });
 }
 
 /**
