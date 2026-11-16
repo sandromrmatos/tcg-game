@@ -338,7 +338,7 @@ const Raids = {
     },
 
     _tryBuild(bossCard, mainType, { isSetOpen, rng, strongOnly }) {
-        const family = raidLineOf(bossCard).filter(c => !raidIsPromo(c));
+        const family = raidBossLine(bossCard).filter(c => !raidIsPromo(c));
         const familyIds = new Set(family.map(c => c.id));
         const cards = [];
         for (const c of family) cards.push(c.id, c.id);
@@ -436,6 +436,29 @@ function raidIsPromo(card) {
     if (card.promo) return true;
     const meta = typeof CARD_COLLECTION_DATA !== 'undefined' && CARD_COLLECTION_DATA[card.id];
     return !!(meta && meta.promo);
+}
+
+/**
+ * The boss card's own evolution path: what it evolves from and into, but not
+ * sibling branches. Rustarok's deck gets Vulpetta and Rustarok, not Vulpetta's
+ * three other evolutions of other types.
+ */
+function raidBossLine(card) {
+    const path = [card];
+    for (let cur = card; cur.prevStageIds && cur.prevStageIds.length;) {
+        cur = getCardData(cur.prevStageIds[0]);
+        if (!cur || path.includes(cur)) break;
+        path.unshift(cur);
+    }
+    const stack = (card.nextStageIds || []).slice();
+    while (stack.length) {
+        const next = getCardData(stack.pop());
+        if (!next || path.includes(next)) continue;
+        path.push(next);
+        stack.push(...(next.nextStageIds || []));
+    }
+    const order = { 'Stage 1': 1, 'Stage 2': 2, 'Stage 3': 3 };
+    return path.sort((a, b) => (order[a.stage] || 9) - (order[b.stage] || 9));
 }
 
 /** A card's whole evolution line, in stage order. */

@@ -29,7 +29,17 @@ const RAID_BOSSES = [
     { id: 'mystaeon',   cardId: 'Galactic Adventures_21.png' },
     { id: 'mousuckler', cardId: 'Galactic Adventures_45.png' },
     { id: 'cockatrike', cardId: 'Galactic Adventures_48.png' },
-    { id: 'ectomango',  cardId: 'Galactic Adventures_65.png' }
+    { id: 'ectomango',  cardId: 'Galactic Adventures_65.png' },
+    // Temporal Rift
+    { id: 'anukibi',    cardId: 'Temporal Rift_04.png' },
+    { id: 'rustarok',   cardId: 'Temporal Rift_11.png' },
+    { id: 'cycloblaze', cardId: 'Temporal Rift_16.png' },
+    { id: 'florinelle', cardId: 'Temporal Rift_24.png' },
+    { id: 'mythloon',   cardId: 'Temporal Rift_27.png' },
+    { id: 'nimbearis',  cardId: 'Temporal Rift_34.png' },
+    { id: 'orkidia',    cardId: 'Temporal Rift_43.png' },
+    { id: 'cryobbit',   cardId: 'Temporal Rift_49.png' },
+    { id: 'cacklair',   cardId: 'Temporal Rift_55.png' }
 ];
 
 const RAID_STRONG_CARDS = {
