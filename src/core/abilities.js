@@ -95,7 +95,11 @@ const AbilityRegistry = {
             return { ok: false, reason: `${card.data.name} already used its ability this turn.` };
         }
         if (abilitiesBlocked(side)) {
-            return { ok: false, reason: 'Memento Echo: no abilities can be used this turn.' };
+            const why = Timing.active(gameState[side].flags.abilitiesBlockedUntil) ? 'Ability Seal' : 'Memento Echo';
+            return { ok: false, reason: `${why}: no abilities can be used this turn.` };
+        }
+        if (abilityLocked(card)) {
+            return { ok: false, reason: `Ability Lock: ${card.data.name} can't use its ability this turn.` };
         }
 
         const required = card.data.abilityLocation || 'any';
@@ -177,9 +181,10 @@ function sideWillAttackThisTurn(side) {
         usableMoves(side).length > 0;
 }
 
+/** Creatures that could be healed: damaged, and not affected by Hex. */
 function damagedCreatures(side, typeFilter) {
     return creaturesInPlay(side).filter(c =>
-        c.damage > 0 && (!typeFilter || getCardType(c.data) === typeFilter));
+        c.damage > 0 && !Status.has(c, 'hex') && (!typeFilter || getCardType(c.data) === typeFilter));
 }
 
 // ---------------------------------------------------------------------------
@@ -198,12 +203,21 @@ function abilityWorksAt(card, location) {
  */
 function abilitiesBlocked(side) {
     const s = side && gameState[side];
-    return !!s && s.flags.abilitiesBlockedTurn === gameState.turnNumber;
+    if (!s) return false;
+    if (s.flags.abilitiesBlockedTurn === gameState.turnNumber) return true;
+    // Ability Seal (Crystal Canopy item): the same, on that side's next two turns.
+    return gameState.currentTurn === side && Timing.active(s.flags.abilitiesBlockedUntil);
+}
+
+/** Ability Lock (Terraflew): this one creature's ability doesn't work, always-on ones included. */
+function abilityLocked(card) {
+    return !!card && !!card.flags && Timing.active(card.flags.abilityLockUntil);
 }
 
 /** This creature has ability `id` and is standing where it works. */
 function hasAbilityAt(card, id, location) {
     if (!card || !card.data || card.data.abilityEffect !== id || !abilityWorksAt(card, location)) return false;
+    if (abilityLocked(card)) return false;
     const spot = locateCard(card);
     return !(spot && abilitiesBlocked(spot.side));
 }
@@ -211,6 +225,7 @@ function hasAbilityAt(card, id, location) {
 /** This creature is in play, has ability `id`, and it is in effect where it stands. */
 function cardAbilityOn(card, id) {
     if (!card || !card.data || card.data.abilityEffect !== id) return false;
+    if (abilityLocked(card)) return false;
     const spot = locateCard(card);
     return !!spot && abilityWorksAt(card, spot.location) && !abilitiesBlocked(spot.side);
 }
@@ -848,3 +863,153 @@ function bestShiftType(ctx) {
 function usableMovesFor(card) {
     return movesOf(card.data).filter(m => canPayMove(card, m));
 }
+
+// ===========================================================================
+// CRYSTAL CANOPY
+// ===========================================================================
+
+// --- Always on ---------------------------------------------------------------
+
+// Shadegeist. Fires from knockout.js, only for a knockout during the opponent's attack.
+AbilityRegistry.register('mindTrap', passiveAbility(
+    'If an attack knocks this creature out, flip a coin. Heads: the attacker gets Hallucination. Tails: it gets Hex.'));
+// Tendrivale (damage.js).
+AbilityRegistry.register('itemSurge', passiveAbility(
+    "If your opponent used an item card on their last turn, this creature's attacks do 40 extra damage."));
+// Corleon (turn.js, at the start of your turn).
+AbilityRegistry.register('evoEcho', passiveAbility(
+    'At the start of your turn, if your opponent evolved a creature on their last turn, this creature heals to full HP.'));
+// Cryostralis (damage.js).
+AbilityRegistry.register('chillEcho', passiveAbility(
+    "While your opponent has 2 points, this creature's attacks deal double damage."));
+// Sylgroth (damage.js).
+AbilityRegistry.register('pressureWard', passiveAbility(
+    "While your opponent's bench is full, this creature takes 40 less damage from attacks."));
+// Crispisoy (turn.js rustTick).
+AbilityRegistry.register('oxidizeSurge', passiveAbility(
+    "While this creature is in play, Rust deals 30 damage to your opponent's creatures instead of 20."));
+// Twistulip (damage.js).
+AbilityRegistry.register('gearBoost', passiveAbility(
+    'While this creature has an accessory attached, its attacks deal 20 more damage.'));
+// Heliboo (damage.js).
+AbilityRegistry.register('linkedArsenal', passiveAbility(
+    'While this creature is in play, your creatures with an accessory attached deal 10 more damage with their attacks.'));
+// Ignistone 10, Ashquake 20 (damage.js).
+AbilityRegistry.register('armorSync10', passiveAbility(
+    'While this creature has an accessory attached, it takes 10 less damage from attacks.'));
+AbilityRegistry.register('armorSync20', passiveAbility(
+    'While this creature has an accessory attached, it takes 20 less damage from attacks.'));
+
+// --- Activated -----------------------------------------------------------------
+
+/** Draws for an ability, with the log line. */
+async function abilityDraw(ctx, n) {
+    const drawn = drawCards(ctx.side, n);
+    Render.all();
+    await ctx.say(drawn
+        ? `${subject(ctx.side)} ${verb(ctx.side, 'draws', 'draw')} ${drawn === 1 ? 'a card' : `${drawn} cards`}.`
+        : `${possessive(ctx.side)} deck is empty.`, { kind: 'ability', icon: '🎴', pace: 0.6 });
+}
+
+// Elaroo — "Once per turn, if this creature has 30 HP or less left, you may draw a card."
+AbilityRegistry.register('singlePeril', {
+    requires(ctx) {
+        if (remainingHp(ctx.card) > 30) return { ok: false, reason: `${ctx.card.data.name} needs 30 HP or less left.` };
+        if (!ctx.me.deck.length) return { ok: false, reason: 'Your deck is empty.' };
+        return { ok: true };
+    },
+    async use(ctx) { await abilityDraw(ctx, 1); }
+});
+
+// Arborctton — "Once per turn, if both active creatures have 50 HP or less left, you may draw 2 cards."
+AbilityRegistry.register('mutualPeril', {
+    requires(ctx) {
+        const mine = ctx.me.active, theirs = ctx.them.active;
+        if (!mine || !theirs || remainingHp(mine) > 50 || remainingHp(theirs) > 50) {
+            return { ok: false, reason: 'Both active creatures need 50 HP or less left.' };
+        }
+        if (!ctx.me.deck.length) return { ok: false, reason: 'Your deck is empty.' };
+        return { ok: true };
+    },
+    async use(ctx) { await abilityDraw(ctx, 2); }
+});
+
+// Spudrake — "Once per turn, if the opposing active creature has a status condition, you may flip a coin. If heads, draw a card."
+AbilityRegistry.register('baggyFortune', {
+    requires(ctx) {
+        if (!Status.any(ctx.them.active)) return { ok: false, reason: "The opposing active creature has no status condition." };
+        if (!ctx.me.deck.length) return { ok: false, reason: 'Your deck is empty.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const flip = await ctx.flip('Baggy Fortune');
+        if (flip === 'heads') await abilityDraw(ctx, 1);
+        else await ctx.say('No card this time.', { kind: 'info', pace: 0.5 });
+    }
+});
+
+// Swiftail — "Once per turn, if this creature is active, you may heal 20 HP from each benched creature. If you do, this creature takes 40 damage."
+AbilityRegistry.register('sharedVitality', {
+    requires(ctx) {
+        if (!damagedCreatures(ctx.side).some(c => c !== ctx.card && ctx.me.bench.includes(c))) {
+            return { ok: false, reason: 'No damaged benched creature to heal.' };
+        }
+        return { ok: true };
+    },
+    async use(ctx) {
+        for (const card of benchCreatures(ctx.side)) {
+            if (card.damage > 0) await ctx.heal(card, 20, { side: ctx.side });
+        }
+        await damageCreature(ctx.card, 40, { side: ctx.side, location: 'active', reason: 'Shared Vitality' });
+        await resolveKnockouts();
+    },
+    // Worth it when the bench gets back at least 40 HP and Swiftail can take the hit.
+    aiWants(ctx) {
+        const healed = damagedCreatures(ctx.side).filter(c => ctx.me.bench.includes(c))
+            .reduce((sum, c) => sum + Math.min(20, c.damage), 0);
+        return healed >= 40 && remainingHp(ctx.card) > 70;
+    }
+});
+
+// --- Crystal Canopy promos ------------------------------------------------------
+
+// Ghoulgourd (timing.js creatureCanRetreat).
+AbilityRegistry.register('glacialWard', passiveAbility(
+    "While this creature has full HP, an opposing active creature with a status condition can't retreat."));
+// Sushimaru (combat.js reactivePlatingRust).
+AbilityRegistry.register('wasabiCurse', passiveAbility(
+    'When an attack damages this creature, the attacker is affected by Hex.'));
+// Chargorb Electro and Chargorb Rusty (damage.js).
+AbilityRegistry.register('jetstreamBoost', passiveAbility(
+    "If you have Chargorb Rusty in play, this creature's attacks deal 20 extra damage."));
+AbilityRegistry.register('ironGuard', passiveAbility(
+    'If you have Chargorb Electro in play, this creature takes 10 less damage from attacks.'));
+
+// Barystellar — "Once per turn, if your bench is full, you may swap a random
+// hand card for a random Stage 2 from your deck." The hand card goes into the
+// deck, which is then shuffled.
+AbilityRegistry.register('cosmicDrift', {
+    requires(ctx) {
+        if (benchCreatures(ctx.side).length < BENCH_SIZE) return { ok: false, reason: 'Cosmic Drift needs a full bench.' };
+        if (!ctx.me.hand.length) return { ok: false, reason: 'You have no card in your hand.' };
+        if (!ctx.me.deck.some(id => (getCardData(id) || {}).stage === 'Stage 2')) return { ok: false, reason: 'No Stage 2 creature left in your deck.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const s = ctx.me;
+        const spots = [];
+        s.deck.forEach((id, i) => { if ((getCardData(id) || {}).stage === 'Stage 2') spots.push(i); });
+        const [stage2] = s.deck.splice(Rng.pick(spots), 1);
+        const out = s.hand.splice(Rng.int(s.hand.length), 1)[0];
+        returnToDeck(ctx.side, [out]);
+        Rng.shuffle(s.deck);
+        s.hand.push(instanceFromDeck(ctx.side, stage2));
+        Render.all();
+        await ctx.say(ctx.side === 'player'
+            ? `Cosmic Drift: ${out.data.name} goes into your deck, ${getCardData(stage2).name} comes to your hand.`
+            : `Cosmic Drift: ${subject(ctx.side)} swaps a hand card for a Stage 2 from the deck.`, { kind: 'ability', icon: '🌌', pace: 0.6 });
+    },
+    // With a full bench, a Stage 1 in hand can't be played: worth swapping.
+    aiWants: ctx => ctx.me.hand.some(c => c.data.stage === 'Stage 1' ||
+        (isItem(c.data) && !ItemRegistry.canUse(c, ctx.side).ok && c.data.itemEffect !== 'handRecycle'))
+});

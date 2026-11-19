@@ -28,6 +28,15 @@ const START_GEMS = 5;
 const MINIGAME_MAX_CREDITS = 7;            // every mini-game can pay out up to 5
 const WIN_CREDITS_PER_DAY = 3;
 const SET_UNLOCK_RATIO = 0.9;
+// Conditions on top of "90% of the previous set" (non-promo cards).
+const SET_UNLOCK_EXTRA = {
+    CC: [{ set: 'EA', ratio: 1 }]
+};
+// Trading cards with another player (trade.js): what each side pays, once a day,
+// and only cards the player has at least this many normal copies of.
+const TRADE_CREDITS = 5;
+const TRADE_GEMS = 2;
+const TRADE_MIN_COPIES = 3;
 const GUESS_MIN = 1;
 const GUESS_MAX = 50;
 const MEMORY_IMAGES = ['Floonleef', 'Venomgear', 'Aloebud', 'Babybara', 'Baklavaff', 'Batakaze', 'Dewmo', 'Dodolet'];
@@ -171,7 +180,8 @@ const Profile = {
             cardAchClaimed: {},          // cardId -> { bronze, silver, gold } claimed-at timestamps
             fullArt: {},                 // cardId -> full-art copies owned (raid rewards)
             raids: {},                   // bossId -> raid record (see raids.js)
-            daily: { date: null, modes: null, unclaimed: [] }   // today's challenges (see daily.js)
+            daily: { date: null, modes: null, unclaimed: [] },  // today's challenges (see daily.js)
+            trade: { date: null, total: 0 }                     // last trade day and trades made (trade.js)
         };
     },
 
@@ -180,6 +190,7 @@ const Profile = {
             played: 0, won: 0, lost: 0, drawn: 0, forfeits: 0,
             streak: 0, bestStreak: 0,
             winCreditsEarned: 0,
+            autoWins: 0,                 // wins with an auto-generated team (any mode)
             // Results split by who took the first turn. Games where the match
             // ended before the opening flip (left during setup) are in neither.
             first: this.blankRecord(),
@@ -257,6 +268,9 @@ const Profile = {
             }
         }
         s.raids = Raids.sanitize(raw.raids);
+        s.trade = raw.trade && typeof raw.trade === 'object'
+            ? { date: dateOrNull(raw.trade.date), total: int(raw.trade.total) }
+            : base.trade;
         s.daily = typeof Daily !== 'undefined' ? Daily.sanitize(raw.daily) : base.daily;
 
         s.unlockedSets = Object.assign({}, base.unlockedSets);
@@ -337,6 +351,7 @@ const Profile = {
                 opponent: String(am.opponent || 'AI'),
                 wentFirst: typeof am.wentFirst === 'boolean' ? am.wentFirst : null,
                 pvp: !!am.pvp,
+                auto: !!am.auto,
                 daily: am.daily && typeof am.daily === 'object' && typeof DAILY_REWARDS !== 'undefined' && DAILY_REWARDS[am.daily.mode]
                     ? { mode: am.daily.mode, date: String(am.daily.date || '') }
                     : null,
@@ -348,7 +363,7 @@ const Profile = {
 
         const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};
         s.stats = this.blankStats();
-        for (const k of ['played', 'won', 'lost', 'drawn', 'forfeits', 'streak', 'bestStreak', 'winCreditsEarned']) {
+        for (const k of ['played', 'won', 'lost', 'drawn', 'forfeits', 'streak', 'bestStreak', 'winCreditsEarned', 'autoWins']) {
             s.stats[k] = int(st[k]);
         }
         for (const k of ['first', 'second']) {
@@ -604,13 +619,41 @@ const Profile = {
         const index = cardSets.findIndex(s => s.id === setId);
         if (index <= 0) return null;
         const prev = cardSets[index - 1];
-        const p = this.setProgress(prev.id);
+        // The previous set at 90%, plus any extra set a later set asks for
+        // (SET_UNLOCK_EXTRA: Crystal Canopy also wants all of Elemental Awakening).
+        const rules = [{ set: prev.id, ratio: SET_UNLOCK_RATIO }].concat(SET_UNLOCK_EXTRA[setId] || []);
+        const conditions = rules.map(rule => {
+            const p = this.setProgress(rule.set);
+            const needed = Math.ceil(p.totalNonPromo * rule.ratio);
+            return {
+                set: setById(rule.set), ratio: rule.ratio, needed,
+                have: p.ownedNonPromo, total: p.totalNonPromo, met: p.ownedNonPromo >= needed
+            };
+        });
+        const first = conditions[0];
         return {
             prevSet: prev,
-            needed: Math.ceil(p.totalNonPromo * SET_UNLOCK_RATIO),
-            have: p.ownedNonPromo,
-            total: p.totalNonPromo
+            needed: first.needed,
+            have: first.have,
+            total: first.total,
+            conditions,
+            met: conditions.every(c => c.met)
         };
+    },
+
+    /**
+     * "own 58 of the 64 non-promo Temporal Rift cards (90%) and all 69 non-promo
+     * Elemental Awakening cards (100%)", with how many are owned when `withHave`.
+     */
+    unlockText(setId, withHave = false) {
+        const req = this.unlockRequirement(setId);
+        if (!req) return '';
+        return req.conditions.map(c => {
+            const part = c.ratio >= 1
+                ? `all ${c.total} non-promo ${c.set.name} cards (100%)`
+                : `${c.needed} of the ${c.total} non-promo ${c.set.name} cards (${Math.round(c.ratio * 100)}%)`;
+            return withHave ? `${part}, you have ${c.have}` : part;
+        }).join(withHave ? '; and ' : ' and ');
     },
 
     isSetUnlocked(setId) {
@@ -623,7 +666,7 @@ const Profile = {
         for (const set of cardSets) {
             if (this.isSetUnlocked(set.id)) continue;
             const req = this.unlockRequirement(set.id);
-            if (req && this.isSetUnlocked(req.prevSet.id) && req.have >= req.needed) {
+            if (req && this.isSetUnlocked(req.prevSet.id) && req.met) {
                 this.s.unlockedSets[set.id] = Date.now();
                 fresh.push(set);
             }
@@ -687,6 +730,66 @@ const Profile = {
         const unlocked = this.checkUnlocks();
         this.touch('buy', { immediate: true });
         return { success: true, cost, isNew, quantity, unlocked };
+    },
+
+    // -----------------------------------------------------------------------
+    // Trading (trade.js): one card for one card with another player
+    // -----------------------------------------------------------------------
+
+    /** Whether this player can trade today, and why not. */
+    tradeStatus() {
+        this.regen();
+        const tradedToday = this.s.trade.date === dayKey();
+        const tradable = this.tradableCards().length;
+        const reasons = [];
+        if (tradedToday) reasons.push("You've already traded today. You can trade again tomorrow.");
+        if (this.s.credits < TRADE_CREDITS) reasons.push(`A trade costs ${TRADE_CREDITS} 🪙 credits; you have ${this.s.credits}.`);
+        if (this.s.gems < TRADE_GEMS) reasons.push(`A trade costs ${TRADE_GEMS} 💜 gems; you have ${this.s.gems}.`);
+        if (!tradable) reasons.push(`You need at least ${TRADE_MIN_COPIES} copies of a card to trade it.`);
+        return { canTrade: !reasons.length, tradedToday, tradable, reasons };
+    },
+
+    /** Cards with enough normal copies to trade (full-art copies don't count), as card data. */
+    tradableCards() {
+        return Object.keys(this.s.cards)
+            .filter(id => this.owned(id) >= TRADE_MIN_COPIES)
+            .map(getCardData).filter(Boolean);
+    },
+
+    /**
+     * Why this trade can't happen on this device, or null. `theirSets` are the
+     * sets the other player has unlocked (they can't receive a card from another).
+     */
+    tradeProblem(giveId, receiveId, theirSets = null) {
+        const st = this.tradeStatus();
+        if (st.tradedToday) return st.reasons[0];
+        if (this.s.credits < TRADE_CREDITS || this.s.gems < TRADE_GEMS) {
+            return `A trade costs ${TRADE_CREDITS} 🪙 and ${TRADE_GEMS} 💜. You have ${this.s.credits} 🪙 and ${this.s.gems} 💜.`;
+        }
+        const give = getCardData(giveId), receive = getCardData(receiveId);
+        if (!give || !receive) return 'Pick a card on both sides.';
+        if (this.owned(giveId) < TRADE_MIN_COPIES) return `You need at least ${TRADE_MIN_COPIES} copies of ${give.name} to trade it.`;
+        if (give.rarity !== receive.rarity) {
+            return `Both cards must be the same rarity: ${give.name} is ${Collection.rarity(give.rarity).name}, ${receive.name} is ${Collection.rarity(receive.rarity).name}.`;
+        }
+        if (!this.isSetUnlocked(receive.set)) return `You haven't unlocked ${setById(receive.set).name}, so you can't receive ${receive.name}.`;
+        if (theirSets && !theirSets.includes(give.set)) return `The other player hasn't unlocked ${setById(give.set).name}, so they can't receive ${give.name}.`;
+        return null;
+    },
+
+    /** Makes the trade on this device: one copy out, one in, and the fee. */
+    applyTrade(giveId, receiveId, theirSets = null) {
+        const problem = this.tradeProblem(giveId, receiveId, theirSets);
+        if (problem) return { error: problem };
+        this.s.cards[giveId]--;
+        if (this.s.cards[giveId] <= 0) delete this.s.cards[giveId];
+        const { isNew, quantity } = this._addCard(receiveId);
+        this._spendCredits(TRADE_CREDITS);
+        this.s.gems -= TRADE_GEMS;
+        this.s.trade = { date: dayKey(), total: (this.s.trade.total || 0) + 1 };
+        const unlocked = this.checkUnlocks();
+        this.touch('trade', { immediate: true });
+        return { success: true, isNew, quantity, unlocked };
     },
 
     // -----------------------------------------------------------------------
@@ -1082,10 +1185,11 @@ const Profile = {
      * @param {object} [opts] { raid: { bossId, types } } for a raid game: the
      *   boss, and the types the player's deck counts for (raidQualifyingTypes)
      */
-    startMatch(deckName, opponentName, { raid = null, pvp = false, daily = null } = {}) {
+    startMatch(deckName, opponentName, { raid = null, pvp = false, daily = null, auto = false } = {}) {
         this.s.activeMatch = {
             startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null,
             pvp: !!pvp,
+            auto: !!auto,               // an auto-generated team (autoteam.js)
             daily: daily ? { mode: daily.mode, date: daily.date } : null,
             raid: raid ? { bossId: raid.bossId, types: (raid.types || []).slice() } : null
         };
@@ -1115,6 +1219,7 @@ const Profile = {
         const result = winner === 'player' ? 'win' : winner === 'opponent' ? 'loss' : 'draw';
         this.s.activeMatch = null;
         this._recordResult(result, { deck: m.deck, opponent: m.opponent, score, wentFirst: m.wentFirst, pvp: m.pvp });
+        if (m.auto && result === 'win') this.s.stats.autoWins++;
         // The per-card achievements are about the AI decks; online games don't count.
         if (report && !m.pvp) this.recordCardAchievements(report);
 

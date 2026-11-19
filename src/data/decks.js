@@ -39,10 +39,31 @@ const DeckLibrary = {
         // random for every raid game. Kept last so the other indexes stay put.
         if (this.raidDeck) this.decks.push(this.raidDeck);
         if (this.pvpDeck) this.decks.push(this.pvpDeck);
+        if (this.autoDeck) this.decks.push(this.autoDeck);
         return this.decks;
     },
 
     raidDeck: null,
+
+    // The player's auto-generated team for the current (or last) game
+    // (autoteam.js). Indexes move when it is replaced, so callers look it up
+    // with indexOf(DeckLibrary.autoDeck) after setting every temporary deck.
+    autoDeck: null,
+
+    setAutoDeck(deck) {
+        if (this.autoDeck) {
+            const old = this.decks.indexOf(this.autoDeck);
+            if (old !== -1) this.decks.splice(old, 1);
+        }
+        this.autoDeck = Object.assign({}, deck, {
+            type: 'auto',
+            cards: deck.cards.slice(),
+            energyTypes: deckEnergyTypes(deck),
+            fullArt: cleanFullArt(deck.fullArt, deck.cards)
+        });
+        this.decks.push(this.autoDeck);
+        return this.autoDeck;
+    },
 
     // The other player's deck during an online game (pvp.js). Removed after.
     pvpDeck: null,
@@ -379,7 +400,8 @@ function presetCompositionProblems(cardIds) {
     const types = new Set([...counts.keys()].map(getCardData).filter(d => d && isCreature(d)).map(getCardType));
     for (const id of counts.keys()) {
         const data = getCardData(id);
-        const needs = data && (TYPE_SPECIFIC_ITEMS[data.itemEffect] || (isAccessory(data) ? data.accessoryType : null));
+        const needs = data && (TYPE_SPECIFIC_ITEMS[data.itemEffect] ||
+            (isAccessory(data) && data.accessoryType !== 'Any' ? data.accessoryType : null));
         if (needs && !types.has(needs)) problems.push(`${data.name} only works with ${needs} creatures, and the deck has none.`);
     }
     return problems;

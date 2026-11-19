@@ -101,6 +101,49 @@ const DAMAGE_MODIFIERS = [
         apply: (ctx, dmg) => passiveBonus('thunderRush', dmg * 2)
     },
 
+    // --- Crystal Canopy attacker bonuses ---------------------------------
+    {
+        // Sweet Sight, Ashfall Boost: "this creature's next attack does 20 extra damage".
+        id: 'nextAttackBonus',
+        label: 'Charged attack',
+        test: ctx => ctx.attacker.flags.nextAttackBonus > 0,
+        apply: (ctx, dmg) => dmg + ctx.attacker.flags.nextAttackBonus,
+        consume: ctx => { ctx.attacker.flags.nextAttackBonus = 0; }
+    },
+    {
+        id: 'itemSurge',
+        label: 'Item Surge',
+        test: ctx => cardAbilityOn(ctx.attacker, 'itemSurge') && foeUsedItemLastTurn(ctx.side),
+        apply: (ctx, dmg) => passiveBonus('itemSurge', dmg + 40)
+    },
+    {
+        id: 'gearBoost',
+        label: 'Gear Boost',
+        test: ctx => cardAbilityOn(ctx.attacker, 'gearBoost') && !!ctx.attacker.accessory,
+        apply: (ctx, dmg) => passiveBonus('gearBoost', dmg + 20)
+    },
+    {
+        // Heliboo: every creature of its side wearing an accessory, one bonus however many Heliboo.
+        id: 'linkedArsenal',
+        label: 'Linked Arsenal',
+        test: ctx => !!ctx.attacker.accessory && sideHasAbility(ctx.side, 'linkedArsenal'),
+        apply: (ctx, dmg) => passiveBonus('linkedArsenal', dmg + 10)
+    },
+    {
+        // Chargorb Electro, with a Chargorb Rusty of its own side in play.
+        id: 'jetstreamBoost',
+        label: 'Jetstream Boost',
+        test: ctx => cardAbilityOn(ctx.attacker, 'jetstreamBoost') && hasCreatureNamed(ctx.side, 'Chargorb Rusty'),
+        apply: (ctx, dmg) => passiveBonus('jetstreamBoost', dmg + 20)
+    },
+    {
+        // Last of the bonuses, so it doubles all of them.
+        id: 'chillEcho',
+        label: 'Chill Echo',
+        test: ctx => cardAbilityOn(ctx.attacker, 'chillEcho') && ctx.them.points === POINTS_TO_WIN - 1,
+        apply: (ctx, dmg) => passiveBonus('chillEcho', dmg * 2)
+    },
+
     // --- Defender reductions ------------------------------------------------
     // Monk's Fury and Spectral Burst protect the creature that used them, not
     // whoever happens to be active when the next attack lands.
@@ -267,6 +310,68 @@ const DAMAGE_MODIFIERS = [
         test: ctx => bloomshroudSafe(ctx.defender),
         apply: () => 0
     },
+
+    // --- Crystal Canopy defences --------------------------------------------
+    {
+        id: 'overchargeSlam',
+        label: 'Overcharge Slam',
+        test: ctx => readShield(ctx.defender.flags.shields, 'overchargeSlam'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'overchargeSlam').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'overchargeSlam')
+    },
+    {
+        // Sylgroth: "If your opponent's bench is full..."
+        id: 'pressureWard',
+        label: 'Pressure Ward',
+        test: ctx => cardAbilityOn(ctx.defender, 'pressureWard') && benchCreatures(ctx.side).length >= BENCH_SIZE,
+        apply: (ctx, dmg) => passiveBonus('pressureWard', dmg - 40)
+    },
+    {
+        id: 'armorSync10',
+        label: 'Armor Sync',
+        test: ctx => cardAbilityOn(ctx.defender, 'armorSync10') && !!ctx.defender.accessory,
+        apply: (ctx, dmg) => passiveBonus('armorSync10', dmg - 10)
+    },
+    {
+        id: 'armorSync20',
+        label: 'Armor Sync',
+        test: ctx => cardAbilityOn(ctx.defender, 'armorSync20') && !!ctx.defender.accessory,
+        apply: (ctx, dmg) => passiveBonus('armorSync20', dmg - 20)
+    },
+    {
+        id: 'starMantle',
+        label: 'Star Mantle',
+        test: ctx => accessoryOn(ctx.defender, 'starMantle') && ctx.defender.energy >= 3,
+        apply: (ctx, dmg) => dmg - 20
+    },
+    {
+        id: 'forestFlicker',
+        label: 'Forest Flicker',
+        test: ctx => Timing.active(ctx.defender.flags.flickerUntil) &&
+                     (ctx.attackerType === 'Celestial' || ctx.attackerType === 'Mystic'),
+        apply: () => 0
+    },
+    {
+        // Chargorb Rusty, with a Chargorb Electro of its own side in play.
+        id: 'ironGuard',
+        label: 'Iron Guard',
+        test: ctx => cardAbilityOn(ctx.defender, 'ironGuard') && hasCreatureNamed(ctx.foe, 'Chargorb Electro'),
+        apply: (ctx, dmg) => passiveBonus('ironGuard', dmg - 10)
+    },
+    {
+        // Brasquente's Chestnut Crush: moves that cost 3 or more energy deal it nothing.
+        id: 'chestnutCrush',
+        label: 'Chestnut Crush',
+        test: ctx => Timing.active(ctx.defender.flags.bigMoveGuardUntil) && effectiveCost(ctx.attacker, ctx.move).length >= 3,
+        apply: () => 0
+    },
+    {
+        // Waffle Whirl, Glamour Guard.
+        id: 'untouchable',
+        label: 'No damage',
+        test: ctx => Timing.active(ctx.defender.flags.untouchableUntil),
+        apply: () => 0
+    },
     // Last of the defences: it reads the damage the attack would really deal.
     {
         id: 'overloadGuard',
@@ -289,6 +394,11 @@ const DAMAGE_MODIFIERS = [
         apply: () => 0
     }
 ];
+
+/** This side has a creature with this exact name in play (Chargorb Electro and Rusty). */
+function hasCreatureNamed(side, name) {
+    return creaturesInPlay(side).some(c => c.data.name === name);
+}
 
 /** Tech Shield: does this creature's name contain the letter (any case)? */
 function nameHas(card, letter) {
@@ -358,6 +468,18 @@ function adjustCrossDamage(target, targetSide, amount, source) {
     if (source.kind === 'move' && accessoryOn(target, 'celestialArmor')) dmg -= 10;
     if (source.kind === 'move' && accessoryOn(target, 'mechanicToolkit') && target.data.abilityEffect) dmg -= 20;
     if (source.kind === 'move' && Timing.active(target.flags.anchoredUntil) && sourceType === 'Mechanic') dmg = 0;
+    // Crystal Canopy
+    if (source.kind === 'move' && cardAbilityOn(target, 'pressureWard') && benchCreatures(source.side).length >= BENCH_SIZE) {
+        dmg = passiveBonus('pressureWard', dmg - 40);
+    }
+    if (source.kind === 'move' && target.accessory && cardAbilityOn(target, 'armorSync10')) dmg = passiveBonus('armorSync10', dmg - 10);
+    if (source.kind === 'move' && target.accessory && cardAbilityOn(target, 'armorSync20')) dmg = passiveBonus('armorSync20', dmg - 20);
+    if (source.kind === 'move' && accessoryOn(target, 'starMantle') && target.energy >= 3) dmg -= 20;
+    if (Timing.active(target.flags.flickerUntil) && (sourceType === 'Celestial' || sourceType === 'Mystic')) dmg = 0;
+    if (source.kind === 'move' && cardAbilityOn(target, 'ironGuard') && hasCreatureNamed(targetSide, 'Chargorb Electro')) {
+        dmg = passiveBonus('ironGuard', dmg - 10);
+    }
+    if (Timing.active(target.flags.untouchableUntil)) dmg = 0;
     if (bloomshroudSafe(target)) dmg = 0;
     return Math.max(0, dmg);
 }

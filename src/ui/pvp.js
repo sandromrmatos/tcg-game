@@ -143,7 +143,8 @@ const PvPNet = {
     disconnectSoon(ms = 4000) {
         const gen = this._generation;
         setTimeout(() => {
-            if (gen === this._generation && this.db && !PvP.active && !PvPLobby.busy) {
+            if (gen === this._generation && this.db && !PvP.active && !PvPLobby.busy &&
+                !(typeof TradeLobby !== 'undefined' && TradeLobby.busy)) {
                 try { this.db.goOffline(); } catch (e) { /* already offline */ }
             }
         }, ms);

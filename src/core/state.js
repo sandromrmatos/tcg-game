@@ -91,6 +91,15 @@ function createSideFlags() {
         // side's turn with this number.
         abilitiesBlockedTurn: null,
 
+        // --- Crystal Canopy -------------------------------------------------
+        abilitiesBlockedUntil: null, // Ability Seal: no abilities on this side's turns
+        movesNegatedUntil: null,    // Null Orb: this side's moves only deal printed damage
+        benchSafeUntil: null,       // Moor Stomp: this side's bench can't be damaged
+        forcedTailsUntil: null,     // Crinkle Crash: this side's next coin flip is tails
+        pendantHeads: false,        // Storm Pendant: the next flip of this attack is heads
+        lostCreatureOnTurn: null,   // turn number a creature of this side was knocked out (Arcane Pulse)
+        retreatTrapUntil: null,     // Celestial Blossom: a retreat costs the new active 40 HP
+
         // --- Misc -----------------------------------------------------------
         phaseShift: false,          // must swap out after attacking
         guardianCard: null,         // the bench Aegiscelis soaking the next hit (Guardian)
@@ -121,6 +130,13 @@ function createCreatureFlags() {
         anchoredUntil: null,        // Anchored Terrain: Mechanic attacks deal it 0
         bloomshroudTurn: null,      // Bloomshroud: the opponent flips on this turn
         bloomshroudSafeTurn: null,  // ...and on tails it is untouchable this turn
+
+        // --- Crystal Canopy --------------------------------------------------
+        nextAttackBonus: 0,         // Sweet Sight, Ashfall Boost: +N on its next attack
+        untouchableUntil: null,     // Waffle Whirl, Glamour Guard: no damage at all
+        flickerUntil: null,         // Forest Flicker: no damage from Celestial / Mystic creatures
+        abilityLockUntil: null,     // Ability Lock: its ability doesn't work
+        bigMoveGuardUntil: null,    // Chestnut Crush: moves costing 3+ energy deal it 0
 
         // --- Set during an attack, consumed by the damage pipeline ---------
         hallucinationFlip: null
@@ -290,7 +306,8 @@ const gameState = {
     setupReady: { player: false, opponent: false },
     // What each side did this match, for the per-card achievements.
     track: createMatchTrack(),
-    busy: false                 // true while a resolution pipeline is running
+    busy: false,                // true while a resolution pipeline is running
+    attackingSide: null         // set while an attack resolves (Mind Trap)
 };
 
 const turnTracker = {
@@ -313,6 +330,7 @@ function resetGameState() {
     gameState.setupReady = { player: false, opponent: false };
     gameState.track = createMatchTrack();
     gameState.busy = false;
+    gameState.attackingSide = null;
     turnTracker.clear();
 }
 

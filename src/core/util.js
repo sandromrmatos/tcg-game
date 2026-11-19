@@ -75,7 +75,18 @@ const Rng = {
         return Math.floor(this._next() * n);
     },
 
+    /**
+     * A coin flip made by the side whose turn it is. Crinkle Crash and Storm
+     * Pendant can decide it (coinOverride, effects.js); the random number is
+     * drawn either way, so seeded games stay in step.
+     */
     flip() {
+        const raw = this.rawFlip();
+        return typeof coinOverride === 'function' ? coinOverride(raw) : raw;
+    },
+
+    /** A flip nothing can influence: one made by the side whose turn it isn't (Doze Guard, Mind Trap). */
+    rawFlip() {
         return this._next() < 0.5 ? 'heads' : 'tails';
     },
 
@@ -253,7 +264,21 @@ function energyNeeded(card, costString, extra = null) {
 
 /** Can this creature pay for a move right now (ignoring turn rules)? */
 function canPayMove(card, move) {
-    return !!card && !!move && energyNeeded(card, move.cost) === 0;
+    return !!card && !!move && energyNeeded(card, effectiveCost(card, move)) === 0;
+}
+
+/**
+ * What this creature really pays for a move. Core Stabilizer (Crystal Canopy):
+ * a move that costs 3 or more energy needs one Neutral (any-type) energy less.
+ */
+function effectiveCost(card, move) {
+    const cost = (move && move.cost) || '';
+    if (cost.length >= 3 && cost.includes('N') && typeof accessoryOn === 'function' &&
+        accessoryOn(card, 'coreStabilizer')) {
+        const at = cost.lastIndexOf('N');
+        return cost.slice(0, at) + cost.slice(at + 1);
+    }
+    return cost;
 }
 
 /** "1 Mystic + 1 any" style description of a cost string. */

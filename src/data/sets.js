@@ -27,6 +27,12 @@ const cardSets = [
         name: 'Temporal Rift',
         prefix: 'Temporal Rift_',
         accent: '#c792ff'
+    },
+    {
+        id: 'CC',
+        name: 'Crystal Canopy',
+        prefix: 'Crystal Canopy_',
+        accent: '#5fe0b0'
     }
 ];
 

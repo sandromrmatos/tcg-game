@@ -59,6 +59,10 @@
                 <button id="create-deck-btn" class="btn btn-primary btn-lg" type="button">
                     Build a deck
                 </button>
+                <button id="auto-team-btn" class="btn btn-primary btn-lg" type="button"
+                        title="Play the AI with a random team built from your own cards">
+                    🎲 Auto team
+                </button>
                 <button id="pvp-btn" class="btn btn-primary btn-lg" type="button">
                     🌐 Play online
                 </button>
@@ -74,6 +78,7 @@
         <section id="page-achievements" class="hub-page"></section>
         <section id="page-raids" class="hub-page"></section>
         <section id="page-daily" class="hub-page"></section>
+        <section id="page-trade" class="hub-page"></section>
         <section id="page-minigames" class="hub-page"></section>
         <section id="page-wheel" class="hub-page"></section>
         <section id="page-guess" class="hub-page"></section>
@@ -410,7 +415,7 @@
                     <li>Exactly 20 cards, at most 2 copies of any one card</li>
                     <li>At least one Stage 1 creature</li>
                     <li>Creatures of any types can be mixed. Pick the deck's energy types to match: a creature whose moves need an energy type the deck doesn't use gets a warning, but the deck can still be saved</li>
-                    <li>Accessory cards are attached to one of your creatures of their type, one per turn</li>
+                    <li>Accessory cards are attached to one of your creatures of their type (some fit any creature), one per turn</li>
                     <li>Cards from different sets can be mixed freely</li>
                 </ul>
             </section>
@@ -486,6 +491,15 @@
     </div>
 </div>
 
+<!-- Trading cards with another player (trade.js) -->
+<div id="trade-modal" class="modal" data-dismissable="false">
+    <div class="modal-panel trade-panel">
+        <button id="trade-close" class="modal-close" type="button" aria-label="Close">×</button>
+        <h2>🔄 Trade cards</h2>
+        <div id="trade-body" class="pvp-body"></div>
+    </div>
+</div>
+
 <!-- Hub: generic dialog (confirm, alert, password) -->
 <div id="hub-dialog" class="modal hub-dialog" data-dismissable="false">
     <div class="modal-panel modal-narrow">
@@ -505,7 +519,7 @@
         <div class="info-accordion">
             <details open>
                 <summary>🎮 What is this game?</summary>
-                <p>Collect creature cards from three sets (Elemental Awakening, Galactic Adventures and Temporal Rift), build
+                <p>Collect creature cards from four sets (Elemental Awakening, Galactic Adventures, Temporal Rift and Crystal Canopy), build
                    decks from the cards you own and battle: against the AI, raid bosses, the daily challenges, or a friend online.
                    Draw cards with credits, buy specific ones in the Store with gems, and earn more credits and gems from
                    wins, missions, achievements and the daily mini-games.</p>
@@ -513,13 +527,14 @@
             <details>
                 <summary>🗂️ What each section does</summary>
                 <ul>
-                    <li><strong>⚔️ Play</strong>: your decks, the deck builder, games against the AI (pick its deck or leave it random) and <strong>🌐 Play online</strong> against a friend.</li>
+                    <li><strong>⚔️ Play</strong>: your decks, the deck builder, games against the AI (pick its deck or leave it random), <strong>🎲 Auto team</strong> (a random team built from your own cards, also on the Raid Bosses and Daily Challenges pages, following the day's rules) and <strong>🌐 Play online</strong> against a friend.</li>
                     <li><strong>📚 Card Dex</strong>: every card in a set and how many of each you own.</li>
                     <li><strong>🎰 Draw a Card</strong>: spend 1 credit for a random card from an unlocked set.</li>
                     <li><strong>🛒 Store</strong>: buy any specific card with gems.</li>
                     <li><strong>📋 Missions</strong>: objectives that pay credits and gems.</li>
                     <li><strong>🏅 Achievements</strong>: tasks for every single card, with credits, gems and promo cards as rewards.</li>
                     <li><strong>🐉 Raid Bosses</strong>: beat a boss deck to win the full-art version of its card.</li>
+                    <li><strong>🔄 Trade</strong>: swap one card for one with a friend online. Both pay 5 🪙 and 2 💜, once a day; the cards must be the same rarity, you give one you have 3+ copies of, and nobody gets a card from a set they haven't unlocked.</li>
                     <li><strong>📅 Daily Challenges</strong>: three challenges a day (Easy, Medium, Hard) with deck rules to follow, for credits and cards.</li>
                     <li><strong>🎮 Mini-games</strong>: Spin the Wheel, Guess the Number and Memory Game, plus Creature Sorting, Puzzle and Tetris once Temporal Rift is unlocked. Each is free once a day for credits and gems.</li>
                     <li><strong>📈 Collection</strong>: your progress through each set.</li>
@@ -547,7 +562,7 @@
                     <li><strong>Creatures</strong> have HP, a type, a retreat cost and one or two moves. <strong>Stage 1</strong> creatures are played directly; <strong>Stage 2</strong> evolves from a Stage 1 and <strong>Stage 3</strong> from a Stage 2.</li>
                     <li>Some creatures have an <strong>ability</strong>. Abilities you activate show a flashing rainbow border: tap the creature to use it, once per turn, before attacking. Always-on abilities work by themselves.</li>
                     <li><strong>Item</strong> cards have a one-off effect (heal, draw, boost damage...). One item per turn; it goes to the discard pile after use.</li>
-                    <li><strong>Accessory</strong> cards (Temporal Rift) attach to one of your creatures of their type: one accessory per creature, one per turn. It stays until the creature is knocked out.</li>
+                    <li><strong>Accessory</strong> cards (Temporal Rift and Crystal Canopy) attach to one of your creatures of their type: one accessory per creature, one per turn. Crystal Canopy's Evo Guard and Core Stabilizer fit any creature. It stays until the creature is knocked out or a move removes it.</li>
                     <li><strong>Promo</strong> cards are special creatures: drawn only on Sundays, or won from Gold card achievements. <strong>Full-art</strong> cards (✦) are won from raid bosses and play exactly like the normal card.</li>
                     <li>Rarities: 🟢 Common · 🔵 Uncommon · ⭐ Rare · 💎 Epic.</li>
                 </ul>
@@ -571,6 +586,7 @@
                 <summary>😵 Status conditions</summary>
                 <ul id="hub-info-status"></ul>
                 <p>Only the active creature can have a status condition. It lasts until it is cured (Remedy, some abilities) or the creature leaves the active spot: retreating is the usual way to shake one off.</p>
+                <p>Rust and Hex come with Crystal Canopy. Rust only flips on its owner's turn, before they act; if it knocks the creature out, the opponent scores the point. Hex blocks every kind of healing, including Celestial Armor, Evo Echo and heals from items. A creature can have several conditions at once.</p>
             </details>
             <details>
                 <summary>🧩 Building a deck</summary>
@@ -719,6 +735,7 @@
 <script src="src/meta/missions.js"></script>
 <script src="src/meta/raids.js"></script>
 <script src="src/meta/daily.js"></script>
+<script src="src/meta/autoteam.js"></script>
 
 <!-- ui surfaces the core logs and prompts through -->
 <script src="src/ui/log.js"></script>
@@ -748,6 +765,7 @@
 <script src="src/ui/hub.js"></script>
 <script src="src/ui/arcade.js"></script>
 <script src="src/ui/pvp.js"></script>
+<script src="src/ui/trade.js"></script>
 
 <!-- tooling + bootstrap -->
 <script src="src/validate.js"></script>

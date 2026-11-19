@@ -55,6 +55,7 @@ const CORE = [
     'src/meta/missions.js',
     'src/meta/raids.js',
     'src/meta/daily.js',
+    'src/meta/autoteam.js',
     'src/ui/log.js',
     'src/ui/prompt.js',
     'src/ui/sfx.js',
@@ -76,6 +77,7 @@ const CORE = [
     'src/ui/hub.js',
     'src/ui/arcade.js',
     'src/ui/pvp.js',
+    'src/ui/trade.js',
     'src/validate.js',
     'src/main.js'
 ];

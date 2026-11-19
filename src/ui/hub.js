@@ -85,6 +85,7 @@ const Hub = {
         { id: 'achievements', label: '🏅 Achievements' },
         { id: 'raids',      label: '🐉 Raid Bosses' },
         { id: 'daily',      label: '📅 Daily Challenges' },
+        { id: 'trade',      label: '🔄 Trade' },
         { id: 'minigames',  label: '🎮 Mini-games' },
         // The games themselves open from the Mini-games page, not the tab bar.
         { id: 'wheel',      label: '🎡 Spin the Wheel',   parent: 'minigames' },
@@ -120,6 +121,8 @@ const Hub = {
 
         const infoBtn = document.getElementById('hub-info-btn');
         if (infoBtn) infoBtn.addEventListener('click', () => this.showInfo());
+        const autoBtn = document.getElementById('auto-team-btn');
+        if (autoBtn) autoBtn.addEventListener('click', () => Screens.playAutoTeam());
 
         this.initAudio();
 
@@ -228,7 +231,7 @@ const Hub = {
     celebrateUnlock(set) {
         this.dialog({
             title: `🎉 ${set.name} unlocked!`,
-            message: `You collected 90% of the previous set, so ${set.name} cards can now be drawn, bought and used in decks.` +
+            message: `You collected ${Profile.unlockText(set.id)}, so ${set.name} cards can now be drawn, bought and used in decks.` +
                 (set.id === ARCADE_SET ? ' Three new mini-games are open too: Creature Sorting, Puzzle and Tetris.' : ''),
             buttons: [{ label: 'Awesome!', value: true, kind: 'primary' }]
         });
@@ -310,12 +313,11 @@ const Hub = {
             sets.innerHTML = '';
             sets.appendChild(h('li', {}, h('strong', { text: cardSets[0].name }), ': open from the start.'));
             for (const set of cardSets.slice(1)) {
-                const req = Profile.unlockRequirement(set.id);
                 const open = Profile.isSetUnlocked(set.id);
-                const extra = set.id === ARCADE_SET ? ' It also opens accessory cards and the Creature Sorting, Puzzle and Tetris mini-games.' : '';
+                const extra = set.id === ARCADE_SET ? ' It also opens accessory cards and the Creature Sorting, Puzzle and Tetris mini-games.'
+                    : set.id === 'CC' ? ' It brings the Rust and Hex status conditions, and accessories that fit any creature.' : '';
                 sets.appendChild(h('li', {}, h('strong', { text: set.name }),
-                    `: own ${Math.round(SET_UNLOCK_RATIO * 100)}% of the non-promo ${req.prevSet.name} cards (${req.needed} of ${req.total}). ` +
-                    (open ? '✓ Unlocked.' : `You have ${req.have}.`) + extra));
+                    `: own ${Profile.unlockText(set.id, !open)}. ` + (open ? '✓ Unlocked.' : '') + extra));
             }
         }
         Screens.openModal('hub-info-modal');
@@ -366,6 +368,7 @@ const Hub = {
             achievements: () => this.renderAchievements(),
             raids: () => this.renderRaids(),
             daily: () => this.renderDaily(),
+            trade: () => this.renderTrade(),
             minigames: () => this.renderMinigames(),
             wheel: () => this.renderWheel(),
             guess: () => this.renderGuess(),
@@ -416,8 +419,7 @@ const Hub = {
         const req = Profile.unlockRequirement(setId);
         if (!req) return null;
         return this.notice(
-            `🔒 This set unlocks when you own ${req.needed} of the ${req.total} non-promo ${req.prevSet.name} cards (90%). ` +
-            `You have ${req.have}. Promo cards don't count.`, 'locked');
+            `🔒 This set unlocks when you own ${Profile.unlockText(setId, true)}. Promo cards don't count.`, 'locked');
     },
 
     // -----------------------------------------------------------------------
@@ -774,8 +776,8 @@ const Hub = {
                     `🔒 Own ${RAID_NORMAL_COPIES} normal ${card.name} to challenge this boss. You have ${st.owned}.`, 'locked'));
             } else if (!playable.length) {
                 controls.appendChild(this.notice(decks.length
-                    ? 'None of your decks can be played right now. Fix them on the Play tab.'
-                    : 'Build a deck on the Play tab to challenge this boss.'));
+                    ? 'None of your decks can be played right now. Fix them on the Play tab, or use an auto team.'
+                    : 'Build a deck on the Play tab, or use an auto team, to challenge this boss.'));
             } else {
                 let chosen = this.raidChoice[boss.id];
                 if (!playable.some(d => d.deck.name === chosen)) chosen = playable[0].deck.name;
@@ -793,6 +795,13 @@ const Hub = {
                 controls.appendChild(h('button', {
                     class: 'btn btn-primary', type: 'button', text: '⚔️ Challenge',
                     on: { click: () => Screens.startRaid(boss.id, pick.index) }
+                }));
+            }
+            if (st.unlocked) {
+                controls.appendChild(h('button', {
+                    class: 'btn btn-ghost', type: 'button', text: '🎲 Auto team',
+                    title: 'Challenge the boss with a random team built from your own cards',
+                    on: { click: () => Screens.startRaid(boss.id, 'auto') }
                 }));
             }
             if (rec.pendingCredit) {
@@ -828,6 +837,34 @@ const Hub = {
     // Daily Challenges: three modes a day, each with deck rules and a target
     // of wins in a row against the same AI deck. Rules in daily.js.
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Trade: swap one card with another player online (trade.js)
+    // -----------------------------------------------------------------------
+
+    renderTrade() {
+        const host = this.pageHost('trade');
+        host.appendChild(this.pageTitle('🔄 Trade',
+            'Swap one card for one card with a friend on another device, the same way as playing online: one of you makes a room, the other joins with its code.'));
+        host.appendChild(h('ul', { class: 'raid-rules' },
+            h('li', { text: `Each trade costs both players ${TRADE_CREDITS} 🪙 credits and ${TRADE_GEMS} 💜 gems.` }),
+            h('li', { text: 'You can trade once a day.' }),
+            h('li', { text: `You can only give a card you own at least ${TRADE_MIN_COPIES} normal copies of (full-art copies don't count), so you always keep 2.` }),
+            h('li', { text: 'Both cards must be the same rarity, and nobody can receive a card from a set they haven\'t unlocked.' }),
+            h('li', { text: 'You both see the card you give and the card you get. The trade happens when both of you confirm.' })));
+        const st = Profile.tradeStatus();
+        if (!st.canTrade) {
+            for (const reason of st.reasons) host.appendChild(this.notice(reason, st.tradedToday ? '' : 'locked'));
+        } else {
+            host.appendChild(this.notice(`You can trade today. You have ${plural(st.tradable, 'card')} with ${TRADE_MIN_COPIES}+ copies.`, 'good'));
+        }
+        host.appendChild(h('div', { class: 'pvp-actions' }, h('button', {
+            class: 'btn btn-primary btn-lg', type: 'button', text: '🔄 Start trading', disabled: !st.canTrade,
+            on: { click: () => TradeLobby.open() }
+        })));
+        const total = (Profile.s.trade && Profile.s.trade.total) || 0;
+        if (total) host.appendChild(h('p', { class: 'page-sub', text: `Trades made: ${total}.` }));
+    },
 
     dailyChoice: {},
 
@@ -886,7 +923,7 @@ const Hub = {
             } else if (!st.deck) {
                 controls.appendChild(this.notice("Today's AI deck couldn't be built.", 'bad'));
             } else if (!decks.length) {
-                controls.appendChild(this.notice('Build a deck on the Play tab to take on this challenge.'));
+                controls.appendChild(this.notice('Build a deck on the Play tab, or use an auto team, to take on this challenge.'));
             } else {
                 const rated = decks.map(d => Object.assign({}, d, { broken: Daily.violations(mode.id, d.deck.cards) }));
                 const fits = rated.filter(d => !d.broken.length);
@@ -913,9 +950,16 @@ const Hub = {
                     controls.appendChild(h('ul', { class: 'daily-broken' }, pick.broken.map(b => h('li', { text: b }))));
                 }
                 if (!fits.length) {
-                    controls.appendChild(this.notice('None of your decks follow these rules yet. Build one in the deck builder: your cards can make one.'));
+                    controls.appendChild(this.notice('None of your decks follow these rules yet. Build one in the deck builder, or use an auto team: your cards can make one.'));
                     controls.appendChild(h('button', { class: 'btn btn-ghost', type: 'button', text: 'Build a deck', on: { click: () => DeckBuilder.open() } }));
                 }
+            }
+            if (!st.done && st.deck) {
+                controls.appendChild(h('button', {
+                    class: 'btn btn-ghost', type: 'button', text: '🎲 Auto team',
+                    title: "A random team from your own cards that follows today's rules",
+                    on: { click: () => Screens.startDaily(mode.id, 'auto') }
+                }));
             }
 
             const art = leader ? h('img', { class: 'daily-art', src: cardImage(leader.id), alt: leader.name, loading: 'lazy' }) : null;
@@ -1534,7 +1578,7 @@ const Hub = {
             if (req) {
                 card.appendChild(h('p', { class: unlocked ? 'unlock-ok' : 'unlock-pending', text: unlocked
                     ? `✅ Unlocked ${new Date(Profile.s.unlockedSets[set.id]).toLocaleDateString()}`
-                    : `Unlocks at ${req.needed}/${req.total} non-promo ${req.prevSet.name} cards. You have ${req.have}.` }));
+                    : req.conditions.map(c => `Unlocks at ${c.needed}/${c.total} non-promo ${c.set.name} cards. You have ${c.have}.`).join(' ') }));
             }
 
             const byType = new Map();
@@ -1817,16 +1861,37 @@ const Hub = {
             audio.src = `assets/audio/${MUSIC_TRACKS[this.music.index].file}`;
             name.textContent = `🎵 ${MUSIC_TRACKS[this.music.index].name}`;
         };
-        const sync = () => { play.textContent = this.music.playing ? '⏸' : '▶️'; };
+        const sync = () => {
+            play.textContent = this.music.playing ? '⏸' : '▶️';
+            play.setAttribute('aria-label', this.music.playing ? 'Pause music' : 'Play music');
+        };
+        // The button follows what the <audio> element really does, so a track
+        // that fails to load shows ▶️ again instead of a pause button over silence.
+        const start = () => audio.play().catch(err => {
+            this.music.playing = false;
+            sync();
+            if (err && err.name !== 'AbortError') this.toast("The music couldn't start. Check your connection and try again.", 'warn');
+        });
+        audio.addEventListener('playing', () => { this.music.playing = true; sync(); });
+        audio.addEventListener('error', () => {
+            if (!this.music.playing) return;
+            this.music.playing = false;
+            sync();
+            this.toast(`Couldn't load "${MUSIC_TRACKS[this.music.index].name}".`, 'warn');
+        });
         const skip = dir => {
             this.music.index = (this.music.index + dir + MUSIC_TRACKS.length) % MUSIC_TRACKS.length;
             load();
-            if (this.music.playing) audio.play().catch(() => {});
+            if (this.music.playing) start();
         };
         play.addEventListener('click', () => {
-            if (this.music.playing) audio.pause();
-            else audio.play().catch(() => {});
-            this.music.playing = !this.music.playing;
+            if (this.music.playing) {
+                audio.pause();
+                this.music.playing = false;
+            } else {
+                this.music.playing = true;
+                start();
+            }
             sync();
         });
         host.append(

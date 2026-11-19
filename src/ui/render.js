@@ -344,8 +344,10 @@ function buildMoveButton(move, enabled) {
 
     const cost = document.createElement('span');
     cost.className = 'move-cost';
-    cost.title = `Needs ${describeEnergyCost(move.cost)}`;
-    for (const pip of costPips(gameState.player.active, move.cost)) cost.appendChild(pip);
+    // Core Stabilizer lowers what the active creature pays.
+    const payCost = effectiveCost(gameState.player.active, move);
+    cost.title = `Needs ${describeEnergyCost(payCost)}` + (payCost !== move.cost ? ' (Core Stabilizer: one Neutral less)' : '');
+    for (const pip of costPips(gameState.player.active, payCost)) cost.appendChild(pip);
     meta.appendChild(cost);
 
     const damage = document.createElement('span');
@@ -593,7 +595,8 @@ function creatureChips(card) {
         spectralBurst: 'Spectral Burst',
         oreLash: 'Ore Lash',
         coreTangle: 'Core Tangle',
-        searGuard: 'Sear Guard'
+        searGuard: 'Sear Guard',
+        overchargeSlam: 'Overcharge Slam'
     };
     for (const key of Object.keys(shieldLabels)) {
         const shield = readShield(f.shields, key);
@@ -633,6 +636,24 @@ function creatureChips(card) {
     }
     if (f.sproutBoostReady) {
         chips.push({ icon: '🌱', label: "Sprout Boost: this creature's next attack deals +30 damage.", kind: 'good' });
+    }
+    if (f.nextAttackBonus > 0) {
+        chips.push({ icon: '⬆️', label: `Charged (Sweet Sight / Ashfall Boost): this creature's next attack deals +${f.nextAttackBonus} damage.`, kind: 'good' });
+    }
+    if (Timing.active(f.untouchableUntil)) {
+        chips.push({ icon: '✨', label: "No damage (Waffle Whirl / Glamour Guard): nothing can damage this creature until the end of the opponent's next turn.", kind: 'good' });
+    }
+    if (Timing.active(f.bigMoveGuardUntil)) {
+        chips.push({ icon: '🌰', label: "Chestnut Crush: moves that cost 3 or more energy deal it no damage, until the end of the opponent's next turn.", kind: 'good' });
+    }
+    if (card.borrowed) {
+        chips.push({ icon: '🦊', label: "Borrowed with Vulpite: this Vulpetta isn't from the deck, so it doesn't go to the discard pile.", kind: 'info' });
+    }
+    if (Timing.active(f.flickerUntil)) {
+        chips.push({ icon: '🦌', label: "Forest Flicker: Celestial and Mystic creatures deal it no damage, until the end of the opponent's next turn.", kind: 'good' });
+    }
+    if (Timing.active(f.abilityLockUntil) && card.data.abilityEffect) {
+        chips.push({ icon: '🔇', label: `Ability Lock: ${card.data.abilityName} doesn't work, always-on effects included. ${turnsLeft(f.abilityLockUntil, ownerSide)}`, kind: 'bad' });
     }
     if (owner && gameState[owner.side] && gameState[owner.side].flags.guardianCard === card &&
         Timing.active(gameState[owner.side].flags.guardianUntil)) {
@@ -692,7 +713,7 @@ function sideChips(side) {
         chips.push({ icon: '🌊', label: `Tidal Illusion: ${who} attacks deal no damage. ${turnsLeft(f.cantDealDamageUntil, side)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantEvolveUntil)) {
-        chips.push({ icon: '🧸', label: `Cuddle Storm: ${side === 'player' ? 'you' : subject(side)} can't evolve creatures. ${turnsLeft(f.cantEvolveUntil, side)}`, kind: 'bad' });
+        chips.push({ icon: '🧸', label: `Can't evolve (Cuddle Storm / Crunch Bloom): ${side === 'player' ? 'you' : subject(side)} can't evolve creatures. ${turnsLeft(f.cantEvolveUntil, side)}`, kind: 'bad' });
     }
     if (Timing.active(f.cantUseAccessoriesUntil)) {
         chips.push({ icon: '🧊', label: `No accessories: ${side === 'player' ? 'you' : subject(side)} can't attach accessory cards. ${turnsLeft(f.cantUseAccessoriesUntil, side)}`, kind: 'bad' });
@@ -700,6 +721,21 @@ function sideChips(side) {
     if (f.abilitiesBlockedTurn !== null && f.abilitiesBlockedTurn >= gameState.turnNumber) {
         chips.push({ icon: '🔇', label: `Memento Echo: none of ${who} abilities work, always-on ones included, ` +
             (f.abilitiesBlockedTurn === gameState.turnNumber ? 'this turn.' : 'on the next turn.'), kind: 'bad' });
+    }
+    if (Timing.active(f.abilitiesBlockedUntil)) {
+        chips.push({ icon: '🔇', label: `Ability Seal (item): none of ${who} abilities work on ${who} turns, always-on ones included. ${turnsLeft(f.abilitiesBlockedUntil, side)}`, kind: 'bad' });
+    }
+    if (Timing.active(f.movesNegatedUntil)) {
+        chips.push({ icon: '⚫', label: `Null Orb (item): ${who} moves only deal their printed damage; every other effect is cancelled. ${turnsLeft(f.movesNegatedUntil, side)}`, kind: 'bad' });
+    }
+    if (Timing.active(f.benchSafeUntil)) {
+        chips.push({ icon: '🐂', label: "Moor Stomp: " + `${who} benched creatures can't be damaged, until the end of the opponent's next turn.`, kind: 'good' });
+    }
+    if (Timing.active(f.retreatTrapUntil)) {
+        chips.push({ icon: '🌷', label: `Celestial Blossom: if ${side === 'player' ? 'you retreat' : subject(side) + ' retreats'}, the new active creature takes 40 damage. ${turnsLeft(f.retreatTrapUntil, side)}`, kind: 'bad' });
+    }
+    if (Timing.active(f.forcedTailsUntil)) {
+        chips.push({ icon: '🥔', label: `Crinkle Crash: ${who} next coin flip lands on tails. ${turnsLeft(f.forcedTailsUntil, side)}`, kind: 'bad' });
     }
     const foe = foeOf(side);
     if (gameState[foe] && hasAbilityAt(gameState[foe].active, 'mirageShield', 'active')) {

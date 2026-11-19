@@ -139,9 +139,15 @@ async function beginTurn() {
         }
     }
 
-    // Start-of-turn rules: Celestial Armor heals; a Bloomshroud the other
-    // side set up is flipped for now.
+    // Start-of-turn rules: Rust bites first (a knockout from it is swept
+    // before anything can heal); then Celestial Armor and Evo Echo heal, and a
+    // Bloomshroud the other side set up is flipped for now.
+    if (await rustTick(side)) {
+        await resolveKnockouts();
+        if (isGameOver()) return;
+    }
     await accessoriesOnTurnStart(side);
+    await evoEchoHeal(side);
     await flipBloomshrouds(side);
     await resolveKnockouts();
     if (isGameOver()) return;
@@ -181,13 +187,18 @@ async function announceActiveRestrictions(side) {
             { kind: 'status', icon: '🚫', pace: 0.6 });
     }
     if (Timing.active(s.flags.cantEvolveUntil)) {
-        await Log.say(`${subject(side)} cannot evolve this turn (Cuddle Storm).`, { kind: 'status', icon: '🧸', pace: 0.6 });
+        await Log.say(`${subject(side)} cannot evolve this turn (Cuddle Storm / Crunch Bloom).`, { kind: 'status', icon: '🧸', pace: 0.6 });
     }
     if (Timing.active(s.flags.cantUseAccessoriesUntil)) {
         await Log.say(`${subject(side)} cannot use accessory cards this turn.`, { kind: 'status', icon: '🧊', pace: 0.6 });
     }
     if (abilitiesBlocked(side)) {
-        await Log.say(`${subject(side)} cannot use abilities this turn (Memento Echo).`, { kind: 'status', icon: '🔇', pace: 0.6 });
+        const why = Timing.active(s.flags.abilitiesBlockedUntil) ? 'Ability Seal' : 'Memento Echo';
+        await Log.say(`${subject(side)} cannot use abilities this turn (${why}).`, { kind: 'status', icon: '🔇', pace: 0.6 });
+    }
+    if (movesNegated(side)) {
+        await Log.say(`Null Orb: ${possessive(side).toLowerCase()} moves only deal their printed damage this turn.`,
+            { kind: 'status', icon: '⚫', pace: 0.6 });
     }
     if (Timing.active(s.flags.cantDealDamageUntil)) {
         await Log.say(`${subject(side)} will deal no damage this turn (Tidal Illusion).`,
@@ -237,6 +248,37 @@ async function forestKinSearch(side) {
     await Log.say(`${creatureName(kin, side)}'s Forest Kin: ${subject(side).toLowerCase()} ${verb(side, 'takes', 'take')} ` +
         (side === 'player' ? getCardData(id).name : 'a Vulpetta evolution') + ' from the deck.',
         { kind: 'ability', icon: '🦊', pace: 0.6 });
+}
+
+/**
+ * Rust (Crystal Canopy): as its owner's turn starts, the rusted active creature
+ * flips a coin and loses 20 HP on tails (30 while the other side has Oxidize
+ * Surge in play). Returns true if it took damage.
+ */
+async function rustTick(side) {
+    const card = gameState[side].active;
+    if (!card || !Status.has(card, 'rust')) return false;
+    const flip = Rng.flip();
+    await Log.coin(flip, `${creatureName(card, side)}'s Rust`);
+    if (flip === 'heads') {
+        await Log.say(`${creatureName(card, side)} shrugs off the Rust this turn.`, { kind: 'info', pace: 0.5 });
+        return false;
+    }
+    const surge = sideHasAbility(foeOf(side), 'oxidizeSurge');
+    const amount = surge ? passiveBonus('oxidizeSurge', 30) : 20;
+    const dealt = await damageCreature(card, amount, { side, location: 'active', reason: surge ? 'Rust, Oxidize Surge' : 'Rust' });
+    return dealt > 0;
+}
+
+/** Evo Echo (Corleon): the opponent evolved on their last turn, so it heals to full. */
+async function evoEchoHeal(side) {
+    if (gameState[foeOf(side)].flags.evolvedOnTurn !== gameState.turnNumber - 1) return;
+    for (const card of creaturesWithAbility(side, 'evoEcho')) {
+        if (card.damage <= 0) continue;
+        AbilityRegistry.noteTriggered('evoEcho');
+        await Log.say(`${creatureName(card, side)}'s Evo Echo: the opponent evolved last turn.`, { kind: 'ability', icon: '👑', pace: 0.6 });
+        await healCreature(card, card.damage, { side });
+    }
 }
 
 /** Bloomshroud: as this side's turn starts, it flips for each shrouded enemy creature. */

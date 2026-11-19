@@ -83,11 +83,22 @@ const Missions = (() => {
     // ---- Temporal Rift: accessories, the Vulpetta family and the new mini-games ----
     BASE.push(
         { id: 'unique_accessory_1', cat: 'collection', description: 'Collect your first accessory card', type: 'unique_type', cardType: 'Accessory', target: 1, reward: r(2, 1) },
-        { id: 'unique_accessory_5', cat: 'collection', description: 'Collect all 5 accessory cards', type: 'unique_type', cardType: 'Accessory', target: 5, reward: r(5, 3) },
+        // The id is from before Crystal Canopy, when these were the only 5 accessories.
+        { id: 'unique_accessory_5', cat: 'collection', description: 'Collect all 5 Temporal Rift accessory cards',
+          type: 'own_cards', cards: ['Temporal Rift_61.png', 'Temporal Rift_62.png', 'Temporal Rift_63.png', 'Temporal Rift_64.png', 'Temporal Rift_65.png'], reward: r(5, 3) },
         { id: 'tr_vulpetta_family', cat: 'sets', description: 'Collect Vulpetta and all four of its evolutions',
           type: 'own_cards', cards: ['Temporal Rift_07.png', 'Temporal Rift_08.png', 'Temporal Rift_09.png', 'Temporal Rift_10.png', 'Temporal Rift_11.png'], reward: r(5, 3) },
         { id: 'tr_sweet_trio', cat: 'sets', description: 'Collect Flakette, Canelette and Rollinette',
           type: 'own_cards', cards: ['Temporal Rift_01.png', 'Temporal Rift_02.png', 'Temporal Rift_03.png'], reward: r(3, 1) }
+    );
+    // ---- Crystal Canopy ----
+    const cc = n => `Crystal Canopy_${String(n).padStart(2, '0')}.png`;
+    BASE.push(
+        { id: 'cc_accessories_6', cat: 'collection', description: 'Collect all 6 Crystal Canopy accessory cards',
+          type: 'own_cards', cards: [67, 68, 69, 70, 71, 72].map(cc), reward: r(5, 3) },
+        // Berlimperador, Nyamroot, Elaroo, Arborctton, Toxflare, Avokarn, Highbrahm, Neurobane, Sylvickie, Shadegeist.
+        { id: 'cc_rust_hex', cat: 'sets', description: 'Collect every Crystal Canopy creature whose moves or ability cause Rust or Hex',
+          type: 'own_cards', cards: [3, 6, 7, 9, 10, 13, 17, 19, 23, 36].map(cc), reward: r(5, 3) }
     );
     for (const [key, name] of [['sorting', 'Creature Sorting'], ['puzzle', 'Puzzle'], ['tetris', 'Tetris']]) {
         BASE.push(
@@ -164,6 +175,12 @@ const Missions = (() => {
             type: 'opponents_beaten_set', setId: set.id, target: n, reward: r(5, 5)
         });
     }
+    // Auto-generated teams: wins against the AI, raid bosses or daily challenges.
+    GAME_MISSIONS.push(
+        { id: 'auto_win_5',  cat: 'games', description: 'Win 5 battles with an auto-generated team',  type: 'auto_won', target: 5,  reward: r(3, 1) },
+        { id: 'auto_win_10', cat: 'games', description: 'Win 10 battles with an auto-generated team', type: 'auto_won', target: 10, reward: r(3, 2) },
+        { id: 'auto_win_50', cat: 'games', description: 'Win 50 battles with an auto-generated team', type: 'auto_won', target: 50, reward: r(5, 5) }
+    );
     GAME_MISSIONS.push({
         id: 'beat_every_deck', cat: 'games', description: `Beat every AI deck at least once (${aiDeckCount})`,
         type: 'opponents_beaten', target: aiDeckCount, reward: r(5, 5)
@@ -220,6 +237,8 @@ const Missions = (() => {
             bestStreak: s.stats.bestStreak,
             pvpPlayed: (s.stats.pvp && s.stats.pvp.played) || 0,
             pvpWon: (s.stats.pvp && s.stats.pvp.won) || 0,
+            autoWins: s.stats.autoWins || 0,
+            trades: (s.trade && s.trade.total) || 0,
             opponentsBeaten: 0,
             beatenBySet: {},
             winsByType: {},
@@ -275,6 +294,8 @@ const Missions = (() => {
             case 'win_streak':       return numeric(p.bestStreak, m.target);
             case 'pvp_played':       return numeric(p.pvpPlayed, m.target);
             case 'pvp_won':          return numeric(p.pvpWon, m.target);
+            case 'auto_won':         return numeric(p.autoWins, m.target);
+            case 'trades_done':      return numeric(p.trades, m.target);
             case 'opponents_beaten': return numeric(p.opponentsBeaten, m.target);
             case 'opponents_beaten_set': return numeric(p.beatenBySet[m.setId] || 0, m.target);
             case 'wins_vs_type':     return numeric(p.winsByType[m.deckType] || 0, m.target);

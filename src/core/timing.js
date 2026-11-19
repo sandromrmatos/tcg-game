@@ -103,7 +103,7 @@ function creatureCanAttack(card, side) {
 function moveIsUsable(card, move, side) {
     if (!card || !move) return { ok: false, reason: 'No move.' };
     if (!canPayMove(card, move)) {
-        return { ok: false, reason: `Not enough energy for ${move.name} (needs ${describeEnergyCost(move.cost)}).` };
+        return { ok: false, reason: `Not enough energy for ${move.name} (needs ${describeEnergyCost(effectiveCost(card, move))}).` };
     }
     const cooldown = move.effect ? card.flags.cooldowns[move.effect] : null;
     if (Timing.active(cooldown)) {
@@ -122,6 +122,15 @@ function creatureCanRetreat(card, side) {
     }
     if (Timing.active(card.flags.cantRetreatUntil)) {
         return { ok: false, reason: `${creatureName(card, side)} can't retreat for ${Timing.describe(card.flags.cantRetreatUntil)}.` };
+    }
+    // Glacial Ward (Ghoulgourd), always on, active or benched: while it has
+    // full HP, an opposing active creature with a status condition can't retreat.
+    if (side && Status.any(card)) {
+        const ward = creaturesWithAbility(foeOf(side), 'glacialWard').find(c => c.damage === 0);
+        if (ward) {
+            AbilityRegistry.noteTriggered('glacialWard');
+            return { ok: false, reason: `${ward.data.name}'s Glacial Ward: a creature with a status condition can't retreat.` };
+        }
     }
     if (card.energy < retreatCost(card)) {
         return { ok: false, reason: `Not enough energy to retreat (needs ${retreatCost(card)} of any type).` };

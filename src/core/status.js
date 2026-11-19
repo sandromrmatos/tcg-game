@@ -33,6 +33,20 @@ const STATUS_CONDITIONS = {
         icon: '🔒',
         blurb: 'When using an item, flip a coin. Tails: the item stays in hand.',
         blockedByClarityAura: false
+    },
+    // Crystal Canopy. Rust is flipped at the start of its owner's turn (turn.js);
+    // Hex is read by healCreature (heal.js).
+    rust: {
+        name: 'Rust',
+        icon: '🟫',
+        blurb: "At the start of its owner's turn, flip a coin. Tails: it loses 20 HP.",
+        blockedByClarityAura: false
+    },
+    hex: {
+        name: 'Hex',
+        icon: '🔯',
+        blurb: "It can't be healed in any way (items, abilities, moves, accessories).",
+        blockedByClarityAura: false
     }
 };
 

@@ -470,7 +470,7 @@ const AccessoryRegistry = {
             return { ok: false, reason: `Accessory "${card.data.accessoryEffect}" is not implemented.` };
         }
         if (this.targets(card, side).length === 0) {
-            return { ok: false, reason: `${card.data.name} needs one of your ${card.data.accessoryType} creatures without an accessory.` };
+            return { ok: false, reason: `${card.data.name} needs one of your ${accessoryTargetLabel(card.data)}s without an accessory.` };
         }
         return { ok: true };
     },
@@ -535,7 +535,14 @@ const AccessoryRegistry = {
 
 /** Does accessory card data `acc` fit this creature (by its current type)? */
 function accessoryFits(acc, creature) {
-    return !!acc && !!creature && isCreature(creature.data) && getCardType(creature.data) === acc.accessoryType;
+    if (!acc || !creature || !isCreature(creature.data)) return false;
+    // Crystal Canopy's Evo Guard and Core Stabilizer fit any creature.
+    return acc.accessoryType === 'Any' || getCardType(creature.data) === acc.accessoryType;
+}
+
+/** "Mystic creature" / "creature" for messages. */
+function accessoryTargetLabel(acc) {
+    return acc && acc.accessoryType !== 'Any' ? `${acc.accessoryType} creature` : 'creature';
 }
 
 /** The creature wears an accessory with this effect id. */
@@ -550,7 +557,8 @@ function accessoryDef(card) {
 /** Read by util.js maxHp(). */
 function accessoryHpBonus(card) {
     const def = accessoryDef(card);
-    return def && def.hpBonus ? def.hpBonus : 0;
+    if (!def || !def.hpBonus) return 0;
+    return typeof def.hpBonus === 'function' ? def.hpBonus(card) : def.hpBonus;
 }
 
 /** Read by util.js retreatCost(). */
@@ -593,6 +601,14 @@ function aiAccessoryTarget(acc, candidates) {
         if (acc.accessoryEffect === 'windFeather') s += retreatCost(c) * 25;
         if (acc.accessoryEffect === 'mechanicToolkit' && c.data.abilityEffect) s += 60;
         if (acc.accessoryEffect === 'mysticAmulet') s += movesOf(c.data).some(m => canPayMove(c, m)) ? 30 : 0;
+        // Crystal Canopy
+        if (acc.accessoryEffect === 'evoGuard') s += c.data.stage === 'Stage 1' && !(c.data.nextStageIds || []).length ? 40 : -80;
+        if (acc.accessoryEffect === 'coreStabilizer') s += movesOf(c.data).some(m => m.cost.length >= 3 && m.cost.includes('N')) ? 50 : -60;
+        if (acc.accessoryEffect === 'starMantle') s += c.energy * 10;
+        if (acc.accessoryEffect === 'stormPendant') s += movesOf(c.data).some(m => m.effect) ? 30 : -20;
+        // Anything that boosts or reads an accessory likes having one.
+        if (['gearBoost', 'armorSync10', 'armorSync20'].includes(c.data.abilityEffect)) s += 50;
+        if (movesOf(c.data).some(m => ['aeroSnap', 'pieceGlide', 'overchargeSlam'].includes(m.effect))) s += 40;
         return s;
     };
     return candidates.slice().sort((a, b) => score(b) - score(a))[0] || null;
@@ -638,7 +654,8 @@ AccessoryRegistry.register('neutralElixir', {
             const elixir = discardAccessory(card, side);
             const name = card.data.name;
             // The whole evolution line returns to the hand, every card fresh.
-            const line = (card.evolutionChain || []).map(e => {
+            // A Vulpetta borrowed with Vulpite isn't the player's: it doesn't come back.
+            const line = (card.evolutionChain || []).filter(e => !e.borrowed).map(e => {
                 const inst = makeCardInstance(e.id);
                 inst.fullArt = !!e.fullArt;
                 return inst;
@@ -650,7 +667,8 @@ AccessoryRegistry.register('neutralElixir', {
             resetCardInstance(card);
             card.evolutionChain = [];
             card.evolutionId = newEvolutionId();
-            s.hand.push(...line, card);
+            s.hand.push(...line);
+            if (!card.borrowed) s.hand.push(card);
             Render.all();
             await Log.say(
                 `${subject(side)} ${verb(side, 'uses', 'use')} ${elixir ? elixir.data.name : 'Neutral Elixir'}: ` +
@@ -670,3 +688,267 @@ function aiWantsElixir(card, side) {
     // A creature about to be knocked out: saving it denies the opponent a point.
     return hurt && (s.active !== card || benchCreatures(side).length > 0);
 }
+
+// ===========================================================================
+// CRYSTAL CANOPY
+// ===========================================================================
+
+// --- Accessories ---------------------------------------------------------------
+
+// "Attach to any creature. While it is a Stage 1, it has 20 extra HP." An
+// evolution keeps the card but loses the HP (which can knock it out).
+AccessoryRegistry.register('evoGuard', { hpBonus: card => (card.data.stage === 'Stage 1' ? 20 : 0) });
+
+// "Attach to any creature. Its moves that cost 3 or more energy need one less
+// Neutral energy." (util.js effectiveCost)
+AccessoryRegistry.register('coreStabilizer', {});
+
+// "Attach to a Mystic creature. If this creature is knocked out, draw 2 cards." (knockout.js)
+AccessoryRegistry.register('spiritBand', {});
+
+// "Attach to a Celestial creature. While it has 3 or more energy attached, it
+// takes 20 less damage from attacks." (damage.js)
+AccessoryRegistry.register('starMantle', {});
+
+// "Attach to a Mechanic creature. When an attack damages this creature, the
+// attacker is affected by Rust." (combat.js reactivePlatingRust)
+AccessoryRegistry.register('reactivePlating', {});
+
+// "Attach to a Wind creature. The first coin flip of each of its moves always
+// lands on heads." (combat.js sets it up, effects.js coinOverride reads it)
+AccessoryRegistry.register('stormPendant', {});
+
+// --- Items -------------------------------------------------------------------
+
+/** Hand cards other than the item being played. */
+function otherHandCards(ctx) {
+    return ctx.me.hand.filter(c => c !== ctx.card);
+}
+
+/** The hand card the AI least wants to keep. */
+function worstHandCard(cards) {
+    let worst = 0;
+    cards.forEach((c, i) => { if (handCardKeepScore(c) < handCardKeepScore(cards[worst])) worst = i; });
+    return worst;
+}
+
+/** Moves a hand card to its owner's discard pile. */
+function discardFromHand(side, card) {
+    const s = gameState[side];
+    const at = s.hand.indexOf(card);
+    if (at === -1) return false;
+    s.hand.splice(at, 1);
+    s.discardPile.push(card);
+    return true;
+}
+
+// "Choose a card from your hand and discard it. Draw a new card."
+ItemRegistry.register('handRecycle', {
+    requires(ctx) {
+        if (!otherHandCards(ctx).length) return { ok: false, reason: 'You need another card in your hand to discard.' };
+        if (!ctx.me.deck.length) return { ok: false, reason: 'Your deck is empty.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const cards = otherHandCards(ctx);
+        const index = await ctx.chooseCard({
+            cards,
+            title: 'Hand Recycle: discard which card?',
+            subtitle: 'Then you draw a card.',
+            cancellable: ctx.side === 'player',
+            aiPick: worstHandCard
+        });
+        if (index === null || index === undefined || !cards[index]) return false;
+        discardFromHand(ctx.side, cards[index]);
+        await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'discards', 'discard')} ${cards[index].data.name}.`, { kind: 'item', icon: '♻️', pace: 0.5 });
+        const drawn = drawCards(ctx.side, 1);
+        await ctx.say(drawn ? `${subject(ctx.side)} ${verb(ctx.side, 'draws', 'draw')} a card.` : 'The deck is empty.', { kind: 'item', icon: '🎴', pace: 0.5 });
+    },
+    // A hand with an item or accessory it can't use is worth refreshing.
+    aiWants(ctx) {
+        const cards = otherHandCards(ctx);
+        const dead = c => (isItem(c.data) && c.data.itemEffect !== 'handRecycle' && !ItemRegistry.canUse(c, ctx.side).ok) ||
+            (isAccessory(c.data) && AccessoryRegistry.targets(c, ctx.side).length === 0);
+        return cards.length >= 2 && cards.some(dead);
+    }
+});
+
+// "Discard a random card from your hand. Attach an extra energy to one of your
+// benched creatures." The energy is this turn's type.
+ItemRegistry.register('exchange', {
+    requires(ctx) {
+        if (!otherHandCards(ctx).length) return { ok: false, reason: 'You need another card in your hand to discard.' };
+        if (!benchCreatures(ctx.side).length) return { ok: false, reason: 'You have no benched creature.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const type = turnEnergyType(ctx.side);
+        const target = await ctx.chooseMyCreature({
+            title: `Exchange: attach 1 ${type} energy to which benched creature?`,
+            filter: c => c.location === 'bench',
+            cancellable: ctx.side === 'player',
+            aiPick: candidates => bestEnergyTarget(candidates, type)
+        });
+        if (!target) return false;
+        const lost = Rng.pick(otherHandCards(ctx));
+        discardFromHand(ctx.side, lost);
+        Render.all();
+        await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'discards', 'discard')} ${lost.data.name} at random.`, { kind: 'item', icon: '🔁', pace: 0.5 });
+        await ctx.energy(target.card, 1, ctx.side, type);
+    },
+    aiWants(ctx) {
+        const type = turnEnergyType(ctx.side);
+        return otherHandCards(ctx).length >= 3 &&
+            benchCreatures(ctx.side).some(c => energyHelpScore(c, type) > 0);
+    }
+});
+
+// "For their next two turns, your opponent is unable to use any abilities."
+// Always-on ones included, like Memento Echo.
+ItemRegistry.register('abilitySeal', {
+    async use(ctx) {
+        ctx.them.flags.abilitiesBlockedUntil = Timing.opponentTurns(2);
+        await ctx.say(`${subject(ctx.foe)} can't use abilities for their next 2 turns.`, { kind: 'item', icon: '🔇' });
+    },
+    aiWants: ctx => !Timing.active(ctx.them.flags.abilitiesBlockedUntil) &&
+        creaturesInPlay(ctx.foe).some(c => c.data.abilityEffect)
+});
+
+// "During your opponent's next turn, their moves only deal their printed damage."
+ItemRegistry.register('nullOrb', {
+    async use(ctx) {
+        ctx.them.flags.movesNegatedUntil = Timing.opponentTurns(1);
+        await ctx.say(`${possessive(ctx.foe)} moves only deal their printed damage next turn.`, { kind: 'item', icon: '⚫' });
+    },
+    // Worth it against an active creature whose moves do more than their printed damage.
+    aiWants(ctx) {
+        const foe = ctx.them.active;
+        return !!foe && !Timing.active(ctx.them.flags.movesNegatedUntil) &&
+            movesOf(foe.data).some(m => m.effect && energyNeeded(foe, effectiveCost(foe, m)) <= 1);
+    }
+});
+
+// "Look at the top 3 cards of your deck. Add one to your hand. Shuffle your deck."
+ItemRegistry.register('insightLens', {
+    requires(ctx) {
+        if (!ctx.me.deck.length) return { ok: false, reason: 'Your deck is empty.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const deck = ctx.me.deck;
+        const n = Math.min(3, deck.length);
+        const ids = deck.slice(deck.length - n).reverse();     // the top of the deck is its end
+        const options = ids.map(id => makeCardInstance(id));
+        const index = await ctx.chooseCard({
+            cards: options,
+            title: 'Insight Lens: take which card?',
+            subtitle: 'The others are shuffled back into your deck.',
+            aiPick: cards => {
+                let best = 0;
+                cards.forEach((c, i) => { if (handCardKeepScore(c) > handCardKeepScore(cards[best])) best = i; });
+                return best;
+            }
+        });
+        const pick = ids[index === null || index === undefined ? 0 : index];
+        deck.splice(deck.lastIndexOf(pick), 1);
+        ctx.me.hand.push(instanceFromDeck(ctx.side, pick));
+        Rng.shuffle(deck);
+        Render.all();
+        await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'takes', 'take')} ` +
+            (ctx.side === 'player' ? getCardData(pick).name : 'a card') + ` and ${verb(ctx.side, 'shuffles', 'shuffle')} the deck.`,
+            { kind: 'item', icon: '🔍', pace: 0.6 });
+    }
+});
+
+// "Draw a card. If it isn't a creature, put it at the bottom of your deck instead."
+ItemRegistry.register('luckyDraw', {
+    requires(ctx) {
+        if (!ctx.me.deck.length) return { ok: false, reason: 'Your deck is empty.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const id = ctx.me.deck.pop();
+        const data = getCardData(id);
+        if (isCreature(data)) {
+            ctx.me.hand.push(instanceFromDeck(ctx.side, id));
+            Render.all();
+            await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'draws', 'draw')} ${ctx.side === 'player' ? data.name + ': ' : ''}a creature, kept.`, { kind: 'item', icon: '🍀', pace: 0.6 });
+        } else {
+            ctx.me.deck.unshift(id);
+            Render.all();
+            await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'draws', 'draw')} ${data.name}: not a creature, it goes to the bottom of the deck.`,
+                { kind: 'item', icon: '🍀', pace: 0.6 });
+        }
+    }
+});
+
+// "Your opponent switches their active creature with a random benched creature."
+ItemRegistry.register('switcheroo', {
+    requires(ctx) {
+        if (!ctx.them.active || !benchCreatures(ctx.foe).length) return { ok: false, reason: 'Your opponent has no benched creature.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const slots = [];
+        ctx.them.bench.forEach((c, i) => { if (c) slots.push(i); });
+        await ctx.say(`${subject(ctx.foe)} ${verb(ctx.foe, 'switches', 'switch')} to a random benched creature!`, { kind: 'item', icon: '🔀' });
+        await swapActiveWithBench(ctx.foe, Rng.pick(slots), { free: true });
+    },
+    // When their active is the threat: it can attack, and is healthier than what would come in on average.
+    aiWants(ctx) {
+        const foe = ctx.them.active;
+        if (!foe || !benchCreatures(ctx.foe).length) return false;
+        const threat = usableMovesFor(foe).length > 0;
+        const avgBenchHp = benchCreatures(ctx.foe).reduce((s, c) => s + remainingHp(c), 0) / benchCreatures(ctx.foe).length;
+        return threat && remainingHp(foe) >= avgBenchHp;
+    }
+});
+
+// "Your opponent discards a random card from their deck."
+ItemRegistry.register('randomPurge', {
+    requires(ctx) {
+        if (!ctx.them.deck.length) return { ok: false, reason: "Your opponent's deck is empty." };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const deck = ctx.them.deck;
+        const [id] = deck.splice(Rng.int(deck.length), 1);
+        const card = instanceFromDeck(ctx.foe, id);
+        ctx.them.discardPile.push(card);
+        Render.all();
+        await ctx.say(`${subject(ctx.foe)} ${verb(ctx.foe, 'discards', 'discard')} ${card.data.name} from the deck.`, { kind: 'item', icon: '🗑️', pace: 0.6 });
+    }
+});
+
+// --- Crystal Canopy promo item ---------------------------------------------------
+
+/** The Vulpetta card a Vulpite lends (Temporal Rift). */
+function vulpettaCardId() {
+    const card = cardDatabase.find(c => c.name === 'Vulpetta' && c.set === 'TR') || cardDatabase.find(c => c.name === 'Vulpetta');
+    return card ? card.id : null;
+}
+
+// "Needs a Vulpetta or its evolution in play and a free bench spot. Put a
+// borrowed Vulpetta on your bench." The Vulpetta isn't from the deck: it can
+// evolve like any other, and when it's knocked out it isn't put in the
+// discard pile (knockout.js).
+ItemRegistry.register('vulpite', {
+    requires(ctx) {
+        if (!creaturesInPlay(ctx.side).some(c => c.data.name === 'Vulpetta' || isVulpettaEvolution(c))) {
+            return { ok: false, reason: 'Vulpite needs a Vulpetta or one of its evolutions in play.' };
+        }
+        if (!emptyBenchSlots(ctx.side).length) return { ok: false, reason: 'Your bench is full.' };
+        if (!vulpettaCardId()) return { ok: false, reason: 'No Vulpetta card to borrow.' };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const slot = emptyBenchSlots(ctx.side)[0];
+        const fox = makeCardInstance(vulpettaCardId());
+        fox.borrowed = true;
+        ctx.me.bench[slot] = fox;
+        // Like any creature put on the bench, it can't evolve this turn.
+        turnTracker.playedThisTurn.add(fox.evolutionId);
+        Render.all();
+        await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'borrows', 'borrow')} a Vulpetta: it joins the bench.`, { kind: 'item', icon: '🦊' });
+    }
+});

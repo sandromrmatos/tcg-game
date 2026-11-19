@@ -6,6 +6,7 @@
 const presetEA = n => `Elemental Awakening_${String(n).padStart(2, '0')}.png`;
 const presetGA = n => `Galactic Adventures_${String(n).padStart(2, '0')}.png`;
 const presetTR = n => `Temporal Rift_${String(n).padStart(2, '0')}.png`;
+const presetCC = n => `Crystal Canopy_${String(n).padStart(2, '0')}.png`;
 /** Two copies of each listed card. */
 const presetTwoOf = (...ids) => ids.flatMap(id => [id, id]);
 
@@ -479,6 +480,123 @@ const presetDeckLists = [
             ...presetTwoOf(presetTR(16), presetTR(35)),                 // Cycloblaze, Ignivault
             ...presetTwoOf(presetEA(66)),                               // Card Draw
             ...presetTwoOf(presetTR(64))                                // Mechanic Toolkit
+        ]
+    },
+
+    // ---- Crystal Canopy: one type each, two status decks, two mixed decks ----
+    {
+        name: "Canopy Mystic Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Mystic"],
+        cards: [
+            ...presetTwoOf(presetCC(4), presetCC(5), presetCC(6)),      // Ubruma → Tubshade → Nyamroot
+            ...presetTwoOf(presetCC(18), presetCC(19)),                 // Vulphex → Neurobane
+            ...presetTwoOf(presetCC(22), presetCC(23)),                 // Twignome → Sylvickie
+            ...presetTwoOf(presetCC(43), presetCC(44)),                 // Gemnocus → Oculara
+            ...presetTwoOf(presetCC(69))                                // Spirit Band
+        ]
+    },
+    {
+        name: "Canopy Wind Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Wind"],
+        cards: [
+            ...presetTwoOf(presetCC(27), presetCC(28), presetCC(29)),   // Peckaroo → Cluckster → Combino
+            ...presetTwoOf(presetCC(37), presetCC(38), presetCC(39)),   // Crimorae → Soarossa → Tendrivale
+            ...presetTwoOf(presetCC(45), presetCC(46)),                 // Owblush → Cryostralis
+            ...presetTwoOf(presetCC(72)),                               // Storm Pendant
+            ...presetTwoOf(presetCC(78))                                // Lucky Draw
+        ]
+    },
+    {
+        name: "Canopy Celestial Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Celestial"],
+        cards: [
+            ...presetTwoOf(presetCC(52), presetCC(53), presetCC(54)),   // Folivern → Brambleon → Sylgroth
+            ...presetTwoOf(presetCC(49), presetCC(50), presetCC(51)),   // Caulibelle → Faecrisp → Caulithyme
+            ...presetTwoOf(presetCC(47), presetCC(48)),                 // Coralith → Fizzelle
+            ...presetTwoOf(presetCC(70)),                               // Star Mantle
+            ...presetTwoOf(presetCC(77))                                // Insight Lens
+        ]
+    },
+    {
+        name: "Canopy Mechanic Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Mechanic"],
+        cards: [
+            ...presetTwoOf(presetCC(64), presetCC(65), presetCC(66)),   // Lavarocko → Ignistone → Ashquake
+            ...presetTwoOf(presetCC(8), presetCC(9)),                   // Fructopus → Arborctton
+            ...presetTwoOf(presetCC(13), presetCC(14)),                 // Avokarn → Granocado
+            ...presetTwoOf(presetCC(71), presetCC(68)),                 // Reactive Plating, Core Stabilizer
+            ...presetTwoOf(presetCC(75))                                // Ability Seal
+        ]
+    },
+    {
+        name: "Canopy Neutral Deck",
+        type: "preset",
+        set: "CC",
+        cards: [
+            ...presetTwoOf(presetCC(24), presetCC(25), presetCC(26)),   // Stroopa → Waflair → Syruprex
+            ...presetTwoOf(presetCC(32), presetCC(33), presetCC(34)),   // Chipfin → Crispnash → Spudrake
+            ...presetTwoOf(presetCC(20), presetCC(21)),                 // Lapindle → Florhind
+            ...presetTwoOf(presetCC(67)),                               // Evo Guard
+            ...presetTwoOf(presetCC(76))                                // Null Orb
+        ]
+    },
+    {
+        name: "Canopy Rust Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Mechanic"],
+        cards: [
+            ...presetTwoOf(presetCC(1), presetCC(2), presetCC(3)),      // Berlimini → Berlimacho → Berlimperador
+            ...presetTwoOf(presetCC(15), presetCC(16), presetCC(17)),   // Calfluff → Bovraze → Highbrahm
+            ...presetTwoOf(presetCC(55), presetCC(56)),                 // Fillwrapp → Crispisoy
+            ...presetTwoOf(presetCC(74), presetCC(80))                  // Exchange, Random Purge
+        ]
+    },
+    {
+        name: "Canopy Hex Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Mystic"],
+        cards: [
+            ...presetTwoOf(presetCC(4), presetCC(5), presetCC(6)),      // Ubruma → Tubshade → Nyamroot
+            ...presetTwoOf(presetCC(35), presetCC(36)),                 // Yamourn → Shadegeist
+            ...presetTwoOf(presetCC(18), presetCC(19)),                 // Vulphex → Neurobane
+            ...presetTwoOf(presetCC(22), presetCC(23)),                 // Twignome → Sylvickie
+            ...presetTwoOf(presetCC(10))                                // Toxflare
+        ]
+    },
+    {
+        name: "Canopy Gear Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Wind", "Mechanic"],
+        cards: [
+            ...presetTwoOf(presetCC(61), presetCC(62), presetCC(63)),   // Vioflate → Ballure → Heliboo
+            ...presetTwoOf(presetCC(64), presetCC(65), presetCC(66)),   // Lavarocko → Ignistone → Ashquake
+            ...presetTwoOf(presetCC(58), presetCC(59)),                 // Breezeba → Twistulip
+            presetCC(57), presetCC(73),                                 // Legopeck, Hand Recycle
+            ...presetTwoOf(presetCC(68))                                // Core Stabilizer
+        ]
+    },
+    {
+        name: "Canopy Reef Deck",
+        type: "preset",
+        set: "CC",
+        energyTypes: ["Celestial", "Wind"],
+        cards: [
+            ...presetTwoOf(presetCC(11), presetCC(12)),                 // Lithogrove → Terraflew
+            ...presetTwoOf(presetCC(30), presetCC(31)),                 // Anemora → Verdemone
+            ...presetTwoOf(presetCC(41), presetCC(42)),                 // Reeflet → Corleon
+            ...presetTwoOf(presetCC(60), presetCC(40), presetCC(7)),    // Swiftail, Rayvora, Elaroo
+            ...presetTwoOf(presetCC(79))                                // Switcheroo
         ]
     }
 ];

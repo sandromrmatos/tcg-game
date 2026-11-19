@@ -97,6 +97,8 @@ async function aiConsiderRetreat(side) {
 
     const replacement = healthiestAttacker(candidates);
     if (!replacement) return;
+    // Celestial Blossom: the newcomer takes 40, so never retreat into a knockout.
+    if (Timing.active(gameState[side].flags.retreatTrapUntil) && remainingHp(replacement.card) <= 40) return;
 
     // Healing Retreat is always on: performRetreat heals on its own.
     await performRetreat(side, replacement.index);
@@ -151,12 +153,25 @@ async function aiUseElixirs(side) {
 // 3. Creatures to the bench
 // ---------------------------------------------------------------------------
 
+/**
+ * Pressure Ward (Sylgroth) punishes a full bench. While the opponent has any
+ * card of that line in play (Folivern, Brambleon, Sylgroth), the AI keeps one
+ * bench spot free, so a Folivern can't grow into a Sylgroth behind a full bench.
+ */
+const PRESSURE_WARD_LINE = ['Folivern', 'Brambleon', 'Sylgroth'];
+function aiBenchLimit(side) {
+    const foeHasLine = creaturesInPlay(foeOf(side)).some(c =>
+        PRESSURE_WARD_LINE.includes(c.data.name) && c.data.set === 'CC');
+    return foeHasLine ? BENCH_SIZE - 1 : BENCH_SIZE;
+}
+
 async function aiPlayCreatures(side) {
     const s = gameState[side];
 
     for (;;) {
         const slot = s.bench.findIndex(c => !c);
         if (slot === -1) break;
+        if (benchCreatures(side).length >= aiBenchLimit(side)) break;
 
         const stage1 = s.hand
             .map((card, index) => ({ card, index }))
@@ -273,6 +288,10 @@ async function aiAttackOrPass(side) {
     await resolveAttack(side, choice.number);
 }
 
+/** Moves whose only extra is healing the attacker (worth nothing under Hex). */
+const AI_SELF_HEALS = new Set(['healingRoots', 'minorMend', 'majorMend', 'planetBurst', 'violetVeil',
+    'sweetHeal', 'stoneThump', 'tideBind']);
+
 /**
  * A bounded, read-only tactical estimate for effects whose value is not direct
  * damage. Combat remains authoritative in the effect registry: this only helps
@@ -288,6 +307,11 @@ function estimateMoveTacticalValue(move, side) {
     const foeBench = gameState[foeOf(side)].bench.filter(Boolean);
     const defenderHas = status => defender.status?.has(status);
     const statusValue = (status, value, chance = 1) => defenderHas(status) ? 0 : value * chance;
+
+    // Null Orb: nothing but the printed damage happens.
+    if (movesNegated(side)) return 0;
+    // Hex: the attacker's own healing is wasted.
+    if (Status.has(attacker, 'hex') && AI_SELF_HEALS.has(move.effect)) return 0;
 
     switch (move.effect) {
         // Disruption is valuable only while it can land on a fresh active target.
@@ -390,6 +414,44 @@ function estimateMoveTacticalValue(move, side) {
             const coins = countLetterA(defender);
             return (foeBench.length ? coins * 15 * 0.6 : 0) - coins * 5;
         }
+
+        // Crystal Canopy
+        case 'rustOnDefender': return statusValue('rust', 14);
+        case 'rustIfHeads': return statusValue('rust', 14, 0.5);
+        // Hex hurts most when the opponent can heal.
+        case 'hexOnDefender': return statusValue('hex', defender.damage > 0 ? 10 : 6);
+        case 'hexIfHeads': return statusValue('hex', defender.damage > 0 ? 10 : 6, 0.5);
+        case 'breathStruggle':
+            return (Status.has(attacker, 'hex') ? 0 : missingHp(attacker) * 0.8) + statusValue('hex', defender.damage > 0 ? 10 : 6);
+        case 'mindFlare': return foeBench.length < BENCH_SIZE ? statusValue('hex', defender.damage > 0 ? 10 : 6) : 0;
+        case 'neuroLance': return foeBench.length >= BENCH_SIZE ? statusValue('flux', 12) : 0;
+        case 'knockKnotSlam': return -Math.min(100, remainingHp(attacker)) * 0.5 * 0.6;
+        case 'nextAttack20': return 14;
+        case 'abilityLock': return defender.data.abilityEffect ? 8 : 0;
+        case 'overchargeSlam': return attacker.accessory ? 18 : 0;
+        case 'moorStomp': return ownBench.length ? 5 : 0;
+        case 'forestFlicker': return ['Celestial', 'Mystic'].includes(getCardType(defender.data)) ? 25 : 3;
+        case 'untouchableIfHeads': return 15;
+        case 'syrupSplash': return defender.accessory ? 8 : 0;
+        case 'sealBreaker': return defender.accessory ? 16 : 0;
+        case 'skyScratch': return -Math.max(0, remainingHp(attacker) - 10) * 0.5 * 0.4;
+        case 'reefMirage': return creaturesInPlay(side).reduce((sum, card) => sum + missingHp(card), 0) * 0.125 * 0.6;
+        case 'crinkleCrash': return 6;
+        case 'disruptivePulse': return creaturesInPlay(foeOf(side)).filter(c => c.accessory).length * 12 * 0.25;
+        case 'tideBind': return gameState[foeOf(side)].points >= 1 ? Math.min(50, missingHp(attacker)) * 0.8 : 0;
+        case 'verdantCrown': return gameState[side].deck.length ? 2 : 0;
+        case 'rootSurge':
+            return gameState[side].points === gameState[foeOf(side)].points && foeBench.length
+                ? Math.min(60, Math.min(...foeBench.map(remainingHp))) * 0.45 : 0;
+        case 'heliumBurst': return -12;
+        // Crystal Canopy promos
+        case 'wasabiFocus': return itemsInDiscard(side) >= 2 ? statusValue('flux', 12) : 0;
+        case 'spiritFillet': return Status.any(defender) && foeBench.length ? 10 : 0;
+        case 'resonanceCrash': return defender.data.abilityEffect && foeBench.length ? 10 : 0;
+        case 'nutBash': return gameState[side].deck.some(id => { const d = getCardData(id); return d && isCreature(d) && d.hp <= 50; }) ? 10 : 0;
+        case 'chestnutCrush': return movesOf(defender.data).some(m => effectiveCost(defender, m).length >= 3) ? 20 : 4;
+        case 'polarPounce': return playedBabybara(side) ? statusValue('hallucination', 18) + statusValue('hex', 8) : 0;
+        case 'celestialBlossom': return foeBench.length ? 8 : 0;
         default: return 0;
     }
 }

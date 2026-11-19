@@ -21,6 +21,15 @@
 async function healCreature(card, amount, opts = {}) {
     if (!card || amount <= 0) return 0;
 
+    // Hex (Crystal Canopy): no healing of any kind while it lasts.
+    if (Status.has(card, 'hex')) {
+        if (card.damage > 0 && !opts.silent) {
+            await Log.say(`${creatureName(card, opts.side)} can't be healed: it is affected by Hex.`,
+                { kind: 'status', icon: STATUS_CONDITIONS.hex.icon, pace: 0.5 });
+        }
+        return 0;
+    }
+
     const before = card.damage;
     card.damage = Math.max(0, card.damage - amount);
     const restored = before - card.damage;
@@ -83,6 +92,15 @@ async function damageCreature(card, amount, opts = {}) {
         return 0;
     }
 
+    // Moor Stomp (Bovraze, Highbrahm): "next turn, your benched creatures can't be damaged".
+    if (location === 'bench' && side && Timing.active(gameState[side].flags.benchSafeUntil)) {
+        if (!opts.silent) {
+            await Log.say(`Moor Stomp protects ${possessive(side).toLowerCase()} ${card.data.name} on the bench!`,
+                { kind: 'ability', icon: '🐂', pace: 0.6 });
+        }
+        return 0;
+    }
+
     // Bloomshroud: "this creature takes no damage", whatever the source.
     if (bloomshroudSafe(card) && !(opts.source && opts.source.side === side) && opts.reason !== 'recoil') {
         if (!opts.silent) {
@@ -114,6 +132,10 @@ async function damageCreature(card, amount, opts = {}) {
             `${creatureName(card, side)} took ${amount} damage${reason}.`,
             { kind: 'damage', icon: '💥', pace: 0.6 }
         );
+    }
+    // Reactive Plating: damaged by a move, it gives the opposing active creature Rust.
+    if (opts.source && opts.source.kind === 'move' && opts.source.side !== side) {
+        await reactivePlatingRust(card, side);
     }
     return amount;
 }

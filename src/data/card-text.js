@@ -579,6 +579,235 @@ const CARD_TEXT = {
     },
     "Temporal Rift_81.png": {
         "move1": "Flip a coin per A in the opponent's name. Heads: 30 to a benched creature you pick. Tails: 10 to itself."
+    },
+    // ---- Crystal Canopy ----
+    "Crystal Canopy_03.png": {
+        "move1": "Your opponent is now affected by Rust.",
+        "move2": "If all of your opponent's creatures in play are Stage 2 or 3, this move does 40 extra damage."
+    },
+    "Crystal Canopy_05.png": {
+        "move1": "This creature's next attack does 20 extra damage."
+    },
+    "Crystal Canopy_06.png": {
+        "move1": "Your opponent is now affected by Hex."
+    },
+    "Crystal Canopy_07.png": {
+        "move1": "Your opponent is now affected by Hex. Heal this creature to full HP.",
+        "ability": "Once per turn, if this creature has 30 HP or less left, you may draw a card."
+    },
+    "Crystal Canopy_09.png": {
+        "move1": "Flip a coin. If heads, your opponent is affected by Rust.",
+        "move2": "Flip a coin. If heads, this move does 100 damage. If tails, this creature takes 100 damage.",
+        "ability": "Once per turn, if both active creatures have 50 HP or less left, you may draw 2 cards."
+    },
+    "Crystal Canopy_10.png": {
+        "move1": "If your opponent's bench isn't full, their active creature is now affected by Hex."
+    },
+    "Crystal Canopy_12.png": {
+        "move2": "Flip a coin. If heads, your opponent's active creature can't use its ability next turn."
+    },
+    "Crystal Canopy_13.png": {
+        "move1": "Flip a coin. If heads, your opponent is affected by Rust."
+    },
+    "Crystal Canopy_14.png": {
+        "move2": "If this creature has an accessory attached, it takes 40 less damage from attacks next turn."
+    },
+    "Crystal Canopy_16.png": {
+        "move1": "Next turn, your benched creatures can't be damaged."
+    },
+    "Crystal Canopy_17.png": {
+        "move1": "Next turn, your benched creatures can't be damaged.",
+        "move2": "Your opponent is now affected by Rust."
+    },
+    "Crystal Canopy_18.png": {
+        "move1": "Your opponent is now affected by Flux."
+    },
+    "Crystal Canopy_19.png": {
+        "move1": "Your opponent is now affected by Hex."
+    },
+    "Crystal Canopy_20.png": {
+        "move1": "This move does 20 extra damage if your opponent's active creature has an accessory."
+    },
+    "Crystal Canopy_21.png": {
+        "move1": "This move does 30 extra damage if your opponent's active creature has an accessory.",
+        "move2": "Next turn, this creature takes no damage from Celestial or Mystic creatures."
+    },
+    "Crystal Canopy_23.png": {
+        "move1": "Flip a coin. If heads, your opponent is now affected by Hex.",
+        "move2": "If your opponent's bench is full, their active creature is now affected by Flux."
+    },
+    "Crystal Canopy_24.png": {
+        "move1": "Flip a coin. If heads, this creature takes no damage next turn."
+    },
+    "Crystal Canopy_25.png": {
+        "move1": "Flip a coin. If heads, remove the accessory from your opponent's active creature."
+    },
+    "Crystal Canopy_26.png": {
+        "move1": "Remove the accessory from your opponent's active creature."
+    },
+    "Crystal Canopy_29.png": {
+        "move1": "If your opponent used an item card last turn, deal 20 extra damage.",
+        "move2": "Flip a coin. If tails, this creature is left with 10 HP."
+    },
+    "Crystal Canopy_31.png": {
+        "move1": "Flip 3 coins. If you get 3 heads, heal all of your creatures to full HP."
+    },
+    "Crystal Canopy_34.png": {
+        "move2": "Your opponent's next coin flip, during their next turn, lands on tails.",
+        "ability": "Once per turn, if the opposing active creature has a status condition, you may flip a coin. If heads, draw a card."
+    },
+    "Crystal Canopy_36.png": {
+        "move2": "Your opponent is now affected by Flux.",
+        "ability": "If an attack knocks this creature out, flip a coin. Heads: the attacker gets Hallucination. Tails: it gets Hex."
+    },
+    "Crystal Canopy_39.png": {
+        "ability": "If your opponent used an item card last turn, this creature's attacks do 40 extra damage."
+    },
+    "Crystal Canopy_40.png": {
+        "move1": "Flip a coin. If heads, this move does 30 damage.",
+        "move2": "This move does 60 extra damage if one of your creatures was knocked out last turn."
+    },
+    "Crystal Canopy_42.png": {
+        "ability": "If your opponent evolved a creature last turn, heal this creature to full HP."
+    },
+    "Crystal Canopy_44.png": {
+        "move1": "Flip a coin. If heads, your opponent is affected by Hallucination.",
+        "move2": "Flip 2 coins. If both are heads, remove all accessories attached to your opponent's creatures."
+    },
+    "Crystal Canopy_46.png": {
+        "ability": "If your opponent has 2 points, this creature's moves deal double damage."
+    },
+    "Crystal Canopy_48.png": {
+        "move1": "Heal 10 HP from this creature.",
+        "move2": "If your opponent has at least 1 point, heal 50 HP from this creature."
+    },
+    "Crystal Canopy_50.png": {
+        "move1": "Flip a coin. If heads, your opponent can't evolve next turn."
+    },
+    "Crystal Canopy_51.png": {
+        "move1": "Flip 2 coins. If both are heads, draw a card.",
+        "move2": "If both players have the same number of points, deal 60 damage to a random creature on your opponent's bench."
+    },
+    "Crystal Canopy_54.png": {
+        "move1": "Heal 10 HP from this creature.",
+        "move2": "Heal 30 HP from each of your creatures in play.",
+        "ability": "If your opponent's bench is full, this creature takes 40 less damage from attacks."
+    },
+    "Crystal Canopy_56.png": {
+        "move1": "Flip a coin for each of your benched creatures. This move does 10 extra damage for each heads.",
+        "ability": "While this creature is in play, Rust deals 30 damage to your opponent's creatures instead of 20."
+    },
+    "Crystal Canopy_57.png": {
+        "move1": "If this creature has an accessory attached, this move does 20 extra damage.",
+        "move2": "If this creature has an accessory attached, this move does 30 extra damage."
+    },
+    "Crystal Canopy_59.png": {
+        "ability": "If this creature has an accessory attached, its attacks deal 20 more damage."
+    },
+    "Crystal Canopy_60.png": {
+        "move1": "Flip a coin. If heads, prevent all damage done to this creature during your opponent's next turn.",
+        "move2": "Flip a coin. If heads, heal this creature to full HP.",
+        "ability": "Once per turn, if this creature is active, you may heal 20 HP from each benched creature. If you do, this creature takes 40 damage."
+    },
+    "Crystal Canopy_63.png": {
+        "move2": "Discard 2 random energy from your creatures.",
+        "ability": "All of your creatures with an accessory attached deal 10 more damage with their attacks."
+    },
+    "Crystal Canopy_65.png": {
+        "move2": "Flip a coin for each creature on your opponent's bench. This move does 10 extra damage for each heads.",
+        "ability": "If this creature has an accessory attached, it takes 10 less damage from attacks."
+    },
+    "Crystal Canopy_66.png": {
+        "move1": "This creature's next attack does 20 extra damage.",
+        "move2": "Flip a coin for each creature on your opponent's bench. This move does 20 extra damage for each heads.",
+        "ability": "If this creature has an accessory attached, it takes 20 less damage from attacks."
+    },
+    "Crystal Canopy_67.png": {
+        "accessory": "Attach to any creature. While it is a Stage 1, it has 20 extra HP."
+    },
+    "Crystal Canopy_68.png": {
+        "accessory": "Attach to any creature. Its moves that cost 3 or more energy need one less Neutral energy."
+    },
+    "Crystal Canopy_69.png": {
+        "accessory": "Attach to a Mystic creature. If this creature is knocked out, draw 2 cards."
+    },
+    "Crystal Canopy_70.png": {
+        "accessory": "Attach to a Celestial creature. While it has 3 or more energy attached, it takes 20 less damage from attacks."
+    },
+    "Crystal Canopy_71.png": {
+        "accessory": "Attach to a Mechanic creature. When an attack damages this creature, the attacker is affected by Rust."
+    },
+    "Crystal Canopy_72.png": {
+        "accessory": "Attach to a Wind creature. The first coin flip of each of its moves always lands on heads."
+    },
+    "Crystal Canopy_73.png": {
+        "item": "Choose a card from your hand and discard it. Draw a new card."
+    },
+    "Crystal Canopy_74.png": {
+        "item": "Discard a random card from your hand. Attach an extra energy to one of your benched creatures."
+    },
+    "Crystal Canopy_75.png": {
+        "item": "For their next two turns, your opponent is unable to use any abilities."
+    },
+    "Crystal Canopy_76.png": {
+        "item": "During your opponent's next turn, their moves only deal their printed damage: every other effect is cancelled."
+    },
+    "Crystal Canopy_77.png": {
+        "item": "Look at the top 3 cards of your deck. Add one to your hand. Shuffle your deck."
+    },
+    "Crystal Canopy_78.png": {
+        "item": "Draw a card. If it isn't a creature, put it at the bottom of your deck instead."
+    },
+    "Crystal Canopy_79.png": {
+        "item": "Your opponent switches their active creature with a random benched creature."
+    },
+    "Crystal Canopy_80.png": {
+        "item": "Your opponent discards a random card from their deck."
+    },
+    "Crystal Canopy_81.png": {
+        "item": "Needs a Vulpetta or its evolution in play and a free bench spot. Put a borrowed Vulpetta on your bench."
+    },
+    "Crystal Canopy_82.png": {
+        "move1": "Your opponent is now affected by Hallucination."
+    },
+    "Crystal Canopy_83.png": {
+        "move1": "Your opponent is now affected by Hex.",
+        "move2": "Your opponent is now affected by Flux.",
+        "ability": "While this creature has full HP, an opposing active creature with a status condition can't retreat."
+    },
+    "Crystal Canopy_85.png": {
+        "move2": "If you have 2 or more item cards in your discard pile, your opponent is now affected by Flux."
+    },
+    "Crystal Canopy_86.png": {
+        "move2": "If your opponent's active creature has a status condition, it can't retreat next turn.",
+        "ability": "When an attack damages this creature, the attacker is affected by Hex."
+    },
+    "Crystal Canopy_87.png": {
+        "move1": "Flip a coin for each card in your hand. This move does 30 damage for each heads.",
+        "ability": "If you have Chargorb Rusty in play, this creature's attacks deal 20 extra damage."
+    },
+    "Crystal Canopy_88.png": {
+        "move1": "Flip a coin for each card in your hand. This move does 30 damage for each heads.",
+        "ability": "If you have Chargorb Electro in play, this creature takes 10 less damage from attacks."
+    },
+    "Crystal Canopy_89.png": {
+        "move1": "Put a random creature with 50 HP or less from your deck into your hand."
+    },
+    "Crystal Canopy_91.png": {
+        "move1": "This creature's next attack does 20 extra damage.",
+        "move2": "Next turn, this creature takes no damage from moves that cost 3 or more energy."
+    },
+    "Crystal Canopy_93.png": {
+        "move1": "If you played a Babybara this game, your opponent is now affected by Hallucination and Hex."
+    },
+    "Crystal Canopy_94.png": {
+        "move1": "If your opponent retreats next turn, their new active creature takes 40 damage."
+    },
+    "Crystal Canopy_96.png": {
+        "ability": "Once per turn, if your bench is full, you may swap a random hand card for a random Stage 2 from your deck."
+    },
+    "Crystal Canopy_98.png": {
+        "move2": "If your opponent's active creature has an ability, it can't retreat next turn."
     }
 
 };

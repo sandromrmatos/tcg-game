@@ -96,6 +96,14 @@ async function performRetreat(side, benchIndex) {
 
     s.retreatedThisTurn = true;
     await swapActiveWithBench(side, benchIndex);
+
+    // Celestial Blossom (Tulippestus): retreating this turn costs the newcomer 40 HP.
+    if (Timing.active(s.flags.retreatTrapUntil) && s.active) {
+        s.flags.retreatTrapUntil = null;
+        await Log.say(`Celestial Blossom: petals strike ${creatureName(s.active, side)} as it steps in!`, { kind: 'status', icon: '🌷', pace: 0.6 });
+        await damageCreature(s.active, 40, { side, location: 'active', reason: 'Celestial Blossom', source: { card: null, side: foeOf(side), kind: 'move' } });
+        await resolveKnockouts();
+    }
     return true;
 }
 
@@ -230,7 +238,7 @@ function canEvolveOnto(evolutionCard, targetCard) {
     // Cuddle Storm: "your opponent can't evolve next turn".
     const spot = locateCard(targetCard);
     if (spot && Timing.active(gameState[spot.side].flags.cantEvolveUntil)) {
-        return { ok: false, reason: "You can't evolve this turn (Cuddle Storm)." };
+        return { ok: false, reason: "You can't evolve this turn (Cuddle Storm / Crunch Bloom)." };
     }
     return { ok: true };
 }
@@ -271,7 +279,8 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
     evolution.evolutionChain = (target.evolutionChain || []).concat([{
         id: target.id,
         data: target.data,
-        fullArt: !!target.fullArt
+        fullArt: !!target.fullArt,
+        borrowed: !!target.borrowed       // a Vulpite Vulpetta (knockout.js)
     }]);
 
     // Status carries over — it is a condition on the creature in the active
@@ -288,6 +297,9 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
     // Recharge): the next attack is still the creature's next attack.
     evolution.flags.sproutBoostReady = target.flags.sproutBoostReady;
     evolution.flags.chillRecharge = target.flags.chillRecharge;
+    evolution.flags.nextAttackBonus = target.flags.nextAttackBonus;
+    // Ability Lock names the creature, so evolving doesn't shake it off.
+    evolution.flags.abilityLockUntil = target.flags.abilityLockUntil;
     // The accessory stays on if the new form still has its type; otherwise
     // it goes to the discard pile.
     const accessory = target.accessory;

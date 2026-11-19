@@ -318,6 +318,12 @@ async function resolveAttack(side, moveNumber) {
         defenderType: getCardType(defender.data)
     });
 
+    // Storm Pendant: the first coin this move flips lands heads (coinOverride).
+    // Set after the Hallucination roll, which isn't the move's own flip.
+    me.flags.pendantHeads = accessoryOn(attacker, 'stormPendant');
+    // Mind Trap asks whether a knockout came from an attack.
+    gameState.attackingSide = side;
+
     // ---- Phase C: damage calculation -----------------------------------
     ctx.damage = await EffectRegistry.damageCalc(ctx);
 
@@ -336,6 +342,7 @@ async function resolveAttack(side, moveNumber) {
                 `(${Math.max(0, remainingHp(defender))}/${maxHp(defender)} HP left).`,
                 { kind: 'damage', icon: '💥' }
             );
+            await reactivePlatingRust(defender, foe);
         } else {
             await Log.say(`No damage dealt.`, { kind: 'info', pace: 0.6 });
         }
@@ -354,8 +361,13 @@ async function resolveAttack(side, moveNumber) {
 
     // Remembered after the effects, so Reverie Talon reads the attack before this one.
     me.lastAttack = { name: move.name, turn: gameState.turnNumber };
+    me.flags.pendantHeads = false;
 
-    await resolveKnockouts();
+    try {
+        await resolveKnockouts();
+    } finally {
+        gameState.attackingSide = null;
+    }
     await endTurn();
 }
 
@@ -367,7 +379,8 @@ async function resolveAttack(side, moveNumber) {
 async function dozeGuardBlocks(card, side) {
     if (!card || card.damage > 0 || !cardAbilityOn(card, 'dozeGuard')) return false;
     AbilityRegistry.noteTriggered('dozeGuard');
-    const flip = Rng.flip();
+    // The defender's own coin: Crinkle Crash and Storm Pendant don't touch it.
+    const flip = Rng.rawFlip();
     await Log.coin(flip, `${creatureName(card, side)}'s Doze Guard`);
     if (flip !== 'heads') return false;
     await Log.say(`${creatureName(card, side)} dozes through it: no damage!`, { kind: 'ability', icon: '💤', pace: 0.6 });
@@ -404,6 +417,27 @@ async function applyGuardianRedirect(ctx) {
         { kind: 'damage', icon: '💥' }
     );
     return true;
+}
+
+/**
+ * Reactive Plating (Crystal Canopy accessory): when a move damages the
+ * creature wearing it, the opposing active creature gets Rust.
+ */
+async function reactivePlatingRust(card, side) {
+    const foe = foeOf(side);
+    const target = gameState[foe] && gameState[foe].active;
+    if (!target) return;
+    if (accessoryOn(card, 'reactivePlating') && !Status.has(target, 'rust')) {
+        AccessoryRegistry.note('reactivePlating');
+        await Log.say(`${creatureName(card, side)}'s Reactive Plating sparks back!`, { kind: 'item', icon: '🧿', pace: 0.5 });
+        await Status.apply(target, 'rust', { targetSide: foe, attackerSide: side });
+    }
+    // Wasabi Curse (Sushimaru), always on: an attack that damages it gives the attacker Hex.
+    if (cardAbilityOn(card, 'wasabiCurse') && !Status.has(target, 'hex')) {
+        AbilityRegistry.noteTriggered('wasabiCurse');
+        await Log.say(`${creatureName(card, side)}'s Wasabi Curse!`, { kind: 'ability', icon: '🍣', pace: 0.5 });
+        await Status.apply(target, 'hex', { targetSide: foe, attackerSide: side });
+    }
 }
 
 /** Retaliation Stone: the defender strikes back for 20 if it was damaged. */

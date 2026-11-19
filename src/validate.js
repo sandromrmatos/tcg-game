@@ -138,7 +138,7 @@ const Validate = {
             if (!card.accessoryEffect || !AccessoryRegistry.has(card.accessoryEffect)) {
                 this.error(`Accessory "${card.name}" (${card.id}) uses "${card.accessoryEffect}", which is not registered in core/items.js.`);
             }
-            if (!CREATURE_TYPES.includes(card.accessoryType)) {
+            if (!CREATURE_TYPES.includes(card.accessoryType) && card.accessoryType !== 'Any') {
                 this.error(`Accessory "${card.name}" (${card.id}) has no creature type to attach to.`);
             }
         }

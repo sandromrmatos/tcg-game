@@ -90,7 +90,7 @@ async function onPlayAccessory(card) {
     }
     const target = await Prompt.chooseCreature({
         candidates: AccessoryRegistry.targets(card, 'player'),
-        title: `Attach ${card.data.name} to which ${card.data.accessoryType} creature? (one accessory per turn)`,
+        title: `Attach ${card.data.name} to which ${accessoryTargetLabel(card.data)}? (one accessory per turn)`,
         cancellable: true
     });
     if (!target) return;

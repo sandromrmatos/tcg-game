@@ -423,7 +423,7 @@ const Screens = {
     _deckProblem(deck) {
         const check = validateDeck(deck.cards);
         if (!check.valid) return check.error;
-        if (deck.type === 'custom' && typeof Profile !== 'undefined' && Profile.s) {
+        if ((deck.type === 'custom' || deck.type === 'auto') && typeof Profile !== 'undefined' && Profile.s) {
             const own = Profile.checkOwnership(deck.cards, deck.fullArt);
             if (!own.valid) return own.error;
         }
@@ -473,6 +473,50 @@ const Screens = {
         this.beginGame();
     },
 
+    /**
+     * Builds an auto-generated team from the player's cards (autoteam.js) and
+     * shows it: Play, another one, or Cancel. Resolves to the deck now in the
+     * library (DeckLibrary.autoDeck), or null.
+     * @param {object} [o] { restrictions (a daily mode's rules), title, playLabel }
+     */
+    async chooseAutoTeam({ restrictions = [], title = '🎲 Auto team', playLabel = 'Play' } = {}) {
+        for (let tries = 0; tries < 50; tries++) {
+            const deck = AutoTeam.build({ restrictions });
+            if (!deck) {
+                await Hub.alert(title, restrictions.length
+                    ? "Your cards can't make a team that follows these rules yet. Collect more cards, or build a deck yourself."
+                    : "Your cards can't make a full 20-card team yet. Collect more cards with Draw a Card, the Store and missions.");
+                return null;
+            }
+            const energy = deck.energyTypes.length === ENERGY_TYPES.length ? 'any' : deck.energyTypes.join(', ');
+            const answer = await Hub.dialog({
+                title,
+                message: `A ${deck.mainType === 'Mixed' ? 'mixed-type' : deck.mainType} team (energy: ${energy}) from your own cards: ` +
+                    AutoTeam.describe(deck) + '.',
+                buttons: [{ label: 'Cancel', value: false }, { label: '🎲 Another', value: 'again' }, { label: playLabel, value: 'play', kind: 'primary' }]
+            });
+            if (!answer || !answer.value) return null;
+            if (answer.value === 'play') return DeckLibrary.setAutoDeck(deck);
+        }
+        return null;
+    },
+
+    /** Play page: an auto-generated team against the AI deck picked in the Opponent menu. */
+    async playAutoTeam() {
+        if (typeof Profile === 'undefined' || !Profile.s) return;
+        const deck = await this.chooseAutoTeam({ title: '🎲 Auto team vs the AI' });
+        if (!deck) return;
+        if (!(await this._confirmNoWinCredit())) return;
+        const presets = DeckLibrary.aiPresets();
+        const picked = presets.find(d => d.name === this.opponentChoice());
+        const aiDeck = picked || Rng.pick(presets);
+        if (!aiDeck) return;
+        gameState.player.selectedDeck = DeckLibrary.indexOf(deck);
+        gameState.opponent.selectedDeck = DeckLibrary.indexOf(aiDeck);
+        Profile.startMatch(deck.name, aiDeck.name, { auto: true });
+        this.beginGame();
+    },
+
     /** Warns when a win can't pay a credit. Resolves false if the player backs out. */
     async _confirmNoWinCredit(extra = '') {
         if (typeof Profile === 'undefined' || !Profile.s || typeof Hub === 'undefined') return true;
@@ -501,12 +545,16 @@ const Screens = {
     async startRaid(bossId, index) {
         if (typeof Raids === 'undefined' || typeof Profile === 'undefined' || !Profile.s) return;
         const boss = Raids.find(bossId);
-        const deck = DeckLibrary.get(index);
-        if (!boss || !deck || deck.type !== 'custom') return;
+        if (!boss) return;
         if (!Raids.isUnlocked(boss)) {
             Log.warn(`Own ${RAID_NORMAL_COPIES} ${boss.card.name} to challenge this boss.`);
             return;
         }
+        // 'auto': an auto-generated team from the player's cards.
+        const auto = index === 'auto';
+        const deck = auto ? await this.chooseAutoTeam({ title: `🎲 Auto team vs ${boss.card.name}`, playLabel: 'Use this team' })
+            : DeckLibrary.get(index);
+        if (!deck || (deck.type !== 'custom' && deck.type !== 'auto')) return;
         const problem = this._deckProblem(deck);
         if (problem) {
             Log.warn(`That deck can't be played: ${problem}`);
@@ -536,9 +584,10 @@ const Screens = {
         });
         if (!intro || !intro.value) return;
 
-        gameState.player.selectedDeck = index;
+        // Indexes after the boss deck is in, since replacing it moves the auto team.
         gameState.opponent.selectedDeck = DeckLibrary.setRaidDeck(bossDeck);
-        Profile.startMatch(deck.name, bossDeck.name, { raid: { bossId: boss.id, types } });
+        gameState.player.selectedDeck = DeckLibrary.indexOf(deck);
+        Profile.startMatch(deck.name, bossDeck.name, { raid: { bossId: boss.id, types }, auto });
         this.returnPage = 'raids';
         this.beginGame();
         Log.write(`🐉 Raid boss battle: ${boss.card.name}!`, { kind: 'turn', icon: '🐉' });
@@ -554,12 +603,17 @@ const Screens = {
         const mode = Daily.mode(modeId);
         const day = Daily.today();
         const st = mode && day.modes[mode.id];
-        const deck = DeckLibrary.get(index);
-        if (!st || !st.deck || !deck || deck.type !== 'custom') return;
+        if (!st || !st.deck) return;
         if (st.done) {
             Log.warn(`You've already completed today's ${mode.name} challenge.`);
             return;
         }
+        // 'auto': an auto-generated team that follows the mode's rules.
+        const auto = index === 'auto';
+        const deck = auto
+            ? await this.chooseAutoTeam({ restrictions: st.restrictions, title: `🎲 Auto team: ${mode.name} challenge`, playLabel: 'Use this team' })
+            : DeckLibrary.get(index);
+        if (!deck || (deck.type !== 'custom' && deck.type !== 'auto')) return;
         const problem = this._deckProblem(deck);
         if (problem) {
             Log.warn(`That deck can't be played: ${problem}`);
@@ -572,9 +626,9 @@ const Screens = {
         }
         if (!(await this._confirmNoWinCredit('The daily challenge still counts.'))) return;
 
-        gameState.player.selectedDeck = index;
         gameState.opponent.selectedDeck = DeckLibrary.setRaidDeck(Object.assign({}, st.deck, { fullArt: {} }));
-        Profile.startMatch(deck.name, st.deck.name, { daily: { mode: mode.id, date: day.date } });
+        gameState.player.selectedDeck = DeckLibrary.indexOf(deck);
+        Profile.startMatch(deck.name, st.deck.name, { daily: { mode: mode.id, date: day.date }, auto });
         this.returnPage = 'daily';
         this.beginGame();
         const leader = st.deck.leader && getCardData(st.deck.leader);

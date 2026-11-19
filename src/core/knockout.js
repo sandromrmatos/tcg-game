@@ -22,10 +22,12 @@ function discardCreature(side, card) {
     }
     // A creature that changed type in play (Elemental Shift) is its printed card again.
     card.data = getCardData(card.id) || card.data;
+    // A Vulpetta borrowed with Vulpite never came from the deck, so it goes back
+    // where it came from rather than to the discard pile.
     if (card.evolutionChain && card.evolutionChain.length > 0) {
-        for (const previous of card.evolutionChain) pile.push(previous);
+        for (const previous of card.evolutionChain) if (!previous.borrowed) pile.push(previous);
     }
-    pile.push(card);
+    if (!card.borrowed) pile.push(card);
 }
 
 /** Awards a point and ends the game if it was the winning one. */
@@ -68,9 +70,11 @@ async function resolveKnockouts() {
                     { kind: 'ko', icon: '☠️' }
                 );
                 await Status.clear(card, { silent: true });
-                const onKo = knockoutAbility(card);
+                const onKo = knockoutAbility(card, side);
+                const band = accessoryOn(card, 'spiritBand');
                 discardCreature(side, card);
                 bench[i] = null;
+                gameState[side].flags.lostCreatureOnTurn = gameState.turnNumber;
                 Render.all();
                 acted = true;
 
@@ -78,6 +82,7 @@ async function resolveKnockouts() {
                 assertRunning();
                 await runKnockoutAbility(onKo, card, side);
                 assertRunning();
+                if (band) await spiritBandDraw(side);
             }
         }
 
@@ -90,9 +95,11 @@ async function resolveKnockouts() {
                 { kind: 'ko', icon: '☠️' }
             );
             await Status.clear(active, { silent: true });
-            const onKo = knockoutAbility(active);
+            const onKo = knockoutAbility(active, side);
+            const band = accessoryOn(active, 'spiritBand');
             discardCreature(side, active);
             gameState[side].active = null;
+            gameState[side].flags.lostCreatureOnTurn = gameState.turnNumber;
             Render.all();
             acted = true;
 
@@ -100,6 +107,7 @@ async function resolveKnockouts() {
             assertRunning();
             await runKnockoutAbility(onKo, active, side);
             assertRunning();
+            if (band) await spiritBandDraw(side);
 
             await promoteFromBench(side);
             assertRunning();
@@ -112,10 +120,22 @@ async function resolveKnockouts() {
 }
 
 /** "When knocked out" abilities, read while the creature is still on the board. */
-const KNOCKOUT_ABILITIES = ['paperJam', 'cursedGaze', 'umbrellaSnap', 'stormCanopy'];
-function knockoutAbility(card) {
+const KNOCKOUT_ABILITIES = ['paperJam', 'cursedGaze', 'umbrellaSnap', 'stormCanopy', 'mindTrap'];
+function knockoutAbility(card, side) {
     const id = card && card.data && card.data.abilityEffect;
-    return KNOCKOUT_ABILITIES.includes(id) && cardAbilityOn(card, id) ? id : null;
+    if (!KNOCKOUT_ABILITIES.includes(id) || !cardAbilityOn(card, id)) return null;
+    // Mind Trap: only when the opponent's attack knocked it out.
+    if (id === 'mindTrap' && !(side && gameState.attackingSide === foeOf(side))) return null;
+    return id;
+}
+
+/** Spirit Band (Crystal Canopy accessory): its creature was knocked out, so the owner draws 2. */
+async function spiritBandDraw(side) {
+    AccessoryRegistry.note('spiritBand');
+    const drawn = drawCards(side, 2);
+    Render.all();
+    await Log.say(`Spirit Band: ${subject(side).toLowerCase()} ${verb(side, 'draws', 'draw')} ${drawn} card${drawn === 1 ? '' : 's'}.`,
+        { kind: 'item', icon: '🧿', pace: 0.6 });
 }
 
 /**
@@ -149,6 +169,13 @@ async function runKnockoutAbility(id, card, side) {
     if (!target || isFainted(target)) return;
     if (id === 'cursedGaze') {
         await Status.apply(target, 'lock', { targetSide: foe, attackerSide: side });
+        return;
+    }
+    if (id === 'mindTrap') {
+        // Shadegeist's owner flips, on the attacker's turn: a raw coin.
+        const flip = Rng.rawFlip();
+        await Log.coin(flip, 'Mind Trap');
+        await Status.apply(target, flip === 'heads' ? 'hallucination' : 'hex', { targetSide: foe, attackerSide: side });
         return;
     }
     const amount = id === 'stormCanopy' ? 50 : 20;
