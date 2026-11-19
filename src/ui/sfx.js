@@ -25,10 +25,16 @@ const Sfx = {
 
     init() {
         try { this.enabled = localStorage.getItem(this.STORAGE_KEY) !== 'off'; } catch (e) { /* default on */ }
-        // Browsers (iOS especially) only allow audio to start from a tap.
+        // Browsers only let audio start from a tap. On a touch screen a
+        // pointerdown doesn't count (Chrome and Safari wait for the finger to
+        // lift), so the context is unlocked on the events that do count.
         const unlock = () => { this._ensure(); };
-        document.addEventListener('pointerdown', unlock, { passive: true });
-        document.addEventListener('keydown', unlock);
+        for (const ev of ['pointerup', 'touchend', 'click', 'keydown']) {
+            document.addEventListener(ev, unlock, { passive: true, capture: true });
+        }
+        // iOS 17+: play the sounds even with the ring/silent switch on silent,
+        // like the music does (the default "ambient" session is muted by it).
+        try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* older iOS */ }
         this._hookLog();
         const btn = document.getElementById('sfx-btn');
         if (btn) {
@@ -55,7 +61,8 @@ const Sfx = {
 
     _ensure() {
         if (this.ctx) {
-            if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+            // 'interrupted' is iOS after a call or the app going to the background.
+            if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
             return this.ctx;
         }
         const AC = window.AudioContext || window.webkitAudioContext;

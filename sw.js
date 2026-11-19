@@ -9,7 +9,9 @@
      code and pages (html, js, css, manifest)  network first, cache fallback,
        so a new version is picked up on the next open without bumping
        anything, and the last version still starts offline.
-     images and audio                          stale while revalidate: the
+     music (mp3) and any ranged request        not handled: straight to the
+       network, because <audio> needs the server's partial (206) answers
+     images                                    stale while revalidate: the
        cached copy shows straight away, and the worker checks the server in
        the background and stores a newer file if there is one, so redrawn
        card art appears on the next open without bumping anything. The
@@ -103,8 +105,12 @@ self.addEventListener('fetch', event => {
     if (url.origin !== self.location.origin) return;
     // The test pages always run against the live files.
     if (/\/test(-ui)?\.html$/.test(url.pathname)) return;
+    // Music: <audio> asks for byte ranges and needs the server's 206 answers.
+    // Through the cache it got a 503 (a 206 can't be cached), so the songs
+    // never played. Media and ranged requests go straight to the network.
+    if (req.headers.has('range') || /\.(mp3|ogg|wav|m4a)$/i.test(url.pathname)) return;
 
-    const isAsset = /\.(png|jpe?g|webp|gif|svg|mp3|ogg|wav)$/i.test(url.pathname);
+    const isAsset = /\.(png|jpe?g|webp|gif|svg)$/i.test(url.pathname);
     event.respondWith(isAsset ? staleWhileRevalidate(req, event) : networkFirst(req));
 });
 
@@ -132,8 +138,9 @@ async function networkFirst(req) {
 async function staleWhileRevalidate(req, event) {
     const cache = await caches.open(CACHE_NAME);
     const hit = await cache.match(req, { ignoreSearch: true });
+    // A file that can't be stored (a partial answer, a full disk) is still served.
     const refresh = fetch(req).then(res => {
-        if (res.ok && res.type === 'basic') return cache.put(req, res.clone()).then(() => res);
+        if (res.ok && res.status === 200 && res.type === 'basic') return cache.put(req, res.clone()).then(() => res, () => res);
         return res;
     });
     if (hit) {
