@@ -1032,7 +1032,9 @@
 .candy-tile.pop { transform: scale(0.2); opacity: 0; }
 .snake-canvas { display: block; width: min(300px, 90vw); height: auto; aspect-ratio: 1; margin: 8px auto;
     border-radius: 8px; border: 2px solid rgba(255, 255, 255, 0.15); touch-action: none; }
-.raid-mythic-title { grid-column: 1 / -1; margin-top: 18px; }
+.raid-set-title { grid-column: 1 / -1; margin: 14px 0 2px; padding-bottom: 4px; border-bottom: 2px solid rgba(255, 255, 255, 0.15); }
+.raid-set-title:first-child { margin-top: 0; }
+.raid-mythic-title { margin-top: 18px; border-color: #ff5ec8; }
 
 /* ---- Card Dex: swiping between owned cards ------------------------------ */
 .dex-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }

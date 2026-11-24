@@ -198,7 +198,7 @@ const Hub = {
         setBadge('missions', Missions.claimableCount());
         setBadge('achievements', CardAchievements.claimableCount());
         setBadge('raids', Raids.pendingCount());
-        setBadge('daily', Daily.claimableCount());
+        setBadge('daily', Daily.outstandingCount());
         setBadge('minigames', this.minigameList().filter(g => g.status.canPlay || g.status.active).length);
     },
 
@@ -805,10 +805,19 @@ const Hub = {
 
         const list = h('div', { class: 'raid-list' });
         const all = Raids.bosses();
-        const ordered = all.filter(b => !b.mythical).concat(['mythical'], all.filter(b => b.mythical));
+        // One section per set, in release order, then the Mythical raids.
+        const ordered = [];
+        for (const set of regularSets()) {
+            const ofSet = all.filter(b => !b.mythical && b.card.set === set.id);
+            if (ofSet.length) ordered.push({ title: `🐉 ${set.name}`, accent: set.accent }, ...ofSet);
+        }
+        const mythic = all.filter(b => b.mythical);
+        if (mythic.length) ordered.push({ title: '🌟 Mythical raids', mythic: true }, ...mythic);
         for (const boss of ordered) {
-            if (boss === 'mythical') {
-                list.appendChild(h('h3', { class: 'section-title raid-mythic-title', text: '🌟 Mythical raids' }));
+            if (boss.title) {
+                const title = h('h3', { class: `section-title raid-set-title${boss.mythic ? ' raid-mythic-title' : ''}`, text: boss.title });
+                if (boss.accent) title.style.borderColor = boss.accent;
+                list.appendChild(title);
                 continue;
             }
             const st = Raids.status(boss);

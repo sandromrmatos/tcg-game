@@ -69,6 +69,12 @@ function setById(setId) {
     return cardSets.find(s => s.id === setId) || null;
 }
 
+/** A set's place in release order (unknown sets last), for sorting. */
+function setOrder(setId) {
+    const i = cardSets.findIndex(s => s.id === setId);
+    return i < 0 ? cardSets.length : i;
+}
+
 /**
  * Extracts the printed collector number from a card id.
  * "Galactic Adventures_07.png" -> 7

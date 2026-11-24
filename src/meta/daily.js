@@ -532,6 +532,17 @@ const Daily = {
         return (Profile.s.daily.unclaimed || []).length;
     },
 
+    /** Today's challenges not completed yet (that can be played), plus rewards waiting to be claimed. */
+    outstandingCount() {
+        if (!Profile.s) return 0;
+        const day = this.today();
+        const open = DAILY_MODES.filter(m => {
+            const st = day.modes && day.modes[m.id];
+            return st && st.deck && !st.done;
+        }).length;
+        return open + (day.unclaimed || []).length;
+    },
+
     rewardText(modeId) {
         const r = DAILY_REWARDS[modeId];
         const parts = [`🪙 ${plural(r.credits, 'credit')}`];
