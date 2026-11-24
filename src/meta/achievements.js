@@ -47,7 +47,12 @@ const CardAchievements = {
     TIERS: CARD_ACH_TIERS,
 
     tasksFor(card) {
-        return CARD_ACH_TASKS.filter(t => !t.creaturesOnly || isCreature(card));
+        const tasks = CARD_ACH_TASKS.filter(t => !t.creaturesOnly || isCreature(card));
+        // Only 1 copy of a Mythical card can be owned, so owning it is the task.
+        if (card && card.rarity >= 5) {
+            return tasks.map(t => (t.kind === 'own' ? Object.assign({}, t, { label: 'Own this Mythical card', target: 1 }) : t));
+        }
+        return tasks;
     },
 
     tiersFor(card) {

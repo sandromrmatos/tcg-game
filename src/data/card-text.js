@@ -808,6 +808,22 @@ const CARD_TEXT = {
     },
     "Crystal Canopy_98.png": {
         "move2": "If your opponent's active creature has an ability, it can't retreat next turn."
+    },
+    // ---- Mythical ----
+    "mythical_01.png": {
+        "move1": "Flip a coin. If heads, this move does 30 extra damage.",
+        "move2": "Heal all damage from each of your benched creatures.",
+        "ability": "While this creature is active, your opponent's creatures can't be healed."
+    },
+    "mythical_02.png": {
+        "move1": "Roll a die. Next turn, this creature takes 10 less damage for each pip.",
+        "move2": "Roll a die until you get a 6: 20 damage for each roll. This creature takes 20 damage.",
+        "ability": "While this creature is active, your opponent's retreats cost 2 more energy."
+    },
+    "mythical_03.png": {
+        "move1": "Flip a coin. If heads, take a random card from your opponent's hand.",
+        "move2": "If your bench is full of Mystic creatures, this move does 40 extra damage.",
+        "ability": "Once per turn, while active, you may use an ability of one of your opponent's creatures."
     }
 
 };

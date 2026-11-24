@@ -33,8 +33,24 @@ const cardSets = [
         name: 'Crystal Canopy',
         prefix: 'Crystal Canopy_',
         accent: '#5fe0b0'
+    },
+    // Not a set you collect through draws or the Store: Mythical cards (rarity
+    // 5) only come from the Mythical raids (raids.js), one copy each. `special`
+    // sets are always open for decks, and stay out of drawing, buying, set
+    // unlocks and set missions (regularSets()).
+    {
+        id: 'MY',
+        name: 'Mythical',
+        prefix: 'mythical_',
+        accent: '#ff5ec8',
+        special: true
     }
 ];
+
+/** The sets you collect: drawn, bought, unlocked in order. */
+function regularSets() {
+    return cardSets.filter(s => !s.special);
+}
 
 // Folder holding every card image, keyed by the card id (which is a filename).
 const CARDS_IMAGE_DIR = 'cards/';

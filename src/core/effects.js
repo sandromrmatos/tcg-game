@@ -768,7 +768,7 @@ EffectRegistry.register('gulpSwap', {
         // A creature with Hex can lose HP this way but never gain it.
         const swapTo = (card, hp) => {
             const next = Math.max(0, maxHp(card) - hp);
-            card.damage = Status.has(card, 'hex') ? Math.max(card.damage, next) : next;
+            card.damage = healBlockedBy(card) ? Math.max(card.damage, next) : next;
         };
         swapTo(ctx.attacker, defenderHp);
         swapTo(ctx.defender, attackerHp);
@@ -2000,6 +2000,80 @@ EffectRegistry.register('celestialBlossom', {
 });
 
 // ===========================================================================
+// MYTHICAL CARDS
+// ===========================================================================
+
+// Astralyon — "Flip a coin. If heads, this move does 30 extra damage."
+EffectRegistry.register('angryScratch', bonusDamageOnHeads(30));
+
+// Astralyon — "Heal all damage from each of your benched creatures."
+EffectRegistry.register('felineWhisper', {
+    async onResolve(ctx) {
+        const hurt = benchCreatures(ctx.side).filter(c => c.damage > 0);
+        if (!hurt.length) {
+            await ctx.say('No damaged benched creature to heal.', { kind: 'info', pace: 0.5 });
+            return;
+        }
+        for (const card of hurt) await ctx.heal(card, card.damage);
+    }
+});
+
+// Chromarion — "Roll a die. Next turn, this creature takes 10 less damage for each pip."
+EffectRegistry.register('hardTackle', {
+    async onResolve(ctx) {
+        const roll = await ctx.roll(ctx.move.name);
+        if (isFainted(ctx.attacker)) return;
+        grantCreatureShield(ctx.attacker, 'hardTackle', 10 * roll);
+        await ctx.say(`${creatureName(ctx.attacker, ctx.side)} will take ${10 * roll} less damage next turn (Hard Tackle).`,
+            { kind: 'ability', icon: '🛡️' });
+    }
+});
+
+// Chromarion — "Roll a die until you get a 6: 20 damage for each roll. This creature takes 20 damage."
+EffectRegistry.register('violentSting', {
+    async onDamageCalc(ctx) {
+        const rolls = [];
+        do rolls.push(Rng.roll()); while (rolls[rolls.length - 1] !== 6 && rolls.length < 30);
+        Log.write(`${ctx.move.name}: rolled ${rolls.join(', ')}`, { kind: 'dice', icon: '🎲' });
+        if (typeof Sfx !== 'undefined') Sfx.play('dice');
+        await Log.centerBanner(`🎲 × ${rolls.length}`, `${ctx.move.name}: ${rolls.length} rolls to a 6`, { kind: 'dice' });
+        await ctx.say(`${rolls.length} roll${rolls.length === 1 ? '' : 's'}: ${20 * rolls.length} damage.`, { kind: 'damage', pace: 0.5 });
+        return 20 * rolls.length;
+    },
+    async onResolve(ctx) {
+        await ctx.hit(ctx.attacker, 20, { side: ctx.side, location: 'active', reason: 'recoil' });
+    }
+});
+
+// Aetherave — "Flip a coin. If heads, take a random card from your opponent's hand."
+EffectRegistry.register('mindDust', {
+    async onResolve(ctx) {
+        const flip = await ctx.flip(ctx.move.name);
+        if (flip !== 'heads') {
+            await ctx.say('No card taken.', { kind: 'info', pace: 0.5 });
+            return;
+        }
+        if (!ctx.them.hand.length) {
+            await ctx.say(`${possessive(ctx.foe)} hand is empty.`, { kind: 'info', pace: 0.5 });
+            return;
+        }
+        const [card] = ctx.them.hand.splice(Rng.int(ctx.them.hand.length), 1);
+        ctx.me.hand.push(card);
+        Render.all();
+        await ctx.say(`${subject(ctx.side)} ${verb(ctx.side, 'takes', 'take')} ` +
+            (ctx.side === 'player' ? card.data.name : 'a card') + ` from ${possessive(ctx.foe).toLowerCase()} hand.`,
+            { kind: 'item', icon: '🌀', pace: 0.6 });
+    }
+});
+
+/** A full bench of Mystic creatures (Aetherave's Mental Break). */
+function fullMysticBench(side) {
+    const bench = benchCreatures(side);
+    return bench.length >= BENCH_SIZE && bench.every(c => getCardType(c.data) === 'Mystic');
+}
+EffectRegistry.register('mentalBreak', bonusIf(40, ctx => fullMysticBench(ctx.side), () => 'A full bench of Mystic creatures'));
+
+// ===========================================================================
 // AI DAMAGE EXPECTATIONS
 //
 // Move selection needs to know what a move is actually worth, and the printed
@@ -2100,6 +2174,10 @@ const EXPECTED_DAMAGE = {
     pieceGlide: (move, v) => move.damage + (v.attacker.accessory ? 30 : 0),
     // Crystal Canopy promos
     voltGust: (move, v) => 15 * gameState[v.side].hand.length,
+    // Mythical
+    angryScratch: move => move.damage + 15,
+    violentSting: () => 120,                  // 6 rolls on average
+    mentalBreak: (move, v) => move.damage + (fullMysticBench(v.side) ? 40 : 0),
     nutBash: () => 0
 };
 

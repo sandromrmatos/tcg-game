@@ -21,11 +21,12 @@
 async function healCreature(card, amount, opts = {}) {
     if (!card || amount <= 0) return 0;
 
-    // Hex (Crystal Canopy): no healing of any kind while it lasts.
-    if (Status.has(card, 'hex')) {
+    // Hex (Crystal Canopy) and Silent Aura (Astralyon): no healing of any kind.
+    const blocked = healBlockedBy(card, opts.side);
+    if (blocked) {
         if (card.damage > 0 && !opts.silent) {
-            await Log.say(`${creatureName(card, opts.side)} can't be healed: it is affected by Hex.`,
-                { kind: 'status', icon: STATUS_CONDITIONS.hex.icon, pace: 0.5 });
+            await Log.say(`${creatureName(card, opts.side)} can't be healed: ${blocked}.`,
+                { kind: 'status', icon: blocked === 'it is affected by Hex' ? STATUS_CONDITIONS.hex.icon : '🌟', pace: 0.5 });
         }
         return 0;
     }
@@ -58,6 +59,22 @@ async function healCreature(card, amount, opts = {}) {
 
     Render.board();
     return restored;
+}
+
+/**
+ * Why a creature can't be healed right now, or null: Hex on it, or the other
+ * side's active Astralyon (Silent Aura, always on while active).
+ */
+function healBlockedBy(card, side) {
+    if (!card) return null;
+    if (Status.has(card, 'hex')) return 'it is affected by Hex';
+    const owner = side || (locateCard(card) || {}).side;
+    const foe = owner && gameState[foeOf(owner)];
+    if (foe && typeof hasAbilityAt === 'function' && hasAbilityAt(foe.active, 'silentAura', 'active')) {
+        AbilityRegistry.noteTriggered('silentAura');
+        return `${foe.active.data.name}'s Silent Aura`;
+    }
+    return null;
 }
 
 /**

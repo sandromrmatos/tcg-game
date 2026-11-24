@@ -320,6 +320,13 @@ const DAMAGE_MODIFIERS = [
         consume: ctx => consumeShield(ctx.defender.flags.shields, 'overchargeSlam')
     },
     {
+        id: 'hardTackle',
+        label: 'Hard Tackle',
+        test: ctx => readShield(ctx.defender.flags.shields, 'hardTackle'),
+        apply: (ctx, dmg) => dmg - readShield(ctx.defender.flags.shields, 'hardTackle').amount,
+        consume: ctx => consumeShield(ctx.defender.flags.shields, 'hardTackle')
+    },
+    {
         // Sylgroth: "If your opponent's bench is full..."
         id: 'pressureWard',
         label: 'Pressure Ward',

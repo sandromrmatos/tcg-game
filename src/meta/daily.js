@@ -1,12 +1,13 @@
 // ============================================================================
 // DAILY CHALLENGES
 //
-// Three challenges a day: Easy, Medium and Hard. Each has:
+// Four challenges a day: Easy, Medium, Hard and Extreme. Each has:
 //   * an AI deck built like a raid boss deck (strong cards from the sets the
 //     player has unlocked), around a strong "leader" line
 //   * deck-building restrictions the player's deck must follow: one for Easy,
-//     two for Medium, three (harder ones) for Hard
-//   * a target of consecutive wins: 1, 2 and 3. A loss, draw or leaving the
+//     two for Medium, three (harder ones) for Hard and Extreme; Extreme also
+//     names one card you own that the deck must include (mustInclude)
+//   * a target of consecutive wins: 1, 2, 3 and 4. A loss, draw or leaving the
 //     game resets that mode's streak.
 //
 // Everything for the day is made the first time the challenges are looked at
@@ -19,14 +20,18 @@
 const DAILY_MODES = [
     { id: 'easy',   name: 'Easy',   icon: '🟢', wins: 1, rules: 1 },
     { id: 'medium', name: 'Medium', icon: '🟠', wins: 2, rules: 2 },
-    { id: 'hard',   name: 'Hard',   icon: '🔴', wins: 3, rules: 3 }
+    { id: 'hard',   name: 'Hard',   icon: '🔴', wins: 3, rules: 3 },
+    // Hard's rules, plus one card the deck must include, and 4 wins in a row.
+    { id: 'extreme', name: 'Extreme', icon: '🟣', wins: 4, rules: 3, mustInclude: true }
 ];
 
 /** Rewards per mode. `card`: 'random' = any unlocked set, 'choose' = the player picks the set. */
 const DAILY_REWARDS = {
     easy:   { credits: 1, gemChance: 0,   card: null },
     medium: { credits: 1, gemChance: 0,   card: 'random' },
-    hard:   { credits: 2, gemChance: 0.5, card: 'choose' }
+    hard:   { credits: 2, gemChance: 0.5, card: 'choose' },
+    // Hard's reward, but the card is Rare or Epic.
+    extreme: { credits: 2, gemChance: 0.5, card: 'choose', minRarity: 3 }
 };
 
 /** Odds for a reward card, uncommon or better, in the same ratio as Draw a Card (28 / 13 / 4). */
@@ -197,6 +202,13 @@ const DAILY_RESTRICTIONS = {
             return { rarity, count };
         }
     },
+    // Extreme only: one card the player owns that the deck must include.
+    // Added after the other rules, from the cards they allow (Daily._mustInclude).
+    mustInclude: {
+        group: 'must',
+        label: r => `Include ${(getCardData(r.cardId) || { name: r.cardId }).name} in your deck`,
+        deckCheck: (r, ids) => (ids.includes(r.cardId) ? null : "It isn't in the deck.")
+    },
     singleton: {
         group: 'copies',
         label: () => 'Only 1 copy of each card',
@@ -218,6 +230,7 @@ const DAILY_POOLS = {
                     'noHighHp', 'twoMovesMin'],
               extra: ['noStage3', 'noAccessories', 'noEpic', 'maxItems', 'twoMovesMax'], core: 2 }
 };
+DAILY_POOLS.extreme = DAILY_POOLS.hard;
 
 const Daily = {
 
@@ -233,6 +246,10 @@ const Daily = {
         if (s.daily.date !== today || !s.daily.modes) {
             s.daily.date = today;
             s.daily.modes = this.generate(today);
+            Profile.touch('daily-new', { immediate: true });
+        } else if (DAILY_MODES.some(m => !s.daily.modes[m.id])) {
+            // A save from before a mode existed (Extreme): add just that one today.
+            this.generate(today, s.daily.modes);
             Profile.touch('daily-new', { immediate: true });
         }
         return s.daily;
@@ -276,22 +293,60 @@ const Daily = {
         return Profile.owned(cardId) + Profile.ownedFullArt(cardId);
     },
 
-    generate(date) {
+    generate(date, existing = null) {
         const ctx = this._context();
-        const modes = {};
-        const usedLeaders = new Set();
+        const modes = existing || {};
+        const usedLeaders = new Set(Object.values(modes).map(m => m.deck && m.deck.leader).filter(Boolean));
         for (const m of DAILY_MODES) {
+            if (modes[m.id]) continue;
             const rng = dailyRng(`${date}|${m.id}|${ctx.sets.join(',')}`);
             const deck = this._makeDeck(m.id, rng, usedLeaders);
             if (deck && deck.leader) usedLeaders.add(deck.leader);
+            const restrictions = this._makeRestrictions(m, ctx, rng);
+            if (m.mustInclude) {
+                const must = this._mustInclude(restrictions, rng);
+                if (must) restrictions.push(must);
+            }
             modes[m.id] = {
-                restrictions: this._makeRestrictions(m, ctx, rng),
+                restrictions,
                 deck,
                 streak: 0, bestStreak: 0, played: 0, won: 0,
                 done: false
             };
         }
         return modes;
+    },
+
+    /**
+     * Extreme's must-include card: one the player owns, from an unlocked set,
+     * that the other rules allow. A creature that evolves only counts if its
+     * whole line is owned and allowed, so the deck can really play it.
+     */
+    _mustInclude(restrictions, rng) {
+        const allowed = card => restrictions.every(r => {
+            const def = DAILY_RESTRICTIONS[r.id];
+            return !def.allows || def.allows(r, card);
+        });
+        const ok = card => this._copies(card.id) > 0 && allowed(card) &&
+            (Profile.isSetUnlocked(card.set) || card.set === 'MY');
+        const lineOk = card => {
+            for (let cur = card; cur && cur.prevStageIds && cur.prevStageIds.length;) {
+                const prev = cur.prevStageIds.map(getCardData).find(ok);
+                if (!prev) return false;
+                cur = prev;
+            }
+            return true;
+        };
+        const creatures = cardDatabase.filter(c => isCreature(c) && ok(c) && lineOk(c));
+        // An item or accessory for one type only counts if a creature of that type can join.
+        const typeOk = card => {
+            const needs = TYPE_SPECIFIC_ITEMS[card.itemEffect] ||
+                (isAccessory(card) && card.accessoryType && card.accessoryType !== 'Any' ? card.accessoryType : null);
+            return !needs || creatures.some(c => getCardType(c) === needs);
+        };
+        const pool = cardDatabase.filter(c => ok(c) && (isCreature(c) ? lineOk(c) : typeOk(c)));
+        const card = rng.pick(pool);
+        return card ? { id: 'mustInclude', cardId: card.id } : null;
     },
 
     _makeRestrictions(mode, ctx, rng) {
@@ -365,7 +420,7 @@ const Daily = {
             .map(([id, score]) => ({ card: getCardData(id), score }))
             .filter(l => l.card && isCreature(l.card) && open(l.card.set) && !raidIsPromo(l.card))
             .sort((a, b) => b.score - a.score);
-        const share = modeId === 'hard' ? 1 / 3 : modeId === 'medium' ? 2 / 3 : 1;
+        const share = modeId === 'extreme' ? 1 / 4 : modeId === 'hard' ? 1 / 3 : modeId === 'medium' ? 2 / 3 : 1;
         let pool = leaders.slice(0, Math.max(3, Math.ceil(leaders.length * share)));
         const fresh = pool.filter(l => !usedLeaders.has(l.card.id));
         if (fresh.length) pool = fresh;
@@ -480,17 +535,22 @@ const Daily = {
     rewardText(modeId) {
         const r = DAILY_REWARDS[modeId];
         const parts = [`🪙 ${plural(r.credits, 'credit')}`];
-        if (r.gemChance) parts.push(`${Math.round(r.gemChance * 100)}% chance of 💜 1 gem`);
-        if (r.card === 'random') parts.push('a card (Uncommon or better) from any set you have unlocked');
-        if (r.card === 'choose') parts.push('a card (Uncommon or better) from the set of your choice');
+        if (r.gemChance >= 1) parts.push('💜 1 gem');
+        else if (r.gemChance) parts.push(`${Math.round(r.gemChance * 100)}% chance of 💜 1 gem`);
+        const grade = r.minRarity === 3 ? 'Rare or Epic' : 'Uncommon or better';
+        if (r.card === 'random') parts.push(`a card (${grade}) from any set you have unlocked`);
+        if (r.card === 'choose') parts.push(`a card (${grade}) from the set of your choice`);
         return parts.join(' + ');
     },
 
-    /** A non-promo card of Uncommon or better from a set, at the 28 / 13 / 4 odds. */
-    rollCard(setId, roll = Math.random()) {
-        const pool = Collection.setCards(setId).filter(c => !c.promo && c.rarity >= 2);
+    /**
+     * A non-promo card of `minRarity` or better from a set, at the 28 / 13 / 4
+     * odds (Rare or Epic: 13 / 4).
+     */
+    rollCard(setId, roll = Math.random(), minRarity = 2) {
+        const pool = Collection.setCards(setId).filter(c => !c.promo && c.rarity >= minRarity && c.rarity <= 4);
         if (!pool.length) return null;
-        const odds = DAILY_CARD_ODDS.filter(o => pool.some(c => c.rarity === o.rarity));
+        const odds = DAILY_CARD_ODDS.filter(o => o.rarity >= minRarity && pool.some(c => c.rarity === o.rarity));
         const total = odds.reduce((sum, o) => sum + o.weight, 0);
         let left = roll * total, rarity = odds[odds.length - 1].rarity;
         for (const o of odds) { if ((left -= o.weight) < 0) { rarity = o.rarity; break; } }
@@ -530,7 +590,7 @@ const Daily = {
             out.gems = 1;
         }
         if (cardSet) {
-            const card = this.rollCard(cardSet);
+            const card = this.rollCard(cardSet, Math.random(), reward.minRarity || 2);
             if (card) {
                 const { isNew, quantity } = Profile._addCard(card.id);
                 Object.assign(out, { card, isNew, quantity });
@@ -554,11 +614,13 @@ const Daily = {
         const okMode = m => m && typeof m === 'object' && Array.isArray(m.restrictions) &&
             m.restrictions.every(r => r && DAILY_RESTRICTIONS[r.id]) &&
             m.deck && Array.isArray(m.deck.cards) && m.deck.cards.every(id => getCardData(id));
-        if (typeof raw.date === 'string' && modes && DAILY_MODES.every(m => okMode(modes[m.id]))) {
+        // A mode missing from an older save (Extreme) is added by today().
+        const present = modes ? DAILY_MODES.filter(m => modes[m.id]) : [];
+        if (typeof raw.date === 'string' && present.length && present.every(m => okMode(modes[m.id]))) {
             out.date = raw.date;
             out.modes = {};
             const int = v => Math.max(0, Math.floor(Number(v) || 0));
-            for (const m of DAILY_MODES) {
+            for (const m of present) {
                 const src = modes[m.id];
                 out.modes[m.id] = {
                     restrictions: src.restrictions.map(r => Object.assign({}, r)),

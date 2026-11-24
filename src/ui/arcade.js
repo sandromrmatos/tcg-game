@@ -33,7 +33,7 @@ const SORTING_IMAGES = 18;
 const PUZZLE_SIZE = 7;          // hard mode: 7 × 7 pieces
 
 Object.assign(Hub, {
-    arcade: { timer: null, sorting: null, puzzle: null, tetris: null, result: null },
+    arcade: { timer: null, sorting: null, puzzle: null, tetris: null, candy: null, snake: null, result: null },
 
     /** Rules and rewards for the game pages and the Mini-games list. */
     arcadeInfo: {
@@ -45,7 +45,14 @@ Object.assign(Hub, {
             rules: 'Tap a piece, then the spot where it belongs. Finish in 3:00 for 5 credits and a gem, 5:00 for 3 credits and maybe a gem, 8:00 for 2 credits, or slower for 1.' },
         tetris: { icon: '🧱', name: 'Tetris', page: 'tetris',
             about: 'Hard mode: clear lines as the blocks speed up. 20 lines or more guarantees a gem.',
-            rules: 'Each cleared line is 1 point. 20+ points: 5 credits and a gem. 10+: 3 credits and maybe a gem. 5+: 2 credits. Less: 1 credit.' }
+            rules: 'Each cleared line is 1 point. 20+ points: 5 credits and a gem. 10+: 3 credits and maybe a gem. 5+: 2 credits. Less: 1 credit.' },
+        // Crystal Canopy
+        candy: { icon: '🍬', name: 'Candy Crush', page: 'candy', exactSunday: true,
+            about: 'Level 3: swap candies to match 3 or more in 3 minutes, around blocked cells and cracked rocks.',
+            rules: 'Tap a candy, then a neighbour to swap them. 6,000+ points: 5 credits and a 50% chance of a gem (a sure gem on Sundays). 5,000+: 3 credits. 3,500+: 2 credits. Less: 1 credit.' },
+        snake: { icon: '🐍', name: 'Snake', page: 'snake', exactSunday: true,
+            about: 'The small board: eat to grow, and don\'t bite yourself. The edges wrap around.',
+            rules: 'Swipe or use the arrows. Length 18+: 5 credits and a 50% chance of a gem (a sure gem on Sundays). 15-17: 3 credits. 10-14: 2 credits. Less: 1 credit.' }
     },
 
     arcadeListEntries() {
@@ -65,19 +72,21 @@ Object.assign(Hub, {
         const info = this.arcadeInfo[key];
         host.appendChild(this.backToMinigames());
         host.appendChild(this.pageTitle(`${info.icon} ${info.name}`, info.rules +
-            ' Sundays: at least 1 gem, and 2 for the best result.'));
+            (info.exactSunday ? '' : ' Sundays: at least 1 gem, and 2 for the best result.')));
         if (st.locked) {
-            host.appendChild(this.notice('🔒 Unlock after completing 90% of Galactic Adventures.', 'locked'));
+            host.appendChild(this.notice(st.lockText, 'locked'));
             return false;
         }
+        const scored = ARCADE_SCORE_GAMES.includes(key);
+        const unit = key === 'snake' ? 'Length' : 'Score';
         const r = this.arcade.result;
         if (r && r.key === key) {
             host.appendChild(h('div', { class: 'result-banner win' },
-                h('p', { text: key === 'tetris' ? `🏁 Game over: ${r.value} point${r.value === 1 ? '' : 's'}` : `🎉 Done in ${arcadeClock(r.value * 1000)}!` }),
-                h('p', { text: `💰 You won ${fmtWon(r.creditsWon, r.gemsWon)}!` })));
+                h('p', { text: scored ? `🏁 Game over: ${unit.toLowerCase()} ${r.value.toLocaleString()}` : `🎉 Done in ${arcadeClock(r.value * 1000)}!` }),
+                h('p', { text: r.creditsWon || r.gemsWon ? `💰 You won ${fmtWon(r.creditsWon, r.gemsWon)}!` : 'No prize this time.' })));
         }
         if (st.best !== null && st.best !== undefined && st.best !== 0) {
-            host.appendChild(h('p', { class: 'page-sub', text: key === 'tetris' ? `Best score: ${st.best}` : `Best time: ${arcadeClock(st.best * 1000)}` }));
+            host.appendChild(h('p', { class: 'page-sub', text: scored ? `Best ${unit.toLowerCase()}: ${st.best.toLocaleString()}` : `Best time: ${arcadeClock(st.best * 1000)}` }));
         }
         if (!st.active && !st.canPlay) {
             host.appendChild(this.notice(
@@ -510,5 +519,357 @@ Object.assign(Hub, {
             });
         }
         return t;
+    }
+});
+
+// ============================================================================
+// CRYSTAL CANOPY MINI-GAMES: Candy Crush (level 3) and Snake (small)
+//
+// Both from the arcade (sandromrmatos/arcade-game). Like Tetris, the score is
+// saved as it goes, and a game left half-way ends on the score it had reached.
+// ============================================================================
+
+const CANDY_SIZE = 8;
+const CANDY_SECONDS = 180;
+const CANDY_BROKEN_CHANCE = 0.15;
+// Level 3: the four corners and the centre are blocked.
+const CANDY_BLOCKED = new Set([0, 1, 8, 9, 6, 7, 14, 15, 48, 49, 56, 57, 54, 55, 62, 63, 27, 28, 35, 36]);
+const CANDY_FACES = ['🍓', '🍊', '🍋', '🍏', '🫐', '🍇'];
+const BROKEN = -1, BLOCKED = -2;
+
+const SNAKE_TILES = 15;
+
+Object.assign(Hub, {
+    // -----------------------------------------------------------------------
+    // Candy Crush
+    // -----------------------------------------------------------------------
+
+    renderCandy() {
+        const host = this.pageHost('candy');
+        const st = Profile.arcadeStatus('candy');
+        this.stopArcadeTimer();
+        if (st.active && !this.arcade.candy) {
+            this.finishArcadeGame('candy', { score: st.game.score });
+            return;
+        }
+        this.setNavLocked(st.active);
+        if (!this.arcadeHeader(host, 'candy', st) && !st.active) return;
+        if (!st.active) {
+            host.appendChild(this.arcadeStartButton('candy', () => {
+                this.arcade.candy = this.newCandy();
+                this.renderCandy();
+            }));
+            return;
+        }
+        const c = this.arcade.candy;
+        const clock = h('div', { class: 'arcade-clock' });
+        const score = h('div', { class: 'arcade-clock', text: `Score: ${c.score.toLocaleString()}` });
+        const grid = h('div', { class: 'candy-board' });
+        c.tiles = [];
+        for (let i = 0; i < CANDY_SIZE * CANDY_SIZE; i++) {
+            const tile = h('button', { class: 'candy-tile', type: 'button', on: { click: () => this.candyTap(i) } });
+            c.tiles.push(tile);
+            grid.appendChild(tile);
+        }
+        c.scoreEl = score;
+        host.appendChild(h('div', { class: 'arcade-head-row' }, clock, score));
+        host.appendChild(grid);
+        this.candyDraw();
+        const tick = () => {
+            const left = CANDY_SECONDS * 1000 - (Date.now() - Profile.s.arcadeGame.startedAt);
+            clock.textContent = `⏱ ${arcadeClock(left)}`;
+            if (left <= 0 && !c.over) {
+                c.over = true;
+                this.stopArcadeTimer();
+                setTimeout(() => this.finishArcadeGame('candy', { score: c.score }), c.busy ? 600 : 0);
+            }
+        };
+        tick();
+        this.arcade.timer = setInterval(tick, 250);
+    },
+
+    newCandy() {
+        const N = CANDY_SIZE * CANDY_SIZE;
+        const c = { board: new Array(N), score: 0, selected: null, busy: false, over: false, tiles: [], scoreEl: null };
+        const fresh = () => (Math.random() < CANDY_BROKEN_CHANCE ? BROKEN : Math.floor(Math.random() * CANDY_FACES.length));
+        for (let i = 0; i < N; i++) c.board[i] = CANDY_BLOCKED.has(i) ? BLOCKED : fresh();
+        // No matches on the starting board, and at least one move.
+        for (let tries = 0; tries < 200; tries++) {
+            const m = this.candyMatches(c.board);
+            if (!m.size && this.candyHasMove(c.board)) break;
+            for (const i of m) c.board[i] = Math.floor(Math.random() * CANDY_FACES.length);
+            if (!m.size) this.candyShuffle(c.board);
+        }
+        c.fresh = fresh;
+        return c;
+    },
+
+    /** Indices in a row or column of 3+ of the same candy. */
+    candyMatches(board) {
+        const out = new Set();
+        const S = CANDY_SIZE;
+        const same = (a, b) => board[a] >= 0 && board[a] === board[b];
+        for (let y = 0; y < S; y++) {
+            for (let x = 0; x < S;) {
+                let e = x + 1;
+                while (e < S && same(y * S + x, y * S + e)) e++;
+                if (e - x >= 3) for (let k = x; k < e; k++) out.add(y * S + k);
+                x = e;
+            }
+        }
+        for (let x = 0; x < S; x++) {
+            for (let y = 0; y < S;) {
+                let e = y + 1;
+                while (e < S && same(y * S + x, e * S + x)) e++;
+                if (e - y >= 3) for (let k = y; k < e; k++) out.add(k * S + x);
+                y = e;
+            }
+        }
+        return out;
+    },
+
+    /** The groups of a match, for the score: 10 per candy, +10 for 4, +25 for 5+. */
+    candyGroupScore(board) {
+        const S = CANDY_SIZE;
+        let pts = 0;
+        const runs = (get) => {
+            for (let a = 0; a < S; a++) {
+                for (let b = 0; b < S;) {
+                    let e = b + 1;
+                    while (e < S && get(a, b) >= 0 && get(a, e) === get(a, b)) e++;
+                    const len = e - b;
+                    if (len >= 3) pts += len * 10 + (len === 4 ? 10 : len >= 5 ? 25 : 0);
+                    b = e;
+                }
+            }
+        };
+        runs((y, x) => board[y * S + x]);
+        runs((x, y) => board[y * S + x]);
+        return pts;
+    },
+
+    candyNeighbours(i) {
+        const S = CANDY_SIZE, x = i % S, y = Math.floor(i / S), out = [];
+        if (x > 0) out.push(i - 1);
+        if (x < S - 1) out.push(i + 1);
+        if (y > 0) out.push(i - S);
+        if (y < S - 1) out.push(i + S);
+        return out;
+    },
+
+    candyHasMove(board) {
+        for (let i = 0; i < board.length; i++) {
+            if (board[i] < 0) continue;
+            for (const n of this.candyNeighbours(i)) {
+                if (board[n] < 0) continue;
+                [board[i], board[n]] = [board[n], board[i]];
+                const ok = this.candyMatches(board).size > 0;
+                [board[i], board[n]] = [board[n], board[i]];
+                if (ok) return true;
+            }
+        }
+        return false;
+    },
+
+    /** Shuffles the candies (not rocks or blocked cells) until a move exists and nothing matches. */
+    candyShuffle(board) {
+        const spots = [];
+        board.forEach((v, i) => { if (v >= 0) spots.push(i); });
+        for (let tries = 0; tries < 60; tries++) {
+            const vals = spots.map(i => board[i]);
+            for (let k = vals.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [vals[k], vals[j]] = [vals[j], vals[k]]; }
+            spots.forEach((i, k) => { board[i] = vals[k]; });
+            if (this.candyHasMove(board) && !this.candyMatches(board).size) return;
+        }
+    },
+
+    candyDraw() {
+        const c = this.arcade.candy;
+        if (!c) return;
+        c.tiles.forEach((tile, i) => {
+            const v = c.board[i];
+            tile.className = 'candy-tile' + (v === BLOCKED ? ' blocked' : v === BROKEN ? ' broken' : '') + (c.selected === i ? ' selected' : '');
+            tile.textContent = v === BLOCKED ? '' : v === BROKEN ? '🪨' : v === null ? '' : CANDY_FACES[v];
+            tile.disabled = v === BLOCKED;
+        });
+        if (c.scoreEl) c.scoreEl.textContent = `Score: ${c.score.toLocaleString()}`;
+    },
+
+    candyTap(i) {
+        const c = this.arcade.candy;
+        if (!c || c.busy || c.over || c.board[i] < 0) return;
+        if (c.selected === null || c.selected === i || !this.candyNeighbours(c.selected).includes(i)) {
+            c.selected = c.selected === i ? null : i;
+            this.candyDraw();
+            return;
+        }
+        const a = c.selected;
+        c.selected = null;
+        [c.board[a], c.board[i]] = [c.board[i], c.board[a]];
+        if (!this.candyMatches(c.board).size) {
+            [c.board[a], c.board[i]] = [c.board[i], c.board[a]];
+            this.candyDraw();
+            return;
+        }
+        this.candyResolve();
+    },
+
+    /** Clears matches (and rocks next to them), drops, refills, and chains. */
+    candyResolve() {
+        const c = this.arcade.candy;
+        const matched = this.candyMatches(c.board);
+        if (!matched.size) {
+            c.busy = false;
+            if (!this.candyHasMove(c.board)) this.candyShuffle(c.board);
+            this.candyDraw();
+            return;
+        }
+        c.busy = true;
+        c.score += this.candyGroupScore(c.board);
+        const clear = new Set(matched);
+        for (const i of matched) for (const n of this.candyNeighbours(i)) {
+            if (c.board[n] === BROKEN && !clear.has(n)) { clear.add(n); c.score += 20; }
+        }
+        Profile.arcadeProgress('candy', c.score);
+        for (const i of clear) if (c.tiles[i]) c.tiles[i].classList.add('pop');
+        this.candyDraw();
+        for (const i of clear) if (c.tiles[i]) c.tiles[i].classList.add('pop');
+        setTimeout(() => {
+            if (this.arcade.candy !== c) return;
+            for (const i of clear) c.board[i] = null;
+            // Each column falls past the blocked cells, which stay where they are.
+            const S = CANDY_SIZE;
+            for (let x = 0; x < S; x++) {
+                const cells = [];
+                for (let y = 0; y < S; y++) if (c.board[y * S + x] !== BLOCKED) cells.push(y * S + x);
+                const vals = cells.map(i => c.board[i]).filter(v => v !== null);
+                for (let k = cells.length - 1; k >= 0; k--) c.board[cells[k]] = vals.length ? vals.pop() : c.fresh();
+            }
+            this.candyDraw();
+            setTimeout(() => { if (this.arcade.candy === c) this.candyResolve(); }, 120);
+        }, 320);
+    },
+
+    // -----------------------------------------------------------------------
+    // Snake (small: 15 × 15, the edges wrap around)
+    // -----------------------------------------------------------------------
+
+    renderSnake() {
+        const host = this.pageHost('snake');
+        const st = Profile.arcadeStatus('snake');
+        this.stopArcadeTimer();
+        if (st.active && !this.arcade.snake) {
+            this.finishArcadeGame('snake', { score: st.game.score || 1 });
+            return;
+        }
+        this.setNavLocked(st.active);
+        if (!this.arcadeHeader(host, 'snake', st) && !st.active) return;
+        if (!st.active) {
+            host.appendChild(this.arcadeStartButton('snake', () => {
+                this.arcade.snake = this.newSnake();
+                this.renderSnake();
+            }));
+            return;
+        }
+        const s = this.arcade.snake;
+        const length = h('div', { class: 'arcade-clock', text: `Length: ${s.body.length}` });
+        const canvas = h('canvas', { class: 'snake-canvas', width: 300, height: 300 });
+        const btn = (label, dx, dy) => h('button', {
+            class: 'btn tetris-btn', type: 'button', text: label, 'aria-label': `Move ${label}`,
+            on: { pointerdown: e => { e.preventDefault(); s.turn(dx, dy); } }
+        });
+        host.appendChild(length);
+        host.appendChild(canvas);
+        host.appendChild(h('p', { class: 'page-sub', text: s.started ? '' : 'Swipe or press an arrow to start.' }));
+        host.appendChild(h('div', { class: 'tetris-controls' },
+            h('div', {}, btn('▲', 0, -1)),
+            h('div', {}, btn('◀', -1, 0), btn('▼', 0, 1), btn('▶', 1, 0))));
+        // Swipes on the board steer too, without scrolling the page.
+        let start = null;
+        canvas.addEventListener('touchstart', e => { const t = e.touches[0]; start = { x: t.clientX, y: t.clientY }; e.preventDefault(); }, { passive: false });
+        canvas.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+        canvas.addEventListener('touchend', e => {
+            if (!start) return;
+            const t = e.changedTouches[0];
+            const dx = t.clientX - start.x, dy = t.clientY - start.y;
+            start = null;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+            if (Math.abs(dx) > Math.abs(dy)) s.turn(Math.sign(dx), 0); else s.turn(0, Math.sign(dy));
+        });
+        s.attach(canvas, length);
+    },
+
+    newSnake() {
+        const N = SNAKE_TILES, G = 20;
+        const mid = Math.floor(N / 2);
+        const s = { body: [{ x: mid, y: mid }], dir: { x: 0, y: 0 }, next: { x: 0, y: 0 }, food: null,
+            speed: 150, over: false, started: false, ctx: null, lenEl: null, timer: null };
+        const spawn = () => {
+            const free = [];
+            for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if (!s.body.some(p => p.x === x && p.y === y)) free.push({ x, y });
+            s.food = free[Math.floor(Math.random() * free.length)];
+        };
+        const draw = () => {
+            if (!s.ctx) return;
+            const ctx = s.ctx;
+            ctx.fillStyle = '#16131f';
+            ctx.fillRect(0, 0, N * G, N * G);
+            ctx.fillStyle = '#ff4d6d';
+            ctx.fillRect(s.food.x * G + 2, s.food.y * G + 2, G - 4, G - 4);
+            s.body.forEach((p, i) => {
+                ctx.fillStyle = i === 0 ? '#7CFC9A' : '#4CAF50';
+                ctx.fillRect(p.x * G + 1, p.y * G + 1, G - 2, G - 2);
+            });
+        };
+        const step = () => {
+            if (s.over || Hub.arcade.snake !== s) return;
+            s.dir = s.next;
+            if (s.dir.x || s.dir.y) {
+                const head = { x: (s.body[0].x + s.dir.x + N) % N, y: (s.body[0].y + s.dir.y + N) % N };
+                if (s.body.some(p => p.x === head.x && p.y === head.y)) {
+                    s.over = true;
+                    draw();
+                    setTimeout(() => Hub.finishArcadeGame('snake', { score: s.body.length }), 800);
+                    return;
+                }
+                s.body.unshift(head);
+                if (head.x === s.food.x && head.y === s.food.y) {
+                    spawn();
+                    s.speed = Math.max(40, s.speed - 5);
+                    Profile.arcadeProgress('snake', s.body.length);
+                } else {
+                    s.body.pop();
+                }
+                if (s.lenEl) s.lenEl.textContent = `Length: ${s.body.length}`;
+            }
+            draw();
+            s.timer = setTimeout(step, s.speed);
+        };
+        s.turn = (dx, dy) => {
+            if (s.over) return;
+            // No turning straight back into itself.
+            if (s.body.length > 1 && dx === -s.dir.x && dy === -s.dir.y) return;
+            s.next = { x: dx, y: dy };
+            s.started = true;
+        };
+        s.attach = (canvas, lenEl) => {
+            s.ctx = canvas.getContext('2d');
+            s.lenEl = lenEl;
+            draw();
+            clearTimeout(s.timer);
+            s.timer = setTimeout(step, s.speed);
+        };
+        spawn();
+        Profile.arcadeProgress('snake', 1);
+        if (!Hub._snakeKeys) {
+            Hub._snakeKeys = true;
+            document.addEventListener('keydown', e => {
+                const g = Hub.arcade.snake;
+                if (!g || g.over || Hub.page !== 'snake') return;
+                const keys = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+                if (keys[e.key]) { e.preventDefault(); g.turn(...keys[e.key]); }
+            });
+        }
+        return s;
     }
 });

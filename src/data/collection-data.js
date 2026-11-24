@@ -357,6 +357,10 @@ const CARD_COLLECTION_DATA = {
     "Crystal Canopy_95.png": { rarity: 1, promo: true },
     "Crystal Canopy_96.png": { rarity: 2, promo: true },
     "Crystal Canopy_97.png": { rarity: 1, promo: true },
-    "Crystal Canopy_98.png": { rarity: 2, promo: true }
+    "Crystal Canopy_98.png": { rarity: 2, promo: true },
+    // ---- Mythical ----
+    "mythical_01.png": { rarity: 5, promo: false },
+    "mythical_02.png": { rarity: 5, promo: false },
+    "mythical_03.png": { rarity: 5, promo: false }
 
 };

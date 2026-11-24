@@ -452,6 +452,11 @@ function estimateMoveTacticalValue(move, side) {
         case 'chestnutCrush': return movesOf(defender.data).some(m => effectiveCost(defender, m).length >= 3) ? 20 : 4;
         case 'polarPounce': return playedBabybara(side) ? statusValue('hallucination', 18) + statusValue('hex', 8) : 0;
         case 'celestialBlossom': return foeBench.length ? 8 : 0;
+        // Mythical
+        case 'felineWhisper': return ownBench.reduce((sum, card) => sum + missingHp(card) * 0.4, 0);
+        case 'hardTackle': return 25;
+        case 'violentSting': return -Math.min(20, remainingHp(attacker)) * 0.35;
+        case 'mindDust': return gameState[foeOf(side)].hand.length ? 6 : 0;
         default: return 0;
     }
 }

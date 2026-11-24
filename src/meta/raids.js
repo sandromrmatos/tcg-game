@@ -24,6 +24,38 @@ const RAID_TYPE_TARGET = 14;
 const RAID_NORMAL_COPIES = 2;
 const RAID_TYPES = ['Mystic', 'Wind', 'Neutral', 'Celestial', 'Mechanic'];
 
+// Mythical raids: a longer streak, and four deck tasks on top of the type ones.
+const MYTHIC_STREAK_TARGET = 7;
+const MYTHIC_TASKS = [
+    { id: 'singleton', label: 'Win with only 1 copy of each card in your deck',
+      test: ids => new Set(ids).size === ids.length },
+    { id: 'noHighHp', label: 'Win without creature cards of 100 HP or more',
+      test: ids => ids.every(id => { const d = getCardData(id); return !d || !isCreature(d) || d.hp < 100; }) },
+    { id: 'noItems', label: 'Win without item cards in your deck',
+      test: ids => ids.every(id => !isItem(getCardData(id))) },
+    { id: 'commonUncommon', label: 'Win with only Common and Uncommon cards in your deck',
+      test: ids => ids.every(id => { const d = getCardData(id); return !!d && d.rarity <= 2; }) }
+];
+/** Every task a win can tick: the five types, and the Mythical deck tasks. */
+const RAID_TASK_KEYS = RAID_TYPES.concat(MYTHIC_TASKS.map(t => t.id));
+
+function raidStreakTarget(boss) {
+    return boss && boss.mythical ? MYTHIC_STREAK_TARGET : RAID_STREAK_TARGET;
+}
+
+/** What a win with this deck counts for: its types, plus the Mythical deck tasks it meets. */
+function raidQualifyingTasks(cardIds, boss) {
+    const out = raidQualifyingTypes(cardIds);
+    if (boss && boss.mythical) for (const t of MYTHIC_TASKS) if (t.test(cardIds)) out.push(t.id);
+    return out;
+}
+
+/** Readable names for the task keys ("Mystic", "only 1 copy of each card"…). */
+function raidTaskName(key) {
+    const short = { singleton: '1 copy of each card', noHighHp: 'no 100+ HP creatures', noItems: 'no item cards', commonUncommon: 'only Common and Uncommon cards' };
+    return short[key] || key;
+}
+
 /** How often a Neutral boss leads each type, by how well the type did in the simulation. */
 const RAID_TYPE_WEIGHTS = { Neutral: 3, Mechanic: 3, Wind: 2, Celestial: 2, Mystic: 1 };
 
@@ -59,7 +91,7 @@ const Raids = {
 
     /** Bosses whose card exists, in list order, with the card data attached. */
     bosses() {
-        return RAID_BOSSES.map(b => Object.assign({}, b, { card: getCardData(b.cardId) })).filter(b => b.card);
+        return ALL_RAID_BOSSES.map(b => Object.assign({}, b, { card: getCardData(b.cardId) })).filter(b => b.card);
     },
 
     find(bossId) {
@@ -89,7 +121,7 @@ const Raids = {
         const out = {};
         if (!raw || typeof raw !== 'object') return out;
         const int = v => Math.max(0, Math.floor(Number(v) || 0));
-        for (const boss of RAID_BOSSES) {
+        for (const boss of ALL_RAID_BOSSES) {
             const r = raw[boss.id];
             if (!r || typeof r !== 'object') continue;
             const rec = this.blankRecord();
@@ -101,8 +133,8 @@ const Raids = {
                 ? r.lastCreditWeek : null;
             const c = r.cycle && typeof r.cycle === 'object' ? r.cycle : {};
             rec.cycle.streak = int(c.streak);
-            rec.cycle.streakDone = !!c.streakDone || rec.cycle.streak >= RAID_STREAK_TARGET;
-            for (const t of RAID_TYPES) if (c.types && c.types[t]) rec.cycle.types[t] = true;
+            rec.cycle.streakDone = !!c.streakDone || rec.cycle.streak >= raidStreakTarget(boss);
+            for (const t of RAID_TASK_KEYS) if (c.types && c.types[t]) rec.cycle.types[t] = true;
             out[boss.id] = rec;
         }
         return out;
@@ -119,13 +151,49 @@ const Raids = {
     },
 
     isUnlocked(boss) {
+        if (boss.mythical) return this.mastery(boss.afterSet).done;
         return Profile.owned(boss.cardId) >= RAID_NORMAL_COPIES;
+    },
+
+    /**
+     * A Mythical raid's key: every card of the set (promos too), and 2 copies
+     * of each non-promo card. Full-art copies count as copies.
+     * @returns {{have, total, done}} cards that meet it, out of the set
+     */
+    mastery(setId) {
+        const cards = Collection.setCards(setId);
+        const copies = id => Profile.owned(id) + Profile.ownedFullArt(id);
+        const have = cards.filter(c => copies(c.id) >= (c.promo ? 1 : RAID_NORMAL_COPIES)).length;
+        return { have, total: cards.length, done: cards.length > 0 && have === cards.length };
     },
 
     /** The task list for the current attempt, with what is done. */
     tasks(boss) {
         const rec = this.peek(boss.id);
         const owned = Profile.owned(boss.cardId);
+        if (boss.mythical) {
+            const target = MYTHIC_STREAK_TARGET;
+            const m = this.mastery(boss.afterSet);
+            const setName = (setById(boss.afterSet) || {}).name || boss.afterSet;
+            const list = [{
+                id: 'mastery',
+                label: `Own every ${setName} card (promos too) and 2 copies of each non-promo one`,
+                done: m.done, progress: `${m.have}/${m.total}`
+            }, {
+                id: 'streak',
+                label: `Win ${target} games in a row against this boss`,
+                done: rec.cycle.streakDone,
+                progress: rec.cycle.streakDone ? `${target}/${target}` : `${rec.cycle.streak}/${target}`
+            }];
+            for (const type of RAID_TYPES) {
+                list.push({ id: `type_${type}`, type, label: `Win with a deck of at least ${RAID_TYPE_TARGET} ${type} creature cards`,
+                    done: !!rec.cycle.types[type], progress: rec.cycle.types[type] ? '1/1' : '0/1' });
+            }
+            for (const t of MYTHIC_TASKS) {
+                list.push({ id: t.id, label: t.label, done: !!rec.cycle.types[t.id], progress: rec.cycle.types[t.id] ? '1/1' : '0/1' });
+            }
+            return list;
+        }
         const list = [{
             id: 'copies',
             label: `Have ${RAID_NORMAL_COPIES} copies of the normal ${boss.card.name}`,
@@ -172,13 +240,13 @@ const Raids = {
     /** Bosses beaten at least once, for the raid missions. */
     completedCount() {
         if (!Profile.s) return 0;
-        return RAID_BOSSES.filter(b => (Profile.s.raids[b.id] || {}).completions > 0).length;
+        return ALL_RAID_BOSSES.filter(b => (Profile.s.raids[b.id] || {}).completions > 0).length;
     },
 
     /** Bosses with a rematch credit waiting for room under the cap. */
     pendingCount() {
         if (!Profile.s) return 0;
-        return RAID_BOSSES.filter(b => (Profile.s.raids[b.id] || {}).pendingCredit > 0).length;
+        return ALL_RAID_BOSSES.filter(b => (Profile.s.raids[b.id] || {}).pendingCredit > 0).length;
     },
 
     // -----------------------------------------------------------------------
@@ -202,15 +270,16 @@ const Raids = {
             rec.streak++;
             rec.bestStreak = Math.max(rec.bestStreak, rec.streak);
             rec.cycle.streak++;
-            if (rec.cycle.streak >= RAID_STREAK_TARGET) rec.cycle.streakDone = true;
+            if (rec.cycle.streak >= raidStreakTarget(boss)) rec.cycle.streakDone = true;
             const fresh = [];
+            const keys = boss.mythical ? RAID_TASK_KEYS : RAID_TYPES;
             for (const type of raid.types || []) {
-                if (RAID_TYPES.includes(type) && !rec.cycle.types[type]) {
+                if (keys.includes(type) && !rec.cycle.types[type]) {
                     rec.cycle.types[type] = true;
                     fresh.push(type);
                 }
             }
-            if (fresh.length) out.lines.push(`🐉 Raid task done: a win with ${fresh.join(' and ')}.`);
+            if (fresh.length) out.lines.push(`🐉 Raid task done: a win with ${fresh.map(raidTaskName).join(' and ')}.`);
         } else if (result === 'loss') {
             rec.lost++;
             if (forfeit) rec.forfeits++;
@@ -229,7 +298,7 @@ const Raids = {
             this._complete(boss, rec, out);
         } else if (!forfeit) {
             const done = tasks.filter(t => t.done).length;
-            const streak = rec.cycle.streakDone ? 'done' : `${rec.cycle.streak}/${RAID_STREAK_TARGET}`;
+            const streak = rec.cycle.streakDone ? 'done' : `${rec.cycle.streak}/${raidStreakTarget(boss)}`;
             out.lines.push(`🐉 Raid tasks ${done}/${tasks.length} · streak ${streak}`);
         }
         return out;
@@ -240,6 +309,14 @@ const Raids = {
         const first = rec.completions === 0;
         rec.completions++;
         rec.cycle = this.blankCycle();
+        if (first && boss.mythical) {
+            // The Mythical card itself: the only way to get it, one copy.
+            rec.firstCompletedAt = Date.now();
+            if (!Profile.owned(boss.cardId)) Profile._addCard(boss.cardId);
+            out.mythical = boss.cardId;
+            out.lines.push(`🌟 Mythical raid complete! ${boss.card.name} joins your collection.`);
+            return;
+        }
         if (first) {
             rec.firstCompletedAt = Date.now();
             Profile.s.fullArt[boss.cardId] = (Profile.s.fullArt[boss.cardId] || 0) + 1;
@@ -313,7 +390,13 @@ const Raids = {
      * @returns {{name, type, cards, energyTypes, fullArt, mainType, bossId}|null}
      */
     generateDeck(boss, opts = {}) {
-        const isSetOpen = opts.isSetOpen || (setId => !Profile.s || Profile.isSetUnlocked(setId));
+        let isSetOpen = opts.isSetOpen || (setId => !Profile.s || Profile.isSetUnlocked(setId));
+        // A Mythical boss only uses cards from the sets up to the one that opens it.
+        if (boss.mythical && boss.afterSet) {
+            const limit = cardSets.findIndex(s => s.id === boss.afterSet);
+            const open = isSetOpen;
+            isSetOpen = setId => cardSets.findIndex(s => s.id === setId) <= limit && open(setId);
+        }
         const rng = opts.rng || Rng;
         const card = boss.card || getCardData(boss.cardId);
         if (!card) return null;
@@ -331,14 +414,16 @@ const Raids = {
             for (let attempt = 0; attempt < 60; attempt++) {
                 const mainType = pickType();
                 const deck = this._tryBuild(card, mainType, { isSetOpen, rng, strongOnly });
-                if (deck) return Object.assign(deck, { bossId: boss.id });
+                if (deck) return Object.assign(deck, { bossId: boss.id }, boss.mythical ? { fullArt: {}, name: `Mythical Raid: ${card.name}` } : {});
             }
         }
         return null;
     },
 
     _tryBuild(bossCard, mainType, { isSetOpen, rng, strongOnly }) {
-        const family = raidBossLine(bossCard).filter(c => !raidIsPromo(c));
+        // Promo stages stay out, unless the boss itself is a promo (Cryostone,
+        // Sushimi): then its own line is the deck's core.
+        const family = raidBossLine(bossCard).filter(c => !raidIsPromo(c) || raidIsPromo(bossCard));
         const familyIds = new Set(family.map(c => c.id));
         const cards = [];
         for (const c of family) cards.push(c.id, c.id);

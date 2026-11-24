@@ -94,6 +94,8 @@ const Hub = {
         { id: 'sorting',    label: '🗄️ Creature Sorting', parent: 'minigames' },
         { id: 'puzzle',     label: '🧩 Puzzle',           parent: 'minigames' },
         { id: 'tetris',     label: '🧱 Tetris',           parent: 'minigames' },
+        { id: 'candy',      label: '🍬 Candy Crush',      parent: 'minigames' },
+        { id: 'snake',      label: '🐍 Snake',            parent: 'minigames' },
         { id: 'collection', label: '📈 Collection' },
         { id: 'stats',      label: '🏆 Stats' },
         { id: 'save',       label: '💾 Save data' }
@@ -162,7 +164,7 @@ const Hub = {
         if (today !== this._today) {
             this._today = today;
             if (Profile.markLoginDay()) changed = true;
-            if (!['draw', 'guess', 'memory', 'sorting', 'puzzle', 'tetris'].includes(this.page)) this.renderPage();
+            if (!['draw', 'guess', 'memory', 'sorting', 'puzzle', 'tetris', 'candy', 'snake'].includes(this.page)) this.renderPage();
         }
         if (changed) Profile.touch('regen');
         else this.renderHeader();
@@ -232,7 +234,8 @@ const Hub = {
         this.dialog({
             title: `🎉 ${set.name} unlocked!`,
             message: `You collected ${Profile.unlockText(set.id)}, so ${set.name} cards can now be drawn, bought and used in decks.` +
-                (set.id === ARCADE_SET ? ' Three new mini-games are open too: Creature Sorting, Puzzle and Tetris.' : ''),
+                (set.id === ARCADE_SET ? ' Three new mini-games are open too: Creature Sorting, Puzzle and Tetris.' : '') +
+                (set.id === 'CC' ? ' Two new mini-games are open too: Candy Crush and Snake.' : ''),
             buttons: [{ label: 'Awesome!', value: true, kind: 'primary' }]
         });
     },
@@ -312,10 +315,10 @@ const Hub = {
         if (sets) {
             sets.innerHTML = '';
             sets.appendChild(h('li', {}, h('strong', { text: cardSets[0].name }), ': open from the start.'));
-            for (const set of cardSets.slice(1)) {
+            for (const set of regularSets().slice(1)) {
                 const open = Profile.isSetUnlocked(set.id);
                 const extra = set.id === ARCADE_SET ? ' It also opens accessory cards and the Creature Sorting, Puzzle and Tetris mini-games.'
-                    : set.id === 'CC' ? ' It brings the Rust and Hex status conditions, and accessories that fit any creature.' : '';
+                    : set.id === 'CC' ? ' It brings the Rust and Hex status conditions, accessories that fit any creature, and the Candy Crush and Snake mini-games.' : '';
                 sets.appendChild(h('li', {}, h('strong', { text: set.name }),
                     `: own ${Profile.unlockText(set.id, !open)}. ` + (open ? '✓ Unlocked.' : '') + extra));
             }
@@ -376,6 +379,8 @@ const Hub = {
             sorting: () => this.renderSorting(),
             puzzle: () => this.renderPuzzle(),
             tetris: () => this.renderTetris(),
+            candy: () => this.renderCandy(),
+            snake: () => this.renderSnake(),
             collection: () => this.renderCollection(),
             stats: () => this.renderStats(),
             save: () => this.renderSave()
@@ -399,19 +404,19 @@ const Hub = {
     },
 
     /** Previous/next arrows over the set registry, with the lock state shown. */
-    setSwitcher(current, onChange) {
-        const index = cardSets.findIndex(s => s.id === current);
-        const set = cardSets[index];
+    setSwitcher(current, onChange, list = cardSets) {
+        const index = Math.max(0, list.findIndex(s => s.id === current));
+        const set = list[index];
         const locked = !Profile.isSetUnlocked(set.id);
         return h('div', { class: 'set-switcher' },
             h('button', {
                 class: 'set-arrow', type: 'button', text: '←', disabled: index <= 0,
-                on: { click: () => onChange(cardSets[index - 1].id) }
+                on: { click: () => onChange(list[index - 1].id) }
             }),
             h('span', { class: 'set-name', text: (locked ? '🔒 ' : '') + set.name }),
             h('button', {
-                class: 'set-arrow', type: 'button', text: '→', disabled: index >= cardSets.length - 1,
-                on: { click: () => onChange(cardSets[index + 1].id) }
+                class: 'set-arrow', type: 'button', text: '→', disabled: index >= list.length - 1,
+                on: { click: () => onChange(list[index + 1].id) }
             }));
     },
 
@@ -485,7 +490,7 @@ const Hub = {
             grid.appendChild(h('div', {
                 class: `card-item ${qty === 0 && fa === 0 ? 'not-owned' : ''}`,
                 title: qty > 0 || fa > 0 ? card.name : 'Not collected yet',
-                on: { click: () => { if (qty > 0 || fa > 0) this.showCardModal(card); } }
+                on: { click: () => { if (qty > 0 || fa > 0) this.showCardModal(card, { dex: true }); } }
             },
                 h('img', { src: cardImage(card.id), alt: qty > 0 || fa > 0 ? card.name : 'Unknown card', loading: 'lazy' }),
                 qty > 0 ? h('div', { class: 'card-quantity', text: String(qty) }) : null,
@@ -501,12 +506,66 @@ const Hub = {
         host.appendChild(grid);
     },
 
-    showCardModal(card) {
+    /** The owned cards of the Dex set, in Dex order: what swiping moves through. */
+    dexOwnedCards() {
+        return Collection.setCards(this.dexSet).filter(c => Profile.owned(c.id) > 0 || Profile.ownedFullArt(c.id) > 0);
+    },
+
+    /** Next (+1) or previous (-1) owned card of the Dex, from the one open. */
+    dexStep(dir) {
+        const nav = this._dexNav;
+        if (!nav) return;
+        const list = this.dexOwnedCards();
+        if (list.length < 2) return;
+        const at = list.findIndex(c => c.id === nav.id);
+        const next = list[(Math.max(0, at) + dir + list.length) % list.length];
+        this.showCardModal(next, { dex: true, slide: dir });
+    },
+
+    /** Swipes and arrow keys on the card window, set up once. */
+    initDexSwipe() {
+        if (this._dexSwipe) return;
+        this._dexSwipe = true;
+        const modal = document.getElementById('hub-card-modal');
+        if (!modal) return;
+        let start = null;
+        modal.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            start = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
+        }, { passive: true });
+        modal.addEventListener('touchend', e => {
+            if (!start || !this._dexNav) return;
+            const t = e.changedTouches[0];
+            const dx = t.clientX - start.x, dy = t.clientY - start.y;
+            start = null;
+            if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) this.dexStep(dx < 0 ? 1 : -1);
+        });
+        document.addEventListener('keydown', e => {
+            if (!this._dexNav || !modal.classList.contains('modal-show')) return;
+            if (e.key === 'ArrowRight') this.dexStep(1);
+            else if (e.key === 'ArrowLeft') this.dexStep(-1);
+        });
+    },
+
+    showCardModal(card, { dex = false, slide = 0 } = {}) {
+        // From the Card Dex: swipe left/right (or ‹ ›) for the next owned card of the set.
+        this._dexNav = dex ? { id: card.id } : null;
+        this.initDexSwipe();
         const body = document.getElementById('hub-card-body');
         body.innerHTML = '';
+        if (dex) {
+            const list = this.dexOwnedCards();
+            const at = list.findIndex(c => c.id === card.id);
+            if (list.length > 1) {
+                body.appendChild(h('div', { class: 'dex-nav' },
+                    h('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: '‹', 'aria-label': 'Previous card', on: { click: () => this.dexStep(-1) } }),
+                    h('span', { class: 'page-sub', text: `${at + 1} / ${list.length} · swipe for more` }),
+                    h('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: '›', 'aria-label': 'Next card', on: { click: () => this.dexStep(1) } })));
+            }
+        }
         const rarity = Collection.rarity(card.rarity);
         const fa = Profile.ownedFullArt(card.id);
-        body.appendChild(h('img', { class: 'card-modal-img', src: cardImage(card.id), alt: card.name }));
+        body.appendChild(h('img', { class: 'card-modal-img' + (slide > 0 ? ' slide-left' : slide < 0 ? ' slide-right' : ''), src: cardImage(card.id), alt: card.name }));
         body.appendChild(h('div', { class: 'card-details' },
             h('h3', { text: card.name }),
             h('p', { class: 'card-type', style: { color: rarity.color } }, `${card.type} • ${rarity.icon} ${rarity.name}${card.promo ? ' • Promo' : ''}`),
@@ -527,7 +586,7 @@ const Hub = {
         body.appendChild(h('div', { class: 'card-details' },
             h('h3', { text: `✦ ${card.name}` }),
             h('p', { class: 'owned-count', text: `Full art · you own ${Profile.ownedFullArt(card.id)}` }),
-            h('button', { class: 'btn btn-ghost', type: 'button', text: 'Normal art', on: { click: () => this.showCardModal(card) } })));
+            h('button', { class: 'btn btn-ghost', type: 'button', text: 'Normal art', on: { click: () => this.showCardModal(card, { dex: !!this._dexNav }) } })));
         Screens.openModal('hub-card-modal');
     },
 
@@ -546,7 +605,7 @@ const Hub = {
             (isSundayToday() ? ' 🎉 It\'s Sunday: Promo cards can be drawn today!' : ' Promo cards can only be drawn on Sundays.')));
 
         const tabs = h('div', { class: 'set-tabs center' });
-        for (const set of cardSets) {
+        for (const set of regularSets()) {
             const open = Profile.isSetUnlocked(set.id);
             tabs.appendChild(h('button', {
                 class: `set-tab ${set.id === setId ? 'set-tab-active' : ''}`, type: 'button',
@@ -557,7 +616,7 @@ const Hub = {
         }
         host.appendChild(tabs);
 
-        const lockedSet = cardSets.find(s => !Profile.isSetUnlocked(s.id));
+        const lockedSet = regularSets().find(s => !Profile.isSetUnlocked(s.id));
         if (lockedSet) host.appendChild(this.lockNotice(lockedSet.id));
 
         const area = h('div', { class: 'panel draw-area' });
@@ -622,7 +681,8 @@ const Hub = {
         host.appendChild(this.pageTitle('🛒 Store',
             'Buy any specific card with gems. Prices: 🟢 Common 1 · 🔵 Uncommon 5 · ⭐ Rare 10 · 💎 Epic 20.'));
         host.appendChild(h('p', { class: 'store-gems', text: `💜 ${Profile.s.gems} Gems` }));
-        host.appendChild(this.setSwitcher(setId, id => { this.storeSet = id; this.renderStore(); }));
+        // Mythical cards can't be bought: the Store only has the collectable sets.
+        host.appendChild(this.setSwitcher(setId, id => { this.storeSet = id; this.renderStore(); }, regularSets()));
 
         const locked = !Profile.isSetUnlocked(setId);
         if (locked) host.appendChild(this.lockNotice(setId));
@@ -734,7 +794,8 @@ const Hub = {
             h('li', { text: `Win ${RAID_STREAK_TARGET} games in a row against the boss. Losing to it, or leaving a game against it, resets the streak; games elsewhere don't.` }),
             h('li', { text: `Win once with a deck of at least ${RAID_TYPE_TARGET} creature cards of each type: ${RAID_TYPES.join(', ')}. One win can tick the streak and a type at the same time.` }),
             h('li', { text: 'The boss deck is built at random every game from strong cards of the sets you have unlocked.' }),
-            h('li', { text: 'The first clear wins 1 full-art card. After that the tasks start over, and clearing them again pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for your daily win credits.' })));
+            h('li', { text: 'The first clear wins 1 full-art card. After that the tasks start over, and clearing them again pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for your daily win credits.' }),
+            h('li', { text: `🌟 Mythical raids (at the bottom) award a Mythical card, the only way to get one. Each opens once you own every card of a set, promos too, and 2 copies of each non-promo card. They take ${MYTHIC_STREAK_TARGET} wins in a row and four more deck tasks, and the boss only uses cards up to that set.` })));
         if (error) host.appendChild(this.notice(error, 'bad'));
 
         DeckLibrary.load();
@@ -743,16 +804,22 @@ const Hub = {
         const playable = decks.filter(d => !d.problem);
 
         const list = h('div', { class: 'raid-list' });
-        for (const boss of Raids.bosses()) {
+        const all = Raids.bosses();
+        const ordered = all.filter(b => !b.mythical).concat(['mythical'], all.filter(b => b.mythical));
+        for (const boss of ordered) {
+            if (boss === 'mythical') {
+                list.appendChild(h('h3', { class: 'section-title raid-mythic-title', text: '🌟 Mythical raids' }));
+                continue;
+            }
             const st = Raids.status(boss);
             const rec = st.rec;
             const card = boss.card;
 
             const art = h('img', {
-                class: 'raid-art', src: fullArtImage(boss.cardId),
-                alt: st.unlocked ? `${card.name} (full art)` : 'Locked raid boss', loading: 'lazy'
+                class: 'raid-art', src: raidBossImage(boss),
+                alt: st.unlocked ? `${card.name}${boss.mythical ? ' (Mythical)' : ' (full art)'}` : 'Locked raid boss', loading: 'lazy'
             });
-            if (st.unlocked) CardZoom.bind(art, boss.cardId, true);
+            if (st.unlocked) CardZoom.bind(art, boss.cardId, !boss.mythical);
 
             const tasks = h('ul', { class: 'raid-tasks' });
             for (const t of st.tasks) {
@@ -764,14 +831,19 @@ const Hub = {
 
             let reward;
             if (!st.completed) {
-                reward = `Reward: 1 full-art ${card.name}`;
+                reward = boss.mythical ? `Reward: ${card.name}, a 🌟 Mythical card (1 copy, only from this raid)` : `Reward: 1 full-art ${card.name}`;
             } else {
-                reward = `✦ Full art won · cleared ${plural(rec.completions, 'time')} · ` +
+                reward = `${boss.mythical ? '🌟 Mythical card won' : '✦ Full art won'} · cleared ${plural(rec.completions, 'time')} · ` +
                     (st.creditThisWeek ? "this week's rematch credit earned (next from Monday)" : 'clear it again this week for 🪙 1 credit');
             }
 
             const controls = h('div', { class: 'raid-controls' });
-            if (!st.unlocked) {
+            if (!st.unlocked && boss.mythical) {
+                const m = Raids.mastery(boss.afterSet);
+                controls.appendChild(this.notice(
+                    `🔒 Own every ${(setById(boss.afterSet) || {}).name} card (promos too) and 2 copies of each non-promo card. ` +
+                    `${m.have} of ${m.total} cards done.`, 'locked'));
+            } else if (!st.unlocked) {
                 controls.appendChild(this.notice(
                     `🔒 Own ${RAID_NORMAL_COPIES} normal ${card.name} to challenge this boss. You have ${st.owned}.`, 'locked'));
             } else if (!playable.length) {
@@ -787,7 +859,8 @@ const Hub = {
                     on: { change: e => { this.raidChoice[boss.id] = e.target.value; this.renderRaids(); } }
                 });
                 for (const d of playable) {
-                    const label = d.deck.name + (d.types.length ? ` (counts for ${d.types.join(', ')})` : ' (streak only)');
+                    const counts = raidQualifyingTasks(d.deck.cards, boss);
+                    const label = d.deck.name + (counts.length ? ` (counts for ${counts.map(raidTaskName).join(', ')})` : ' (streak only)');
                     select.appendChild(h('option', { value: d.deck.name, text: label, selected: d.deck.name === chosen }));
                 }
                 const pick = playable.find(d => d.deck.name === chosen);
@@ -817,7 +890,7 @@ const Hub = {
             }
 
             list.appendChild(h('div', { class: `panel raid-card ${st.unlocked ? '' : 'raid-locked'} ${st.completed ? 'raid-cleared' : ''}` },
-                h('div', { class: 'raid-art-wrap' }, art, st.completed ? h('span', { class: 'full-art-badge', text: '✦', title: 'Full art won' }) : null),
+                h('div', { class: 'raid-art-wrap' }, art, st.completed ? h('span', { class: 'full-art-badge', text: boss.mythical ? '🌟' : '✦', title: boss.mythical ? 'Mythical card won' : 'Full art won' }) : null),
                 h('div', { class: 'raid-body' },
                     h('div', { class: 'raid-head' },
                         h('h3', { text: card.name }),
@@ -834,7 +907,7 @@ const Hub = {
     },
 
     // -----------------------------------------------------------------------
-    // Daily Challenges: three modes a day, each with deck rules and a target
+    // Daily Challenges: four modes a day, each with deck rules and a target
     // of wins in a row against the same AI deck. Rules in daily.js.
     // -----------------------------------------------------------------------
 
@@ -877,10 +950,10 @@ const Hub = {
         const resetIn = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
 
         host.appendChild(this.pageTitle('📅 Daily Challenges',
-            `Three new challenges every day (next in ${resetIn}). Build a deck that follows the challenge's rules and beat its AI deck. ` +
+            `Four new challenges every day (next in ${resetIn}). Build a deck that follows the challenge's rules and beat its AI deck. ` +
             'The rules and the AI decks stay the same all day, however many times you play.'));
         host.appendChild(h('ul', { class: 'raid-rules' },
-            h('li', { text: 'Easy: 1 rule, win once. Medium: 2 rules, win 2 games in a row. Hard: 3 tougher rules, win 3 games in a row.' }),
+            h('li', { text: 'Easy: 1 rule, win once. Medium: 2 rules, win 2 games in a row. Hard: 3 tougher rules, win 3 games in a row. Extreme: 3 tough rules plus one card of yours the deck must include, win 4 games in a row against the strongest AI decks.' }),
             h('li', { text: 'Losing, drawing or leaving a game resets that challenge\'s streak. Each challenge can be completed once a day.' }),
             h('li', { text: `Challenge wins also count as normal wins, including your daily win credits (up to ${WIN_CREDITS_PER_DAY} a day).` })));
         if (error) host.appendChild(this.notice(error, 'bad'));
@@ -909,7 +982,7 @@ const Hub = {
 
             const rules = h('ul', { class: 'daily-rules' });
             if (!st.restrictions.length) rules.appendChild(h('li', { text: 'No rules today: any of your decks can play.' }));
-            for (const r of st.restrictions) rules.appendChild(h('li', { text: `🚫 ${Daily.describe(r)}` }));
+            for (const r of st.restrictions) rules.appendChild(h('li', { text: `${r.id === 'mustInclude' ? '✅' : '🚫'} ${Daily.describe(r)}` }));
 
             const progress = st.done
                 ? h('p', { class: 'daily-status done', text: '✓ Completed today' })
@@ -1233,7 +1306,7 @@ const Hub = {
     /** One line telling the player whether this game is done for today and what it paid. */
     minigameMessage(game) {
         const st = game.status;
-        if (st.locked) return { kind: 'locked', text: '🔒 Unlock after completing 90% of Galactic Adventures.' };
+        if (st.locked) return { kind: 'locked', text: st.lockText || '🔒 Locked.' };
         if (st.active) return { kind: 'active', text: '▶️ Game in progress. Finish it to collect your reward.' };
         if (st.alreadyToday) {
             const r = Profile.s.minigameResults[game.key];

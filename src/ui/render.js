@@ -596,7 +596,8 @@ function creatureChips(card) {
         oreLash: 'Ore Lash',
         coreTangle: 'Core Tangle',
         searGuard: 'Sear Guard',
-        overchargeSlam: 'Overcharge Slam'
+        overchargeSlam: 'Overcharge Slam',
+        hardTackle: 'Hard Tackle'
     };
     for (const key of Object.keys(shieldLabels)) {
         const shield = readShield(f.shields, key);

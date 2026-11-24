@@ -100,7 +100,7 @@ const Missions = (() => {
         { id: 'cc_rust_hex', cat: 'sets', description: 'Collect every Crystal Canopy creature whose moves or ability cause Rust or Hex',
           type: 'own_cards', cards: [3, 6, 7, 9, 10, 13, 17, 19, 23, 36].map(cc), reward: r(5, 3) }
     );
-    for (const [key, name] of [['sorting', 'Creature Sorting'], ['puzzle', 'Puzzle'], ['tetris', 'Tetris']]) {
+    for (const [key, name] of [['sorting', 'Creature Sorting'], ['puzzle', 'Puzzle'], ['tetris', 'Tetris'], ['candy', 'Candy Crush'], ['snake', 'Snake']]) {
         BASE.push(
             { id: `${key}_once`,    cat: 'minigames', description: `Play "${name}" one time`, type: 'arcade_days', game: key, target: 1, reward: r(2, 0) },
             { id: `${key}_days_5`,  cat: 'minigames', description: `Play "${name}" on 5 different days`,  type: 'arcade_days', game: key, target: 5,  reward: r(2, 1) },
@@ -112,12 +112,14 @@ const Missions = (() => {
         { id: 'sorting_fast', cat: 'minigames', description: 'Finish "Creature Sorting" in under 40 seconds', type: 'arcade_time', game: 'sorting', seconds: 39, reward: r(3, 2) },
         { id: 'puzzle_fast',  cat: 'minigames', description: 'Finish "Puzzle" in 3 minutes or less', type: 'arcade_time', game: 'puzzle', seconds: 180, reward: r(3, 2) },
         { id: 'tetris_20',    cat: 'minigames', description: 'Score 20 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 20, reward: r(3, 2) },
-        { id: 'tetris_40',    cat: 'minigames', description: 'Score 40 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 40, reward: r(5, 3) }
+        { id: 'tetris_40',    cat: 'minigames', description: 'Score 40 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 40, reward: r(5, 3) },
+        { id: 'candy_6000',   cat: 'minigames', description: 'Score 6,000 or more in "Candy Crush"', type: 'arcade_score', game: 'candy', target: 6000, reward: r(3, 2) },
+        { id: 'snake_18',     cat: 'minigames', description: 'Reach a length of 18 or more in "Snake"', type: 'arcade_score', game: 'snake', target: 18, reward: r(3, 2) }
     );
 
     // ---- New: per-set missions, generated from the set registry ----
     const SET_MISSIONS = [];
-    for (const set of cardSets) {
+    for (const set of regularSets()) {
         for (const t of [{ n: 10, reward: r(2, 0) }, { n: 25, reward: r(3, 1) }, { n: 50, reward: r(5, 2) }]) {
             SET_MISSIONS.push({
                 id: `set_${set.id}_${t.n}`, cat: 'sets',
@@ -131,7 +133,7 @@ const Missions = (() => {
             type: 'set_complete', setId: set.id, reward: r(5, 5)
         });
     }
-    for (const set of cardSets.slice(1)) {
+    for (const set of regularSets().slice(1)) {
         SET_MISSIONS.push({
             id: `unlock_${set.id}`, cat: 'sets',
             description: `Unlock the ${set.name} set`,

@@ -402,16 +402,21 @@ async function raidTests() {
         for (let i = 0; i < 15; i++) {
             // Only the first set and the boss's own set are open (a Galactic
             // boss can only be reached once Galactic is unlocked).
-            const open = id => id === 'EA' || id === b.card.set;
-            const deck = Raids.generateDeck(b, { isSetOpen: open });
+            // A Mythical boss's deck only has cards up to its set (and itself).
+            const upTo = b.mythical ? cardSets.findIndex(s => s.id === b.afterSet) : 99;
+            const open = b.mythical
+                ? id => cardSets.findIndex(s => s.id === id) <= upTo
+                : id => id === 'EA' || id === b.card.set;
+            const deck = Raids.generateDeck(b, { isSetOpen: b.mythical ? () => true : open });
             if (!deck) { bad.push(`${b.id}: none`); break; }
             const why = [];
             if (!validateDeck(deck.cards).valid) why.push('illegal');
             if (presetCompositionProblems(deck.cards).length) why.push('composition');
             if (energyTypeWarnings(deck.cards, deck.energyTypes).length) why.push('energy');
             if (!deck.cards.includes(RAID_DRAW_ITEM)) why.push('no Card Draw');
-            if (deck.fullArt[b.cardId] !== 2 || deck.cards.filter(id => id === b.cardId).length !== 2) why.push('boss copies');
-            if (deck.cards.some(id => !open(getCardData(id).set))) why.push('locked set');
+            if ((b.mythical ? Object.keys(deck.fullArt).length : deck.fullArt[b.cardId] !== 2) ||
+                deck.cards.filter(id => id === b.cardId).length !== 2) why.push('boss copies');
+            if (deck.cards.some(id => id !== b.cardId && !open(getCardData(id).set))) why.push('locked set');
             if (why.length) bad.push(`${b.id}: ${why.join(', ')}`);
         }
     }

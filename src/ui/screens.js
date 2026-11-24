@@ -547,7 +547,9 @@ const Screens = {
         const boss = Raids.find(bossId);
         if (!boss) return;
         if (!Raids.isUnlocked(boss)) {
-            Log.warn(`Own ${RAID_NORMAL_COPIES} ${boss.card.name} to challenge this boss.`);
+            Log.warn(boss.mythical
+                ? `Own every ${(setById(boss.afterSet) || {}).name} card and 2 of each non-promo one to open this Mythical raid.`
+                : `Own ${RAID_NORMAL_COPIES} ${boss.card.name} to challenge this boss.`);
             return;
         }
         // 'auto': an auto-generated team from the player's cards.
@@ -568,17 +570,19 @@ const Screens = {
             return;
         }
 
-        const types = raidQualifyingTypes(deck.cards);
+        const types = raidQualifyingTasks(deck.cards, boss);
         const st = Raids.status(boss);
-        const streak = st.rec.cycle.streakDone ? 'done' : `${st.rec.cycle.streak}/${RAID_STREAK_TARGET}`;
+        const streak = st.rec.cycle.streakDone ? 'done' : `${st.rec.cycle.streak}/${raidStreakTarget(boss)}`;
         const energy = bossDeck.energyTypes.length === ENERGY_TYPES.length ? 'any' : bossDeck.energyTypes.join(', ');
         const counts = types.length
-            ? `"${deck.name}" counts for the ${types.join(' and ')} task${types.length > 1 ? 's' : ''}.`
-            : `"${deck.name}" has fewer than ${RAID_TYPE_TARGET} creature cards of any one type, so a win only counts for the streak.`;
+            ? `"${deck.name}" counts for the ${types.map(raidTaskName).join(' and ')} task${types.length > 1 ? 's' : ''}.`
+            : `"${deck.name}" doesn't meet any deck task, so a win only counts for the streak.`;
+        const sets = boss.mythical
+            ? ` It only uses cards up to ${(setById(boss.afterSet) || {}).name}.` : '';
         const intro = await Hub.dialog({
-            title: `🐉 Raid Boss: ${boss.card.name}`,
-            image: fullArtImage(boss.cardId),
-            message: `This time the boss leads a ${bossDeck.mainType} deck (energy: ${energy}), with 2 full-art ${boss.card.name}. ` +
+            title: `${boss.mythical ? '🌟 Mythical Raid' : '🐉 Raid Boss'}: ${boss.card.name}`,
+            image: raidBossImage(boss),
+            message: `This time the boss leads a ${bossDeck.mainType} deck (energy: ${energy}), with 2 ${boss.mythical ? '' : 'full-art '}${boss.card.name}.${sets} ` +
                 `${counts} Raid tasks ${st.done}/${st.total} · streak ${streak}. Losing or leaving resets the streak.`,
             buttons: [{ label: 'Not now', value: false }, { label: 'Fight!', value: true, kind: 'primary' }]
         });
@@ -806,7 +810,9 @@ const Screens = {
             const creatures = cards.filter(c => isCreature(c)).length;
             const items = cards.length - creatures;
             const li = document.createElement('li');
-            li.innerHTML = `<strong>${set.name}</strong> — ${creatures} creatures, ${items} items`;
+            li.innerHTML = set.special
+                ? `<strong>${set.name}</strong> — ${creatures} creatures, won only in Mythical raids (1 copy each, never in the Store)`
+                : `<strong>${set.name}</strong> — ${creatures} creatures, ${items} items and accessories`;
             setList.appendChild(li);
         }
         section('Card sets', setList);

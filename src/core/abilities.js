@@ -181,10 +181,10 @@ function sideWillAttackThisTurn(side) {
         usableMoves(side).length > 0;
 }
 
-/** Creatures that could be healed: damaged, and not affected by Hex. */
+/** Creatures that could be healed: damaged, and not blocked by Hex or Silent Aura. */
 function damagedCreatures(side, typeFilter) {
     return creaturesInPlay(side).filter(c =>
-        c.damage > 0 && !Status.has(c, 'hex') && (!typeFilter || getCardType(c.data) === typeFilter));
+        c.damage > 0 && !healBlockedBy(c, side) && (!typeFilter || getCardType(c.data) === typeFilter));
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,4 +1012,58 @@ AbilityRegistry.register('cosmicDrift', {
     // With a full bench, a Stage 1 in hand can't be played: worth swapping.
     aiWants: ctx => ctx.me.hand.some(c => c.data.stage === 'Stage 1' ||
         (isItem(c.data) && !ItemRegistry.canUse(c, ctx.side).ok && c.data.itemEffect !== 'handRecycle'))
+});
+
+// ===========================================================================
+// MYTHICAL CARDS
+// ===========================================================================
+
+// Astralyon (heal.js healBlockedBy).
+AbilityRegistry.register('silentAura', passiveAbility(
+    "While this creature is active, your opponent's creatures can't be healed."));
+// Chromarion (util.js retreatCost).
+AbilityRegistry.register('staticHold', passiveAbility(
+    "While this creature is active, your opponent's retreats cost 2 more energy."));
+
+/**
+ * Aetherave's Psych On: the opposing creatures' abilities it could use now, as
+ * this creature. Only abilities you activate (always-on ones have nothing to
+ * use), not bench-only ones, and only those whose conditions it meets.
+ */
+function psychOnChoices(ctx) {
+    const seen = new Set();
+    const out = [];
+    for (const c of creaturesInPlay(ctx.foe)) {
+        const id = c.data.abilityEffect;
+        const def = id && AbilityRegistry.get(id);
+        if (!def || def.passive || id === 'psychOn' || seen.has(id) || c.data.abilityLocation === 'bench') continue;
+        const borrowed = makeAbilityContext(ctx.card, ctx.side, 'active');
+        borrowed.ability = id;
+        if (def.requires && !def.requires(borrowed).ok) continue;
+        seen.add(id);
+        out.push({ id, def, name: c.data.abilityName, from: c.data.name, ctx: borrowed });
+    }
+    return out;
+}
+
+// Aetherave — "Once per turn, while active, you may use an ability of one of your opponent's creatures."
+AbilityRegistry.register('psychOn', {
+    requires(ctx) {
+        if (!psychOnChoices(ctx).length) return { ok: false, reason: "None of your opponent's abilities can be used right now." };
+        return { ok: true };
+    },
+    async use(ctx) {
+        const choices = psychOnChoices(ctx);
+        const id = await chooseOptionOf(ctx.side, {
+            title: 'Psych On: use which ability?',
+            options: choices.map(c => ({ label: `${c.name} (${c.from})`, value: c.id })),
+            cancellable: true,
+            aiPick: () => (choices.find(c => !c.def.aiWants || c.def.aiWants(c.ctx)) || choices[0]).id
+        });
+        const pick = choices.find(c => c.id === id);
+        if (!pick) return;
+        await ctx.say(`${creatureName(ctx.card, ctx.side)} copies ${pick.name}!`, { kind: 'ability', icon: '🌀', pace: 0.6 });
+        await pick.def.use(pick.ctx);
+    },
+    aiWants: ctx => psychOnChoices(ctx).some(c => !c.def.aiWants || c.def.aiWants(c.ctx))
 });

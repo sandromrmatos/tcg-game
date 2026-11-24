@@ -331,7 +331,14 @@ function maxHp(card) {
 function retreatCost(card) {
     if (!card) return 0;
     const cut = typeof accessoryRetreatReduction === 'function' ? accessoryRetreatReduction(card) : 0;
-    return Math.max(0, (card.data.retreat || 0) - cut);
+    // Static Hold (Chromarion, always on while active): the other side's retreats cost 2 more.
+    let extra = 0;
+    if (typeof hasAbilityAt === 'function' && typeof gameState !== 'undefined' && gameState.player) {
+        const spot = locateCard(card);
+        const foe = spot && gameState[foeOf(spot.side)];
+        if (foe && hasAbilityAt(foe.active, 'staticHold', 'active')) extra = 2;
+    }
+    return Math.max(0, (card.data.retreat || 0) - cut) + extra;
 }
 
 function remainingHp(card) {

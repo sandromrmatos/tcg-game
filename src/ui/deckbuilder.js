@@ -441,8 +441,35 @@ const DeckBuilder = {
         }
         this.cards.push(cardId);
         if (useFullArt) this.fullArt[cardId] = this.fullArtIn(cardId) + 1;
+        this.redrawInPlace();
+    },
+
+    /**
+     * Redraws the card list and the deck without moving the screen. Both are
+     * rebuilt from scratch, and the deck list growing or shrinking (or the
+     * card list briefly emptying) made the page jump on every tap. The card
+     * list is pinned where it was on screen, and every scroll box keeps its place.
+     */
+    redrawInPlace() {
+        const pool = document.getElementById('builder-pool');
+        const boxes = [];
+        for (let el = pool; el; el = el.parentElement) {
+            if (el.scrollHeight > el.clientHeight) boxes.push([el, el.scrollTop]);
+        }
+        const page = document.scrollingElement || document.documentElement;
+        const pageTop = page.scrollTop;
+        const before = pool ? pool.getBoundingClientRect().top : 0;
         this.renderPool();
         this.renderDeck();
+        for (const [el, top] of boxes) el.scrollTop = top;
+        page.scrollTop = pageTop;
+        if (!pool) return;
+        const drift = pool.getBoundingClientRect().top - before;
+        if (Math.abs(drift) < 1) return;
+        // Pin the card list: scroll whichever box holds it by the drift.
+        const box = boxes.find(([el]) => el !== pool);
+        if (box) box[0].scrollTop += drift;
+        else page.scrollTop += drift;
     },
 
     /** Normal or full art? Resolves 'normal', 'full', or null when cancelled. */
@@ -482,8 +509,7 @@ const DeckBuilder = {
         }
         this.cards.splice(index, 1);
         this.fullArt = cleanFullArt(this.fullArt, this.cards);
-        this.renderPool();
-        this.renderDeck();
+        this.redrawInPlace();
     },
 
     /** The deck's energy types, following its main type while still automatic. */

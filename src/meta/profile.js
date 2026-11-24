@@ -51,7 +51,17 @@ const MEMORY_BOARD_SIZE = 16;
  *   tetris           by score: 20+ → 5🪙 +1💜 · 10+ → 3🪙, 50% 💜 · 5+ → 2🪙 · less → 1🪙
  * Sundays: every finished game pays at least 1💜, and the best tier pays 2💜.
  */
-const ARCADE_GAMES = ['sorting', 'puzzle', 'tetris'];
+const ARCADE_GAMES = ['sorting', 'puzzle', 'tetris', 'candy', 'snake'];
+// The set each mini-game opens with: Candy Crush and Snake come with Crystal Canopy.
+const ARCADE_UNLOCK = { sorting: 'TR', puzzle: 'TR', tetris: 'TR', candy: 'CC', snake: 'CC' };
+// Games scored by points (the rest by time).
+const ARCADE_SCORE_GAMES = ['tetris', 'candy', 'snake'];
+// Candy Crush (level 3) and Snake (small): only the top tier can pay a gem,
+// 50% of the time, always on Sundays.
+const CANDY_TIERS = [{ from: 6000, credits: 5, gem: 0.5 }, { from: 5000, credits: 3, gem: 0 },
+    { from: 3500, credits: 2, gem: 0 }, { from: 0, credits: 1, gem: 0 }];
+const SNAKE_TIERS = [{ from: 18, credits: 5, gem: 0.5 }, { from: 15, credits: 3, gem: 0 },
+    { from: 10, credits: 2, gem: 0 }, { from: 0, credits: 1, gem: 0 }];
 const ARCADE_SET = 'TR';
 const ARCADE_TIME_TIERS = [{ upTo: 180, credits: 5, gem: 1 }, { upTo: 300, credits: 3, gem: 0.5 },
     { upTo: 480, credits: 2, gem: 0 }, { upTo: Infinity, credits: 1, gem: 0 }];
@@ -65,7 +75,9 @@ const RARITIES = {
     1: { name: 'Common',   icon: '🟢', color: '#90EE90', cost: 1 },
     2: { name: 'Uncommon', icon: '🔵', color: '#87CEEB', cost: 5 },
     3: { name: 'Rare',     icon: '⭐', color: '#FFD700', cost: 10 },
-    4: { name: 'Epic',     icon: '💎', color: '#FF69B4', cost: 20 }
+    4: { name: 'Epic',     icon: '💎', color: '#FF69B4', cost: 20 },
+    // Only from the Mythical raids: never drawn or sold (cost 0), one copy each.
+    5: { name: 'Mythical', icon: '🌟', color: '#FF5EC8', cost: 0 }
 };
 
 /** Cumulative draw odds, in percent: 55 / 28 / 13 / 4. */
@@ -141,7 +153,7 @@ const Profile = {
 
     blank() {
         const sets = {};
-        for (const set of cardSets) sets[set.id] = null;
+        for (const set of cardSets) sets[set.id] = set.special ? Date.now() : null;
         sets[cardSets[0].id] = Date.now();
         return {
             app: SAVE_APP_ID,
@@ -166,9 +178,9 @@ const Profile = {
             memoryGame: null,            // { board, matched, firstFlip, date }
             // Temporal Rift mini-games (sorting, puzzle, tetris): days played,
             // last play date, and the game in progress.
-            arcadeDays: { sorting: {}, puzzle: {}, tetris: {} },
-            arcadeLast: { sorting: null, puzzle: null, tetris: null },
-            arcadeBest: { sorting: null, puzzle: null, tetris: 0 },  // fastest seconds / top score
+            arcadeDays: { sorting: {}, puzzle: {}, tetris: {}, candy: {}, snake: {} },
+            arcadeLast: { sorting: null, puzzle: null, tetris: null, candy: null, snake: null },
+            arcadeBest: { sorting: null, puzzle: null, tetris: 0, candy: 0, snake: 0 },  // fastest seconds / top score
             arcadeGame: null,            // { key, date, startedAt, seed, score }
             drawsTotal: 0,
             purchasesTotal: 0,
@@ -277,7 +289,7 @@ const Profile = {
         if (raw.unlockedSets && typeof raw.unlockedSets === 'object') {
             for (const set of cardSets) {
                 const at = Number(raw.unlockedSets[set.id]);
-                if (at > 0) s.unlockedSets[set.id] = at;
+                if (at > 0 && !set.special) s.unlockedSets[set.id] = at;
             }
         }
 
@@ -301,7 +313,7 @@ const Profile = {
             s.arcadeDays[key] = dayMap(raw.arcadeDays && raw.arcadeDays[key]);
             s.arcadeLast[key] = dateOrNull(raw.arcadeLast && raw.arcadeLast[key]);
             const best = raw.arcadeBest && Number(raw.arcadeBest[key]);
-            s.arcadeBest[key] = key === 'tetris' ? int(best) : (best > 0 ? Math.floor(best) : null);
+            s.arcadeBest[key] = ARCADE_SCORE_GAMES.includes(key) ? int(best) : (best > 0 ? Math.floor(best) : null);
         }
         const ag = raw.arcadeGame;
         s.arcadeGame = ag && typeof ag === 'object' && ARCADE_GAMES.includes(ag.key) && Number(ag.startedAt) > 0
@@ -356,7 +368,7 @@ const Profile = {
                     ? { mode: am.daily.mode, date: String(am.daily.date || '') }
                     : null,
                 raid: am.raid && typeof am.raid === 'object' && raidBossById(am.raid.bossId)
-                    ? { bossId: am.raid.bossId, types: (Array.isArray(am.raid.types) ? am.raid.types : []).filter(t => RAID_TYPES.includes(t)) }
+                    ? { bossId: am.raid.bossId, types: (Array.isArray(am.raid.types) ? am.raid.types : []).filter(t => RAID_TASK_KEYS.includes(t)) }
                     : null
             }
             : null;
@@ -616,9 +628,11 @@ const Profile = {
      * The first set is always open.
      */
     unlockRequirement(setId) {
-        const index = cardSets.findIndex(s => s.id === setId);
+        // Special sets (Mythical) aren't unlocked by collecting: they are always open.
+        const sets = regularSets();
+        const index = sets.findIndex(s => s.id === setId);
         if (index <= 0) return null;
-        const prev = cardSets[index - 1];
+        const prev = sets[index - 1];
         // The previous set at 90%, plus any extra set a later set asks for
         // (SET_UNLOCK_EXTRA: Crystal Canopy also wants all of Elemental Awakening).
         const rules = [{ set: prev.id, ratio: SET_UNLOCK_RATIO }].concat(SET_UNLOCK_EXTRA[setId] || []);
@@ -675,8 +689,9 @@ const Profile = {
         return fresh;
     },
 
+    /** The collectable sets that are open (not the Mythical cards). */
     unlockedSets() {
-        return cardSets.filter(s => this.isSetUnlocked(s.id));
+        return regularSets().filter(s => this.isSetUnlocked(s.id));
     },
 
     // -----------------------------------------------------------------------
@@ -686,7 +701,7 @@ const Profile = {
     draw(setId) {
         this.regen();
         const set = setById(setId);
-        if (!set) return { error: 'Unknown set.' };
+        if (!set || set.special) return { error: 'Unknown set.' };
         if (!this.isSetUnlocked(setId)) return { error: `${set.name} is still locked.` };
         if (this.s.credits < 1) return { error: 'Not enough credits' };
 
@@ -719,6 +734,7 @@ const Profile = {
     buy(cardId) {
         const card = getCardData(cardId);
         if (!card) return { error: 'Card not found' };
+        if (card.rarity >= 5) return { error: 'Mythical cards are only won from the Mythical raids.' };
         if (!this.isSetUnlocked(card.set)) return { error: 'That set is still locked.' };
         const cost = this.cardCost(card);
         if (!cost) return { error: 'Card has no valid rarity' };
@@ -994,8 +1010,14 @@ const Profile = {
     // (Tetris), which stops a slow start being thrown away for a fresh one.
     // -----------------------------------------------------------------------
 
-    arcadeUnlocked() {
-        return this.isSetUnlocked(ARCADE_SET);
+    arcadeUnlocked(key = 'sorting') {
+        return this.isSetUnlocked(ARCADE_UNLOCK[key] || ARCADE_SET);
+    },
+
+    /** "🔒 Unlock after ..." for a mini-game that isn't open yet. */
+    arcadeLockText(key) {
+        const set = setById(ARCADE_UNLOCK[key] || ARCADE_SET);
+        return `🔒 Opens with the ${set ? set.name : 'next'} set: ${this.unlockText(set.id)}.`;
     },
 
     arcadeStatus(key) {
@@ -1005,9 +1027,9 @@ const Profile = {
         const busyElsewhere = !!g && g.key !== key;
         const alreadyToday = this.s.arcadeLast[key] === dayKey();
         const tooMany = this.s.credits > MINIGAME_MAX_CREDITS;
-        const locked = !this.arcadeUnlocked();
+        const locked = !this.arcadeUnlocked(key);
         return {
-            locked, active, busyElsewhere, alreadyToday, tooMany,
+            locked, lockText: locked ? this.arcadeLockText(key) : '', active, busyElsewhere, alreadyToday, tooMany,
             canPlay: !locked && !alreadyToday && !tooMany && !g,
             credits: this.s.credits,
             sunday: isSundayToday(),
@@ -1019,7 +1041,7 @@ const Profile = {
     startArcade(key) {
         if (!ARCADE_GAMES.includes(key)) return { error: 'Unknown game.' };
         const st = this.arcadeStatus(key);
-        if (st.locked) return { error: 'Unlock after completing 90% of Galactic Adventures.' };
+        if (st.locked) return { error: st.lockText };
         if (st.active) return { ok: true, game: st.game };
         if (st.busyElsewhere) return { error: 'Finish the mini-game you already started first.' };
         if (st.alreadyToday) return { error: 'You already played this today. Come back tomorrow!' };
@@ -1039,6 +1061,12 @@ const Profile = {
 
     /** The reward for a result: seconds (sorting, puzzle) or score (tetris). */
     arcadeReward(key, value, sunday = isSundayToday(), roll = Math.random()) {
+        if (key === 'candy' || key === 'snake') {
+            const tiers = key === 'candy' ? CANDY_TIERS : SNAKE_TIERS;
+            const tier = tiers.find(t => value >= t.from);
+            const gems = tier.gem > 0 && (sunday || roll < tier.gem) ? 1 : 0;
+            return { credits: tier.credits, gems };
+        }
         const tiers = key === 'tetris' ? ARCADE_SCORE_TIERS : key === 'sorting' ? SORTING_TIME_TIERS : ARCADE_TIME_TIERS;
         const tier = key === 'tetris' ? tiers.find(t => value >= t.from) : tiers.find(t => value <= t.upTo);
         const best = tier === tiers[0];
@@ -1054,7 +1082,7 @@ const Profile = {
     finishArcade(key, result = {}) {
         const g = this.s.arcadeGame;
         if (!g || g.key !== key) return { error: 'No game in progress.' };
-        const value = key === 'tetris'
+        const value = ARCADE_SCORE_GAMES.includes(key)
             ? Math.max(g.score, Math.floor(Number(result.score) || 0))
             : Math.max(1, Math.floor((Date.now() - g.startedAt) / 1000));
         const reward = this.arcadeReward(key, value);
@@ -1064,7 +1092,7 @@ const Profile = {
         const today = dayKey();
         this.s.arcadeLast[key] = today;
         this.s.arcadeDays[key][today] = true;
-        if (key === 'tetris') this.s.arcadeBest.tetris = Math.max(this.s.arcadeBest.tetris || 0, value);
+        if (ARCADE_SCORE_GAMES.includes(key)) this.s.arcadeBest[key] = Math.max(this.s.arcadeBest[key] || 0, value);
         else if (!this.s.arcadeBest[key] || value < this.s.arcadeBest[key]) this.s.arcadeBest[key] = value;
         this.s.minigameResults[key] = { date: today, credits: reward.credits, gems: reward.gems };
         this.s.arcadeGame = null;
