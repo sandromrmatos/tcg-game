@@ -149,6 +149,21 @@ const Sfx = {
             s._tone([370, 330], 0.3, 0.22, { type: 'sawtooth', gain: 0.08 });
             s._tone([330, 247], 0.54, 0.45, { type: 'sawtooth', gain: 0.08 });
         },
+        // Coins that count (so much per heads): neither happy nor sad, one
+        // clink per coin, a bright ring for heads and a dull tick for tails.
+        coinCount(s, results = []) {
+            const list = results.slice(0, 12);
+            list.forEach((r, i) => {
+                const at = i * 0.09;
+                if (r === 'heads') {
+                    s._tone(1568, at, 0.12, { type: 'triangle', gain: 0.16 });
+                    s._tone(2349, at, 0.08, { type: 'sine', gain: 0.06 });
+                } else {
+                    s._noise(at, 0.04, { gain: 0.18, freq: 700, q: 3 });
+                }
+            });
+            s._tone(988, list.length * 0.09 + 0.02, 0.18, { type: 'sine', gain: 0.1 });
+        },
         dice(s) {
             for (let i = 0; i < 5; i++) s._noise(i * 0.06, 0.04, { gain: 0.25, freq: 2500 + i * 300, q: 4 });
             s._tone(880, 0.34, 0.12, { type: 'square', gain: 0.06 });
@@ -217,14 +232,27 @@ const Sfx = {
         }
     },
 
-    play(name) {
+    play(name, arg) {
         const sound = this.SOUNDS[name];
         if (!sound || !this._ready()) return;
         // The same sound twice within a moment is one sound.
         const now = performance.now();
         if (this._last[name] && now - this._last[name] < 70) return;
         this._last[name] = now;
-        try { sound(this); } catch (e) { /* never let a sound break the game */ }
+        try { sound(this, arg); } catch (e) { /* never let a sound break the game */ }
+    },
+
+    /**
+     * The sound for several coins. `need` says what the effect wants:
+     * 'all' (every coin heads, e.g. Quick Reflexes), 'any' (at least one
+     * heads, e.g. the Flux check), or 'count' (so much per heads, e.g. Gale
+     * Flip), which gets its own neutral sound.
+     */
+    coinsSound(results, need = 'count') {
+        const heads = results.filter(r => r === 'heads').length;
+        if (need === 'all') return heads === results.length ? 'heads' : 'tails';
+        if (need === 'any') return heads > 0 ? 'heads' : 'tails';
+        return 'coinCount';
     },
 
     // ---- wiring to the battle log -------------------------------------------
@@ -257,19 +285,16 @@ const Sfx = {
             }
             return write.apply(this, arguments);
         };
-        const wrapQuiet = (method, pick) => {
+        const wrapQuiet = (method, pick, arg = () => undefined) => {
             const orig = Log[method];
             Log[method] = async function (...args) {
-                sfx.play(pick(...args));
+                sfx.play(pick(...args), arg(...args));
                 quiet++;
                 try { return await orig.apply(this, args); } finally { quiet--; }
             };
         };
         wrapQuiet('coin', result => (result === 'heads' ? 'heads' : 'tails'));
-        wrapQuiet('coins', results => {
-            const heads = results.filter(r => r === 'heads').length;
-            return heads * 2 >= results.length ? 'heads' : 'tails';
-        });
+        wrapQuiet('coins', (results, context, opts = {}) => sfx.coinsSound(results, opts.need), results => results);
         wrapQuiet('dice', () => 'dice');
         wrapQuiet('turnBanner', side => (side === 'player' ? 'yourTurn' : 'theirTurn'));
     }

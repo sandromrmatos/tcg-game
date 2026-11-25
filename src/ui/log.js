@@ -173,8 +173,11 @@ const Log = {
         await this.beat(0.3);
     },
 
-    /** Multiple coins at once. */
-    async coins(results, context) {
+    /**
+     * Multiple coins at once. `opts.need` ('all' / 'any' / 'count') says what
+     * the effect wants, for the sound (sfx.js).
+     */
+    async coins(results, context, opts = {}) {
         const rendered = results.map(r => (r === 'heads' ? 'heads' : 'tails')).join(', ');
         const heads = results.filter(r => r === 'heads').length;
         const text = `${context}: ${rendered} (${heads} head${heads === 1 ? '' : 's'})`;

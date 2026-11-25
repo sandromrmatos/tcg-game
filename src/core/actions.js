@@ -131,7 +131,7 @@ async function passesFluxCheck(side, target) {
         { kind: 'status', icon: '⚡' }
     );
     const { results, tails } = flipMany(2);
-    await Log.coins(results, 'Flux check');
+    await Log.coins(results, 'Flux check', { need: 'any' });
 
     if (tails === 2) {
         s.flags.fluxCheckPassed = false;

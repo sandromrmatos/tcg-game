@@ -1032,9 +1032,6 @@
 .candy-tile.pop { transform: scale(0.2); opacity: 0; }
 .snake-canvas { display: block; width: min(300px, 90vw); height: auto; aspect-ratio: 1; margin: 8px auto;
     border-radius: 8px; border: 2px solid rgba(255, 255, 255, 0.15); touch-action: none; }
-.raid-set-title { grid-column: 1 / -1; margin: 14px 0 2px; padding-bottom: 4px; border-bottom: 2px solid rgba(255, 255, 255, 0.15); }
-.raid-set-title:first-child { margin-top: 0; }
-.raid-mythic-title { margin-top: 18px; border-color: #ff5ec8; }
 
 /* ---- Card Dex: swiping between owned cards ------------------------------ */
 .dex-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
@@ -1046,3 +1043,29 @@
 @keyframes dexSlideRight { from { transform: translateX(-40px); opacity: 0.4; } to { transform: none; opacity: 1; } }
 
 .daily-extreme { --daily-color: #b86bff; }
+
+/* ---- Page headings: the explanation hides behind an ⓘ button ------------- */
+.page-title-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.page-info-btn {
+    width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%;
+    border: 1.5px solid var(--line); background: transparent; color: var(--text-dim);
+    font: italic 700 15px Georgia, 'Times New Roman', serif; line-height: 1; cursor: pointer;
+}
+.page-info-btn:hover, .page-info-btn-on { color: #fff; border-color: var(--gold); background: rgba(255, 255, 255, 0.08); }
+.page-info-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.page-info[hidden], .page-head .page-sub[hidden] { display: none; }
+.page-info { margin-top: 6px; text-align: left; }
+.page-info > .page-sub { text-align: center; }
+.page-info .raid-rules { margin-top: 10px; }
+
+/* ---- Top bar fold: ▲ hides the title, music and credits, ▼ shows them -- */
+.hub-collapse-btn {
+    position: absolute; right: 10px; bottom: -14px; z-index: 2;
+    width: 34px; height: 22px; padding: 0; border-radius: 0 0 10px 10px;
+    border: 1px solid var(--line); border-top: none;
+    background: rgba(8, 6, 20, 0.92); color: var(--text-dim); font-size: 11px; cursor: pointer;
+}
+.hub-collapse-btn:hover, .hub-collapse-btn:focus-visible { color: #fff; outline: none; border-color: var(--gold); }
+.hub-header.hub-header-collapsed { padding: 0; min-height: 0; height: 4px; gap: 0; }
+.hub-header.hub-header-collapsed > :not(.hub-collapse-btn) { display: none; }
+.hub-header.hub-header-collapsed .hub-collapse-btn { bottom: -22px; }

@@ -65,6 +65,7 @@ const Hub = {
     page: 'play',
     navLocked: false,
     dexSet: null,
+    raidSet: null,
     storeSet: null,
     achSet: null,
     achFilter: 'all',
@@ -123,6 +124,17 @@ const Hub = {
 
         const infoBtn = document.getElementById('hub-info-btn');
         if (infoBtn) infoBtn.addEventListener('click', () => this.showInfo());
+        this.initHeaderCollapse();
+        // The Play page's explanation sits behind its ⓘ, like the other pages.
+        const playInfo = document.getElementById('play-info-btn');
+        const playSummary = document.getElementById('play-summary');
+        if (playInfo && playSummary) {
+            playInfo.addEventListener('click', () => {
+                playSummary.hidden = !playSummary.hidden;
+                playInfo.classList.toggle('page-info-btn-on', !playSummary.hidden);
+                playInfo.setAttribute('aria-expanded', String(!playSummary.hidden));
+            });
+        }
         const autoBtn = document.getElementById('auto-team-btn');
         if (autoBtn) autoBtn.addEventListener('click', () => Screens.playAutoTeam());
 
@@ -395,8 +407,59 @@ const Hub = {
         return host;
     },
 
-    pageTitle(title, subtitle) {
-        return h('div', { class: 'page-head' }, h('h2', { text: title }), subtitle ? h('p', { class: 'page-sub', text: subtitle }) : null);
+    /**
+     * The ▲ tab on the top bar (title, music, credits, Info) folds it away to
+     * leave the screen to the page, and ▼ brings it back. Remembered on this device.
+     */
+    initHeaderCollapse() {
+        const header = document.querySelector('#deck-screen .hub-header');
+        const btn = document.getElementById('hub-collapse-btn');
+        if (!header || !btn) return;
+        const KEY = 'tcg-header-collapsed';
+        const apply = collapsed => {
+            header.classList.toggle('hub-header-collapsed', collapsed);
+            btn.textContent = collapsed ? '▼' : '▲';
+            btn.setAttribute('aria-expanded', String(!collapsed));
+            btn.setAttribute('aria-label', collapsed ? 'Show the top bar' : 'Hide the top bar');
+            btn.title = collapsed ? 'Show the top bar' : 'Hide the top bar';
+        };
+        let collapsed = false;
+        try { collapsed = localStorage.getItem(KEY) === '1'; } catch (e) { /* private mode */ }
+        apply(collapsed);
+        btn.addEventListener('click', () => {
+            collapsed = !header.classList.contains('hub-header-collapsed');
+            apply(collapsed);
+            try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (e) { /* private mode */ }
+        });
+    },
+
+    /** Pages whose ⓘ text is open, by title, so a redraw keeps it open. */
+    _pageInfoOpen: {},
+
+    /**
+     * A page heading. The explanation (`subtitle` and any `extra` elements,
+     * such as a rules list) is hidden behind an ⓘ button, so the page starts
+     * with what you came for.
+     */
+    pageTitle(title, subtitle, ...extra) {
+        const body = [subtitle ? h('p', { class: 'page-sub', text: subtitle }) : null, ...extra].filter(Boolean);
+        if (!body.length) return h('div', { class: 'page-head' }, h('h2', { text: title }));
+        const key = title.replace(/^\W+/u, '');
+        const open = !!this._pageInfoOpen[key];
+        const info = h('div', { class: 'page-info', id: `page-info-${key.replace(/\W+/g, '-').toLowerCase()}` }, ...body);
+        info.hidden = !open;
+        const btn = h('button', {
+            class: `page-info-btn${open ? ' page-info-btn-on' : ''}`, type: 'button', text: 'i',
+            'aria-expanded': String(open), 'aria-controls': info.id, 'aria-label': `About ${key}`,
+            on: { click: () => {
+                const now = info.hidden;
+                info.hidden = !now;
+                this._pageInfoOpen[key] = now;
+                btn.classList.toggle('page-info-btn-on', now);
+                btn.setAttribute('aria-expanded', String(now));
+            } }
+        });
+        return h('div', { class: 'page-head' }, h('div', { class: 'page-title-row' }, h('h2', { text: title }), btn), info);
     },
 
     notice(text, kind = '') {
@@ -789,13 +852,13 @@ const Hub = {
         const host = this.pageHost('raids');
         host.appendChild(this.pageTitle('🐉 Raid Bosses',
             `Beat a raid boss to win the full-art version of its card. A boss opens once you own ${RAID_NORMAL_COPIES} normal copies of its card, ` +
-            'and only games against that boss count towards its tasks.'));
-        host.appendChild(h('ul', { class: 'raid-rules' },
+            'and only games against that boss count towards its tasks.',
+            h('ul', { class: 'raid-rules' },
             h('li', { text: `Win ${RAID_STREAK_TARGET} games in a row against the boss. Losing to it, or leaving a game against it, resets the streak; games elsewhere don't.` }),
             h('li', { text: `Win once with a deck of at least ${RAID_TYPE_TARGET} creature cards of each type: ${RAID_TYPES.join(', ')}. One win can tick the streak and a type at the same time.` }),
             h('li', { text: 'The boss deck is built at random every game from strong cards of the sets you have unlocked.' }),
             h('li', { text: 'The first clear wins 1 full-art card. After that the tasks start over, and clearing them again pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for your daily win credits.' }),
-            h('li', { text: `🌟 Mythical raids (at the bottom) award a Mythical card, the only way to get one. Each opens once you own every card of a set, promos too, and 2 copies of each non-promo card. They take ${MYTHIC_STREAK_TARGET} wins in a row and four more deck tasks, and the boss only uses cards up to that set.` })));
+            h('li', { text: `🌟 Mythical raids (the last set, after Crystal Canopy) award a Mythical card, the only way to get one. Each opens once you own every card of a set, promos too, and 2 copies of each non-promo card. They take ${MYTHIC_STREAK_TARGET} wins in a row and four more deck tasks, and the boss only uses cards up to that set.` }))));
         if (error) host.appendChild(this.notice(error, 'bad'));
 
         DeckLibrary.load();
@@ -803,23 +866,20 @@ const Hub = {
             .map(d => ({ deck: d, index: DeckLibrary.indexOf(d), problem: Screens._deckProblem(d), types: raidQualifyingTypes(d.cards) }));
         const playable = decks.filter(d => !d.problem);
 
-        const list = h('div', { class: 'raid-list' });
+        // One page per set, switched like the Card Dex; the Mythical raids last.
         const all = Raids.bosses();
-        // One section per set, in release order, then the Mythical raids.
-        const ordered = [];
-        for (const set of regularSets()) {
-            const ofSet = all.filter(b => !b.mythical && b.card.set === set.id);
-            if (ofSet.length) ordered.push({ title: `🐉 ${set.name}`, accent: set.accent }, ...ofSet);
+        const ofSet = id => all.filter(b => (id === 'MY' ? b.mythical : !b.mythical && b.card.set === id));
+        const raidSets = cardSets.filter(s => ofSet(s.id).length);
+        if (!raidSets.some(s => s.id === this.raidSet)) this.raidSet = raidSets.length ? raidSets[0].id : null;
+        if (this.raidSet) {
+            host.appendChild(this.setSwitcher(this.raidSet, id => { this.raidSet = id; this.renderRaids(); }, raidSets));
+            const shown = ofSet(this.raidSet);
+            const cleared = shown.filter(b => Raids.status(b).completed).length;
+            host.appendChild(h('p', { class: 'set-progress-line' },
+                `${this.raidSet === 'MY' ? '🌟 Mythical raids' : 'Raid bosses'}: ${cleared}/${shown.length} cleared`));
         }
-        const mythic = all.filter(b => b.mythical);
-        if (mythic.length) ordered.push({ title: '🌟 Mythical raids', mythic: true }, ...mythic);
-        for (const boss of ordered) {
-            if (boss.title) {
-                const title = h('h3', { class: `section-title raid-set-title${boss.mythic ? ' raid-mythic-title' : ''}`, text: boss.title });
-                if (boss.accent) title.style.borderColor = boss.accent;
-                list.appendChild(title);
-                continue;
-            }
+        const list = h('div', { class: 'raid-list' });
+        for (const boss of this.raidSet ? ofSet(this.raidSet) : []) {
             const st = Raids.status(boss);
             const rec = st.rec;
             const card = boss.card;
@@ -927,13 +987,13 @@ const Hub = {
     renderTrade() {
         const host = this.pageHost('trade');
         host.appendChild(this.pageTitle('🔄 Trade',
-            'Swap one card for one card with a friend on another device, the same way as playing online: one of you makes a room, the other joins with its code.'));
-        host.appendChild(h('ul', { class: 'raid-rules' },
+            'Swap one card for one card with a friend on another device, the same way as playing online: one of you makes a room, the other joins with its code.',
+            h('ul', { class: 'raid-rules' },
             h('li', { text: `Each trade costs both players ${TRADE_CREDITS} 🪙 credits and ${TRADE_GEMS} 💜 gems.` }),
             h('li', { text: 'You can trade once a day.' }),
             h('li', { text: `You can only give a card you own at least ${TRADE_MIN_COPIES} normal copies of (full-art copies don't count), so you always keep 2.` }),
             h('li', { text: 'Both cards must be the same rarity, and nobody can receive a card from a set they haven\'t unlocked.' }),
-            h('li', { text: 'You both see the card you give and the card you get. The trade happens when both of you confirm.' })));
+            h('li', { text: 'You both see the card you give and the card you get. The trade happens when both of you confirm.' }))));
         const st = Profile.tradeStatus();
         if (!st.canTrade) {
             for (const reason of st.reasons) host.appendChild(this.notice(reason, st.tradedToday ? '' : 'locked'));
@@ -960,11 +1020,11 @@ const Hub = {
 
         host.appendChild(this.pageTitle('📅 Daily Challenges',
             `Four new challenges every day (next in ${resetIn}). Build a deck that follows the challenge's rules and beat its AI deck. ` +
-            'The rules and the AI decks stay the same all day, however many times you play.'));
-        host.appendChild(h('ul', { class: 'raid-rules' },
+            'The rules and the AI decks stay the same all day, however many times you play.',
+            h('ul', { class: 'raid-rules' },
             h('li', { text: 'Easy: 1 rule, win once. Medium: 2 rules, win 2 games in a row. Hard: 3 tougher rules, win 3 games in a row. Extreme: 3 tough rules plus one card of yours the deck must include, win 4 games in a row against the strongest AI decks.' }),
             h('li', { text: 'Losing, drawing or leaving a game resets that challenge\'s streak. Each challenge can be completed once a day.' }),
-            h('li', { text: `Challenge wins also count as normal wins, including your daily win credits (up to ${WIN_CREDITS_PER_DAY} a day).` })));
+            h('li', { text: `Challenge wins also count as normal wins, including your daily win credits (up to ${WIN_CREDITS_PER_DAY} a day).` }))));
         if (error) host.appendChild(this.notice(error, 'bad'));
 
         // Rewards waiting

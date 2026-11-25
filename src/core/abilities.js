@@ -376,7 +376,7 @@ function findEvolutionInHand(side, card) {
 
 AbilityRegistry.register('quickReflexes', {
     async use(ctx) {
-        const { heads } = await ctx.flipMany(2, 'Quick Reflexes');
+        const { heads } = await ctx.flipMany(2, 'Quick Reflexes', { need: 'all' });
         if (heads < 2) {
             await ctx.say('Not both heads: no effect.', { kind: 'info', pace: 0.5 });
             return;

@@ -160,9 +160,11 @@ function makeContext(side, extra = {}) {
             await Log.coin(result, label);
             return result;
         },
-        async flipMany(count, label) {
+        // need: 'all' when only all heads does something, 'any' when one heads
+        // is enough, 'count' (default) when each heads adds something.
+        async flipMany(count, label, { need = 'count' } = {}) {
             const outcome = flipMany(count);
-            await Log.coins(outcome.results, `${label} (${count} coins)`);
+            await Log.coins(outcome.results, `${label} (${count} coins)`, { need });
             return outcome;
         },
         async flipUntilTails(label) {

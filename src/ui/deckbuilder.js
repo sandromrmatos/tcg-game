@@ -340,9 +340,9 @@ const DeckBuilder = {
             }
             return true;
         }).sort((a, b) => {
-            // Sets in release order (Elemental Awakening first, Mythical last), then by name.
+            // Sets in release order (Elemental Awakening first, Mythical last), then card number.
             if (a.set !== b.set) return setOrder(a.set) - setOrder(b.set);
-            return a.name.localeCompare(b.name) || a.number - b.number;
+            return a.number - b.number;
         });
     },
 

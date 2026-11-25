@@ -38,6 +38,7 @@
             <span id="hub-timer" class="chip chip-timer"></span>
             <button id="hub-info-btn" class="btn btn-ghost btn-sm" type="button">ℹ️ Info</button>
         </div>
+        <button id="hub-collapse-btn" class="hub-collapse-btn" type="button" aria-expanded="true" aria-label="Hide the top bar" title="Hide the top bar">▲</button>
     </header>
     <div id="hub-sunday" class="hub-sunday">🎉 It's Promo Sunday! Promo cards can be drawn today! 🎉</div>
     <div id="hub-notices" class="hub-notices"></div>
@@ -46,8 +47,11 @@
     <main class="hub-main">
         <section id="page-play" class="hub-page active">
             <div class="page-head">
-                <h2>⚔️ Play against the AI</h2>
-                <p id="play-summary" class="page-sub"></p>
+                <div class="page-title-row">
+                    <h2>⚔️ Play against the AI</h2>
+                    <button id="play-info-btn" class="page-info-btn" type="button" aria-expanded="false" aria-controls="play-summary" aria-label="About playing against the AI">i</button>
+                </div>
+                <p id="play-summary" class="page-sub" hidden></p>
             </div>
             <!-- Who the AI plays: a random deck, or one you pick -->
             <div class="opponent-pick">
@@ -657,8 +661,9 @@
                     <li>The first clear wins 1 full-art copy of the card. After that the tasks start over, and each new clear pays 1 credit per boss each week (Monday to Sunday). Boss wins also count for the daily win credits.</li>
                     <li>Full-art cards play exactly like the normal ones. They show ✦ in the Card Dex, and the deck builder asks which version you want to add.</li>
                     <li><strong>🎲 Auto team</strong> challenges a boss with a random team from your own cards.</li>
+                    <li>The page shows one set's bosses at a time: switch sets with the ← → arrows, as in the Card Dex.</li>
                 </ul>
-                <p><strong>🌟 Mythical raids</strong> (at the bottom of the Raid Bosses page) are the only way to get a Mythical card:</p>
+                <p><strong>🌟 Mythical raids</strong> (the last set on the Raid Bosses page, after Crystal Canopy) are the only way to get a Mythical card:</p>
                 <ul>
                     <li><strong>Astralyon</strong> opens once you own every Elemental Awakening card (promos too) and 2 copies of every non-promo one. <strong>Chromarion</strong> needs the same for Galactic Adventures, and <strong>Aetherave</strong> for Temporal Rift.</li>
                     <li>The boss deck has 2 copies of the Mythical card and only uses cards from the sets up to that one (Astralyon's: Elemental Awakening only; Chromarion's: Elemental Awakening and Galactic Adventures).</li>

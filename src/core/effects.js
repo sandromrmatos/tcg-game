@@ -257,7 +257,7 @@ EffectRegistry.register('coinClash', {
 
 EffectRegistry.register('verdantStruggle', {
     async onDamageCalc(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         if (heads === 2) {
             await ctx.say('Both heads: 50 damage!', { kind: 'damage', pace: 0.5 });
             return 50;
@@ -875,7 +875,7 @@ EffectRegistry.register('tidalIllusion', {
 
 EffectRegistry.register('tripleThreatFlip', {
     async onResolveIfTargetAlive(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         if (heads < 2) {
             await ctx.say('Not both heads: no effect.', { kind: 'info', pace: 0.5 });
             return;
@@ -1101,7 +1101,7 @@ EffectRegistry.register('galeScatter3', damagePerHeads(3, 20));
 // "Flip 2 coins. If both are heads, your opponent chooses a card from their hand and discards it."
 EffectRegistry.register('magnetarcNeedle', {
     async onResolve(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         if (heads < 2) {
             await ctx.say('Not both heads: no discard.', { kind: 'info', pace: 0.5 });
             return;
@@ -1185,7 +1185,7 @@ EffectRegistry.register('whimCurse', {
 // "Flip 2 coins. If both are heads, this attack does 10 damage."
 EffectRegistry.register('funkyScent', {
     async onDamageCalc(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         return heads === 2 ? 10 : 0;
     }
 });
@@ -1234,7 +1234,7 @@ EffectRegistry.register('cuddleStorm', foeRestriction('cantEvolveUntil', "can't 
 // "Flip 2 coins. If both are heads, this attack does 50 extra damage."
 EffectRegistry.register('ignitionJab', {
     async onDamageCalc(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         if (heads < 2) return ctx.damage;
         await ctx.say('+50 damage!', { kind: 'damage', pace: 0.5 });
         return ctx.damage + 50;
@@ -1787,7 +1787,7 @@ EffectRegistry.register('skyScratch', {
 // Verdemone — "Flip 3 coins. If you get 3 heads, heal all of your creatures to full HP."
 EffectRegistry.register('reefMirage', {
     async onResolve(ctx) {
-        const { heads } = await ctx.flipMany(3, ctx.move.name);
+        const { heads } = await ctx.flipMany(3, ctx.move.name, { need: 'all' });
         if (heads < 3) {
             await ctx.say('Not 3 heads: no healing.', { kind: 'info', pace: 0.5 });
             return;
@@ -1814,7 +1814,7 @@ EffectRegistry.register('arcanePulse', bonusIf(60, ctx => lostCreatureLastTurn(c
 // Oculara — "Flip 2 coins. If both are heads, remove all accessories attached to your opponent's creatures."
 EffectRegistry.register('disruptivePulse', {
     async onResolve(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         if (heads < 2) {
             await ctx.say('Not both heads: the accessories stay.', { kind: 'info', pace: 0.5 });
             return;
@@ -1839,7 +1839,7 @@ EffectRegistry.register('tideBind', {
 // Caulithyme — "Flip 2 coins. If both are heads, draw a card."
 EffectRegistry.register('verdantCrown', {
     async onResolve(ctx) {
-        const { heads } = await ctx.flipMany(2, ctx.move.name);
+        const { heads } = await ctx.flipMany(2, ctx.move.name, { need: 'all' });
         if (heads < 2) {
             await ctx.say('Not both heads: no card.', { kind: 'info', pace: 0.5 });
             return;
