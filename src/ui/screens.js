@@ -600,7 +600,7 @@ const Screens = {
     /**
      * Starts a daily challenge game: one of the player's decks that follows
      * the mode's rules, against the mode's deck for today. Recorded at once,
-     * so leaving it counts as a loss (and resets that mode's streak).
+     * so leaving it counts as a loss (which doesn't undo that mode's wins).
      */
     async startDaily(modeId, index) {
         if (typeof Daily === 'undefined' || typeof Profile === 'undefined' || !Profile.s) return;
@@ -637,7 +637,7 @@ const Screens = {
         this.beginGame();
         const leader = st.deck.leader && getCardData(st.deck.leader);
         Log.write(`📅 ${mode.name} daily challenge${leader ? `: a ${st.deck.mainType} deck led by ${leader.name}` : ''}. ` +
-            `Win ${mode.wins === 1 ? 'once' : `${mode.wins} in a row (${st.streak}/${mode.wins} so far)`}.`,
+            `Win ${mode.wins === 1 ? 'once' : `${mode.wins} times (${st.streak}/${mode.wins} so far)`}.`,
             { kind: 'turn', icon: '📅' });
     },
 
@@ -649,7 +649,7 @@ const Screens = {
             const answer = typeof Hub !== 'undefined'
                 ? await Hub.dialog({
                     title: 'Leave this game?',
-                    message: 'Leaving a game before it ends counts as a loss in your stats.',
+                    message: 'Leaving a game before it ends counts as a loss in your stats. (If the page reloads by accident, you can pick the game up again.)',
                     buttons: [{ label: 'Keep playing', value: false }, { label: 'Leave (counts as a loss)', value: true, kind: 'danger' }]
                 })
                 : { value: true };
@@ -665,6 +665,11 @@ const Screens = {
 
     beginGame({ pvp = false } = {}) {
         Log.clear();
+        // Real games against the AI use the seeded generator, so a game resumed
+        // after a reload carries on with the same rolls (battle-save.js).
+        if (!pvp && typeof Profile !== 'undefined' && Profile.s && Profile.hasActiveMatch()) {
+            Rng.seed(Math.floor(Math.random() * 4294967295) + 1);
+        }
         gameState.track = createMatchTrack();
         gameState.firstTurnSide = null;
         gameState.setupReady = { player: false, opponent: false };
@@ -682,6 +687,7 @@ const Screens = {
             : 'Place your active creature, then press Ready. The AI\'s creatures stay face down until then.',
             { kind: 'turn', icon: '🎬' });
         Render.all();
+        if (!pvp && typeof BattleSave !== 'undefined') BattleSave.save();
     },
 
     returnToDeckSelection() {

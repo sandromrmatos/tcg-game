@@ -50,20 +50,38 @@ function verb(side, singular, plural) {
 const Rng = {
     _next: Math.random,
 
-    /** Replace the source with a deterministic generator (used by test.html). */
+    // The xorshift32 state while seeded, so a game in progress can be saved
+    // and resumed with the same rolls to come (battle-save.js).
+    _state: null,
+
+    /** Replace the source with a deterministic generator (used by test.html and real games). */
     seed(n) {
-        let s = n >>> 0 || 1;
+        this._state = n >>> 0 || 1;
+        const rng = this;
         this._next = function () {
             // xorshift32
+            let s = rng._state;
             s ^= s << 13; s >>>= 0;
             s ^= s >> 17;
             s ^= s << 5; s >>>= 0;
+            rng._state = s;
             return s / 4294967296;
         };
     },
 
+    /** The generator's state, or null when it is Math.random. */
+    state() {
+        return this._next === Math.random ? null : this._state;
+    },
+
+    /** Continues a seeded generator from a saved state. */
+    restore(state) {
+        if (state) { this.seed(state); this._state = state >>> 0; } else this.reset();
+    },
+
     reset() {
         this._next = Math.random;
+        this._state = null;
     },
 
     float() {

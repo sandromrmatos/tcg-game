@@ -58,8 +58,8 @@ const ARCADE_UNLOCK = { sorting: 'TR', puzzle: 'TR', tetris: 'TR', candy: 'CC', 
 const ARCADE_SCORE_GAMES = ['tetris', 'candy', 'snake'];
 // Candy Crush (level 3) and Snake (small): only the top tier can pay a gem,
 // 50% of the time, always on Sundays.
-const CANDY_TIERS = [{ from: 6000, credits: 5, gem: 0.5 }, { from: 5000, credits: 3, gem: 0 },
-    { from: 3500, credits: 2, gem: 0 }, { from: 0, credits: 1, gem: 0 }];
+const CANDY_TIERS = [{ from: 4000, credits: 5, gem: 0.5 }, { from: 3000, credits: 3, gem: 0 },
+    { from: 2500, credits: 2, gem: 0 }, { from: 0, credits: 1, gem: 0 }];
 const SNAKE_TIERS = [{ from: 18, credits: 5, gem: 0.5 }, { from: 15, credits: 3, gem: 0 },
     { from: 10, credits: 2, gem: 0 }, { from: 0, credits: 1, gem: 0 }];
 const ARCADE_SET = 'TR';
@@ -192,6 +192,8 @@ const Profile = {
             cardAchClaimed: {},          // cardId -> { bronze, silver, gold } claimed-at timestamps
             fullArt: {},                 // cardId -> full-art copies owned (raid rewards)
             shiny: {},                   // cardId -> shiny copies owned (Shiny shop)
+            shinyBought: 0,              // shiny cards bought in the Shiny shop (missions)
+            battle: null,                // the game in progress, to resume after a reload (battle-save.js)
             raids: {},                   // bossId -> raid record (see raids.js)
             daily: { date: null, modes: null, unclaimed: [] },  // today's challenges (see daily.js)
             trade: { date: null, total: 0 }                     // last trade day and trades made (trade.js)
@@ -288,6 +290,10 @@ const Profile = {
                 if (n > 0 && hasShiny(id)) s.shiny[id] = n;
             }
         }
+        // Saves from before the counter: every shiny owned was bought.
+        s.shinyBought = raw.shinyBought === undefined
+            ? Object.values(s.shiny).reduce((a, b) => a + b, 0) : int(raw.shinyBought);
+        s.battle = raw.battle && typeof raw.battle === 'object' ? raw.battle : null;
         s.raids = Raids.sanitize(raw.raids);
         s.trade = raw.trade && typeof raw.trade === 'object'
             ? { date: dateOrNull(raw.trade.date), total: int(raw.trade.total) }
@@ -479,9 +485,13 @@ const Profile = {
         this.regen();
         this.checkUnlocks();
 
-        // A real game that was still running when the page closed is a loss,
-        // the same as leaving it with the button.
-        if (this.s.activeMatch) {
+        // A game against the AI that was saved mid-battle (battle-save.js) stays
+        // open: the hub offers to resume it. Otherwise a real game that was
+        // still running when the page closed is a loss, the same as leaving it.
+        this.resumable = !!(this.s.activeMatch && typeof BattleSave !== 'undefined' &&
+            BattleSave.valid(this.s.battle, this.s.activeMatch));
+        if (!this.resumable) this.s.battle = null;
+        if (this.s.activeMatch && !this.resumable) {
             const m = this.s.activeMatch;
             this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst, pvp: m.pvp });
             if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
@@ -797,6 +807,7 @@ const Profile = {
         this.s.cards[cardId] -= SHINY_COST_COPIES;
         this._spendCredits(SHINY_COST_CREDITS);
         this.s.shiny[cardId] = (this.s.shiny[cardId] || 0) + 1;
+        this.s.shinyBought = (this.s.shinyBought || 0) + 1;
         this.touch('buy-shiny', { immediate: true });
         return { success: true, shiny: this.s.shiny[cardId], left: this.s.cards[cardId] };
     },
@@ -809,12 +820,12 @@ const Profile = {
     tradeStatus() {
         this.regen();
         const tradedToday = this.s.trade.date === dayKey();
-        const tradable = this.tradableCards().length;
+        const tradable = this.tradableCards().length + this.tradableShiny().length;
         const reasons = [];
         if (tradedToday) reasons.push("You've already traded today. You can trade again tomorrow.");
         if (this.s.credits < TRADE_CREDITS) reasons.push(`A trade costs ${TRADE_CREDITS} 🪙 credits; you have ${this.s.credits}.`);
         if (this.s.gems < TRADE_GEMS) reasons.push(`A trade costs ${TRADE_GEMS} 💜 gems; you have ${this.s.gems}.`);
-        if (!tradable) reasons.push(`You need at least ${TRADE_MIN_COPIES} copies of a card to trade it.`);
+        if (!tradable) reasons.push(`You need at least ${TRADE_MIN_COPIES} copies of a card, or a shiny card, to trade.`);
         return { canTrade: !reasons.length, tradedToday, tradable, reasons };
     },
 
@@ -825,19 +836,37 @@ const Profile = {
             .map(getCardData).filter(Boolean);
     },
 
+    /** Shiny cards owned: any shiny copy can be traded, for another shiny card. */
+    tradableShiny() {
+        return Object.keys(this.s.shiny || {})
+            .filter(id => this.ownedShiny(id) >= 1)
+            .map(getCardData).filter(Boolean);
+    },
+
     /**
      * Why this trade can't happen on this device, or null. `theirSets` are the
      * sets the other player has unlocked (they can't receive a card from another).
      */
-    tradeProblem(giveId, receiveId, theirSets = null) {
+    tradeProblem(giveOffer, receiveOffer, theirSets = null) {
         const st = this.tradeStatus();
         if (st.tradedToday) return st.reasons[0];
         if (this.s.credits < TRADE_CREDITS || this.s.gems < TRADE_GEMS) {
             return `A trade costs ${TRADE_CREDITS} 🪙 and ${TRADE_GEMS} 💜. You have ${this.s.credits} 🪙 and ${this.s.gems} 💜.`;
         }
+        const g = parseTradeOffer(giveOffer), r = parseTradeOffer(receiveOffer);
+        const giveId = g.id, receiveId = r.id;
         const give = getCardData(giveId), receive = getCardData(receiveId);
         if (!give || !receive) return 'Pick a card on both sides.';
-        if (this.owned(giveId) < TRADE_MIN_COPIES) return `You need at least ${TRADE_MIN_COPIES} copies of ${give.name} to trade it.`;
+        // A shiny card only trades for a shiny card, and a regular one for a regular one.
+        if (g.shiny !== r.shiny) {
+            return g.shiny
+                ? `Your shiny ${give.name} can only be traded for another shiny card.`
+                : `The shiny ${receive.name} can only be traded for another shiny card.`;
+        }
+        if (g.shiny) {
+            if (this.ownedShiny(giveId) < 1) return `You don't own the shiny ${give.name}.`;
+            if (!hasShiny(receiveId)) return `${receive.name} has no shiny version.`;
+        } else if (this.owned(giveId) < TRADE_MIN_COPIES) return `You need at least ${TRADE_MIN_COPIES} copies of ${give.name} to trade it.`;
         // Promo cards only trade for promo cards (and regular for regular).
         if (!!give.promo !== !!receive.promo) {
             return give.promo
@@ -853,12 +882,21 @@ const Profile = {
     },
 
     /** Makes the trade on this device: one copy out, one in, and the fee. */
-    applyTrade(giveId, receiveId, theirSets = null) {
-        const problem = this.tradeProblem(giveId, receiveId, theirSets);
+    applyTrade(giveOffer, receiveOffer, theirSets = null) {
+        const problem = this.tradeProblem(giveOffer, receiveOffer, theirSets);
         if (problem) return { error: problem };
-        this.s.cards[giveId]--;
-        if (this.s.cards[giveId] <= 0) delete this.s.cards[giveId];
-        const { isNew, quantity } = this._addCard(receiveId);
+        const g = parseTradeOffer(giveOffer), r = parseTradeOffer(receiveOffer);
+        const pool = g.shiny ? this.s.shiny : this.s.cards;
+        pool[g.id]--;
+        if (pool[g.id] <= 0) delete pool[g.id];
+        let isNew, quantity;
+        if (r.shiny) {
+            isNew = !this.s.shiny[r.id];
+            this.s.shiny[r.id] = (this.s.shiny[r.id] || 0) + 1;
+            quantity = this.s.shiny[r.id];
+        } else {
+            ({ isNew, quantity } = this._addCard(r.id));
+        }
         this._spendCredits(TRADE_CREDITS);
         this.s.gems -= TRADE_GEMS;
         this.s.trade = { date: dayKey(), total: (this.s.trade.total || 0) + 1 };
@@ -1285,6 +1323,8 @@ const Profile = {
      *   boss, and the types the player's deck counts for (raidQualifyingTypes)
      */
     startMatch(deckName, opponentName, { raid = null, pvp = false, daily = null, auto = false } = {}) {
+        this.s.battle = null;
+        this.resumable = false;
         this.s.activeMatch = {
             startedAt: Date.now(), deck: deckName, opponent: opponentName, wentFirst: null,
             pvp: !!pvp,
@@ -1317,6 +1357,8 @@ const Profile = {
         if (!m) return null;
         const result = winner === 'player' ? 'win' : winner === 'opponent' ? 'loss' : 'draw';
         this.s.activeMatch = null;
+        this.s.battle = null;
+        this.resumable = false;
         this._recordResult(result, { deck: m.deck, opponent: m.opponent, score, wentFirst: m.wentFirst, pvp: m.pvp });
         if (m.auto && result === 'win') this.s.stats.autoWins++;
         // The per-card achievements are about the AI decks; online games don't count.
@@ -1360,6 +1402,8 @@ const Profile = {
         const m = this.s && this.s.activeMatch;
         if (!m) return;
         this.s.activeMatch = null;
+        this.s.battle = null;
+        this.resumable = false;
         this._recordResult('loss', { deck: m.deck, opponent: m.opponent, score: '', forfeit: true, wentFirst: m.wentFirst, pvp: m.pvp });
         if (m.raid) Raids.onResult(m.raid, 'loss', { forfeit: true });
         if (m.daily) Daily.onResult(m.daily, 'loss', { forfeit: true });
@@ -1371,6 +1415,7 @@ const Profile = {
     cancelMatch() {
         if (!this.s || !this.s.activeMatch) return;
         this.s.activeMatch = null;
+        this.s.battle = null;
         this.touch('match-cancel', { immediate: true });
     },
 

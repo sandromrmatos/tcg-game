@@ -113,7 +113,8 @@ const Missions = (() => {
         { id: 'puzzle_fast',  cat: 'minigames', description: 'Finish "Puzzle" in 3 minutes or less', type: 'arcade_time', game: 'puzzle', seconds: 180, reward: r(3, 2) },
         { id: 'tetris_20',    cat: 'minigames', description: 'Score 20 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 20, reward: r(3, 2) },
         { id: 'tetris_40',    cat: 'minigames', description: 'Score 40 or more in "Tetris"', type: 'arcade_score', game: 'tetris', target: 40, reward: r(5, 3) },
-        { id: 'candy_6000',   cat: 'minigames', description: 'Score 6,000 or more in "Candy Crush"', type: 'arcade_score', game: 'candy', target: 6000, reward: r(3, 2) },
+        // The id is from before the bands were lowered (the target was 6,000).
+        { id: 'candy_6000',   cat: 'minigames', description: 'Score 4,000 or more in "Candy Crush"', type: 'arcade_score', game: 'candy', target: 4000, reward: r(3, 2) },
         { id: 'snake_18',     cat: 'minigames', description: 'Reach a length of 18 or more in "Snake"', type: 'arcade_score', game: 'snake', target: 18, reward: r(3, 2) }
     );
 
@@ -213,7 +214,14 @@ const Missions = (() => {
         { id: 'pvp_win_15',  cat: 'pvp', description: 'Win 15 online games against other players',         type: 'pvp_won',    target: 15, reward: r(5, 3) }
     ];
 
-    const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS, PVP_MISSIONS, RAID_MISSIONS);
+    // ---- Shiny shop ----
+    const SHINY_MISSIONS = [
+        { id: 'shiny_1',  cat: 'collection', description: 'Buy your first shiny card', type: 'shiny_bought', target: 1,  reward: r(3, 1) },
+        { id: 'shiny_10', cat: 'collection', description: 'Buy 10 shiny cards',        type: 'shiny_bought', target: 10, reward: r(5, 3) },
+        { id: 'shiny_50', cat: 'collection', description: 'Buy 50 shiny cards',        type: 'shiny_bought', target: 50, reward: r(5, 5) }
+    ];
+
+    const ALL = BASE.concat(SET_MISSIONS, GAME_MISSIONS, PVP_MISSIONS, RAID_MISSIONS, SHINY_MISSIONS);
 
     const CATEGORIES = [
         { id: 'all', name: 'All' },
@@ -302,6 +310,7 @@ const Missions = (() => {
             case 'opponents_beaten_set': return numeric(p.beatenBySet[m.setId] || 0, m.target);
             case 'wins_vs_type':     return numeric(p.winsByType[m.deckType] || 0, m.target);
             case 'raids_cleared':    return numeric(p.raidsCleared, m.target);
+            case 'shiny_bought':     return numeric(Profile.s.shinyBought || 0, m.target);
             case 'own_cards':        return numeric(m.cards.filter(id => (Profile.s.cards[id] || 0) > 0).length, m.cards.length);
             case 'arcade_days':      return numeric(Object.keys((Profile.s.arcadeDays || {})[m.game] || {}).length, m.target);
             case 'arcade_time': {

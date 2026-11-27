@@ -302,6 +302,8 @@ async function flipBloomshrouds(side) {
 async function playerEndTurn() {
     if (gameState.currentTurn !== 'player') return;
     if (gameState.busy) return;
+    // A reload during the AI's turn resumes here and plays it again (battle-save.js).
+    if (typeof BattleSave !== 'undefined') BattleSave.save({ endTurn: true });
     await runExclusive(async () => {
         await resolveKnockouts();
         await endTurn();
@@ -323,5 +325,7 @@ async function runExclusive(work) {
     } finally {
         gameState.busy = false;
         Render.all();
+        // The player is free to act again: a reload from here resumes the game.
+        if (typeof BattleSave !== 'undefined') BattleSave.save();
     }
 }

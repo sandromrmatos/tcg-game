@@ -7,8 +7,8 @@
 //   * deck-building restrictions the player's deck must follow: one for Easy,
 //     two for Medium, three (harder ones) for Hard and Extreme; Extreme also
 //     names one card you own that the deck must include (mustInclude)
-//   * a target of consecutive wins: 1, 2, 3 and 4. A loss, draw or leaving the
-//     game resets that mode's streak.
+//   * a number of wins against that mode's AI deck: 1, 2, 3 and 5. They
+//     don't have to be in a row: losing doesn't take a win away.
 //
 // Everything for the day is made the first time the challenges are looked at
 // and kept in the save, so the restrictions and the AI decks stay the same
@@ -21,8 +21,8 @@ const DAILY_MODES = [
     { id: 'easy',   name: 'Easy',   icon: '🟢', wins: 1, rules: 1 },
     { id: 'medium', name: 'Medium', icon: '🟠', wins: 2, rules: 2 },
     { id: 'hard',   name: 'Hard',   icon: '🔴', wins: 3, rules: 3 },
-    // Hard's rules, plus one card the deck must include, and 4 wins in a row.
-    { id: 'extreme', name: 'Extreme', icon: '🟣', wins: 4, rules: 3, mustInclude: true }
+    // Hard's rules, plus one card the deck must include, and 5 wins.
+    { id: 'extreme', name: 'Extreme', icon: '🟣', wins: 5, rules: 3, mustInclude: true }
 ];
 
 /** Rewards per mode. `card`: 'random' = any unlocked set, 'choose' = the player picks the set. */
@@ -155,10 +155,12 @@ const DAILY_RESTRICTIONS = {
         label: () => 'No creatures with an ability',
         allows: (r, c) => !isCreature(c) || !c.abilityName
     },
+    // The HP limit changes from day to day: 90, 100 or 110 (older saves: 100).
     noHighHp: {
         group: 'hp',
-        label: () => 'No creatures with 100 HP or more',
-        allows: (r, c) => !isCreature(c) || c.hp < 100
+        label: r => `No creatures with ${r.hp || 100} HP or more`,
+        allows: (r, c) => !isCreature(c) || c.hp < (r.hp || 100),
+        make: (ctx, rng) => ({ hp: rng.pick([90, 100, 110]) })
     },
     twoMovesMin: {
         group: 'moves',
@@ -507,9 +509,11 @@ const Daily = {
         const st = day.modes[mode.id];
         if (!st || st.done) return out;
         st.played++;
+        // Wins count whenever they come: a loss doesn't undo them. `streak`
+        // stays the wins counter (the save field's old name).
         if (result === 'win') {
             st.won++;
-            st.streak++;
+            st.streak = Math.max(st.streak, 0) + 1;
             st.bestStreak = Math.max(st.bestStreak, st.streak);
             if (st.streak >= mode.wins) {
                 st.done = true;
@@ -517,12 +521,10 @@ const Daily = {
                 out.completed = true;
                 out.lines.push(`📅 ${mode.name} daily challenge complete! Claim your reward on the Daily Challenges page.`);
             } else {
-                out.lines.push(`📅 ${mode.name} challenge: ${st.streak}/${mode.wins} wins in a row.`);
+                out.lines.push(`📅 ${mode.name} challenge: ${st.streak}/${mode.wins} wins.`);
             }
-        } else {
-            if (st.streak > 0) out.lines.push(`📅 Your ${mode.name} challenge streak was reset (${mode.wins} wins in a row needed).`);
-            else if (!forfeit) out.lines.push(`📅 ${mode.name} challenge: ${mode.wins} wins in a row needed.`);
-            st.streak = 0;
+        } else if (!forfeit) {
+            out.lines.push(`📅 ${mode.name} challenge: still ${st.streak}/${mode.wins} wins.`);
         }
         return out;
     },

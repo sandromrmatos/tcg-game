@@ -1092,7 +1092,7 @@ const Hub = {
 
     // -----------------------------------------------------------------------
     // Daily Challenges: four modes a day, each with deck rules and a target
-    // of wins in a row against the same AI deck. Rules in daily.js.
+    // of wins against the same AI deck. Rules in daily.js.
     // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
@@ -1109,7 +1109,7 @@ const Hub = {
             h('li', { text: `You can only give a card you own at least ${TRADE_MIN_COPIES} normal copies of (full-art copies don't count), so you always keep 2.` }),
             h('li', { text: 'Both cards must be the same rarity, and nobody can receive a card from a set they haven\'t unlocked.' }),
             h('li', { text: 'Promo cards can only be traded for promo cards (of the same rarity), and regular cards for regular cards.' }),
-            h('li', { text: 'Full-art and shiny copies can\'t be traded.' }),
+            h('li', { text: 'A shiny card can be traded (any shiny copy you own), but only for another shiny card of the same rarity. Full-art copies can\'t be traded.' }),
             h('li', { text: 'You both see the card you give and the card you get. The trade happens when both of you confirm.' }))));
         const st = Profile.tradeStatus();
         if (!st.canTrade) {
@@ -1139,8 +1139,8 @@ const Hub = {
             `Four new challenges every day (next in ${resetIn}). Build a deck that follows the challenge's rules and beat its AI deck. ` +
             'The rules and the AI decks stay the same all day, however many times you play.',
             h('ul', { class: 'raid-rules' },
-            h('li', { text: 'Easy: 1 rule, win once. Medium: 2 rules, win 2 games in a row. Hard: 3 tougher rules, win 3 games in a row. Extreme: 3 tough rules plus one card of yours the deck must include, win 4 games in a row against the strongest AI decks.' }),
-            h('li', { text: 'Losing, drawing or leaving a game resets that challenge\'s streak. Each challenge can be completed once a day.' }),
+            h('li', { text: 'Easy: 1 rule, win once. Medium: 2 rules, win 2 games. Hard: 3 tougher rules, win 3 games. Extreme: 3 tough rules plus one card of yours the deck must include, win 5 games against the strongest AI decks.' }),
+            h('li', { text: 'The wins don\'t have to be in a row: losing, drawing or leaving doesn\'t take a win away. Each challenge can be completed once a day.' }),
             h('li', { text: `Challenge wins also count as normal wins, including your daily win credits (up to ${WIN_CREDITS_PER_DAY} a day).` }))));
         if (error) host.appendChild(this.notice(error, 'bad'));
 
@@ -1174,7 +1174,7 @@ const Hub = {
                 ? h('p', { class: 'daily-status done', text: '✓ Completed today' })
                 : h('p', { class: 'daily-status', text: mode.wins === 1
                     ? 'Win 1 game to complete it.'
-                    : `Wins in a row: ${st.streak}/${mode.wins}` });
+                    : `Wins: ${st.streak}/${mode.wins}` });
 
             const controls = h('div', { class: 'raid-controls' });
             if (st.done) {
@@ -1227,7 +1227,7 @@ const Hub = {
             list.appendChild(h('div', { class: `panel daily-card daily-${mode.id} ${st.done ? 'daily-done' : ''}` },
                 h('div', { class: 'daily-head' },
                     h('h3', { text: `${mode.icon} ${mode.name}` }),
-                    h('span', { class: 'daily-target', text: mode.wins === 1 ? '1 win' : `${mode.wins} wins in a row` })),
+                    h('span', { class: 'daily-target', text: mode.wins === 1 ? '1 win' : `${mode.wins} wins` })),
                 h('div', { class: 'daily-body' },
                     art,
                     h('div', { class: 'daily-info' },
@@ -1238,7 +1238,7 @@ const Hub = {
                         rules,
                         h('p', { class: 'raid-reward', text: `Reward: ${Daily.rewardText(mode.id)}` }),
                         progress,
-                        h('p', { class: 'raid-record', text: `Today: ${st.won} won of ${st.played} played · best streak ${st.bestStreak}` }))),
+                        h('p', { class: 'raid-record', text: `Today: ${st.won} won of ${st.played} played` }))),
                 controls));
         }
         host.appendChild(list);

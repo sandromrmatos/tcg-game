@@ -307,7 +307,7 @@ const TradeLobby = {
         if (!mine || !theirs) return;
         const problem = Profile.tradeProblem(mine.offer, theirs.offer, theirs.sets);
         if (problem) { this.message = problem; this.render(); return; }
-        const theirCard = getCardData(theirs.offer);
+        const theirCard = getCardData(parseTradeOffer(theirs.offer).id);
         if (!theirCard || !Profile.isSetUnlocked(theirCard.set)) return;
         this.message = '';
         this.ref.child(this.role).update({ ok: this.pair() }).catch(() => {});
@@ -321,14 +321,16 @@ const TradeLobby = {
     // Drawing
     // -----------------------------------------------------------------------
 
-    _cardTile(cardId, caption, extraClass = '') {
-        const card = getCardData(cardId);
+    /** One side of the trade. `offer` is a card id, or "shiny:<id>" for a shiny copy. */
+    _cardTile(offer, caption, extraClass = '') {
+        const o = parseTradeOffer(offer);
+        const card = getCardData(o.id);
         if (!card) return h('div', { class: `trade-slot trade-empty ${extraClass}`, text: caption });
         const rarity = Collection.rarity(card.rarity);
-        const img = h('img', { src: cardImage(card.id), alt: card.name, loading: 'lazy' });
-        if (typeof CardZoom !== 'undefined') CardZoom.bind(img, card.id);
-        return h('div', { class: `trade-slot ${extraClass}` }, img,
-            h('div', { class: 'trade-slot-name', text: card.name }),
+        const img = h('img', { src: o.shiny ? shinyImage(card.id) : cardImage(card.id), alt: card.name + (o.shiny ? ' (shiny)' : ''), loading: 'lazy' });
+        if (typeof CardZoom !== 'undefined') CardZoom.bind(img, card.id, o.shiny ? 'shiny' : false);
+        return h('div', { class: `trade-slot ${o.shiny ? 'trade-shiny' : ''} ${extraClass}` }, img,
+            h('div', { class: 'trade-slot-name', text: (o.shiny ? '✨ ' : '') + card.name }),
             h('div', { class: 'trade-slot-meta', style: { color: rarity.color }, text: `${rarity.icon} ${rarity.name} · ${setById(card.set).name}` }));
     },
 
@@ -361,8 +363,9 @@ const TradeLobby = {
                     this._cardTile(r.give, '', 'trade-gone'),
                     h('div', { class: 'trade-arrow', text: '➜' }),
                     this._cardTile(r.receive, '')));
-                body.appendChild(note(`You gave ${getCardData(r.give).name} to ${r.name || 'the other player'} and got ` +
-                    `${getCardData(r.receive).name}${r.isNew ? ' (new card!)' : ''}. You now own ${r.quantity}. ` +
+                const label = offer => { const o = parseTradeOffer(offer); return (o.shiny ? 'the shiny ' : '') + getCardData(o.id).name; };
+                body.appendChild(note(`You gave ${label(r.give)} to ${r.name || 'the other player'} and got ` +
+                    `${label(r.receive)}${r.isNew ? ' (new card!)' : ''}. You now own ${r.quantity}. ` +
                     `Paid ${TRADE_CREDITS} 🪙 and ${TRADE_GEMS} 💜. You can trade again tomorrow.`));
             } else {
                 body.appendChild(h('p', { class: 'pvp-error', text: `⚠️ ${r.text || 'The trade did not complete.'}` }));
@@ -385,7 +388,7 @@ const TradeLobby = {
         // Menu
         body.appendChild(note(`Swap one card for one card with a friend on another device. Each trade costs both players ` +
             `${TRADE_CREDITS} 🪙 and ${TRADE_GEMS} 💜, once a day. You can give a card you own at least ${TRADE_MIN_COPIES} copies of, ` +
-            'for one of the same rarity, from a set the other player has unlocked.'));
+            'for one of the same rarity, from a set the other player has unlocked. Shiny cards trade only for shiny cards.'));
         if (this.message) body.appendChild(h('p', { class: 'pvp-error', text: this.message }));
         const nameInput = h('input', { id: 'trade-name', class: 'text-input', type: 'text', maxlength: '16', autocomplete: 'off' });
         nameInput.value = PvPLobby.name();
@@ -400,8 +403,9 @@ const TradeLobby = {
         const mine = this.mine() || {}, theirs = this.theirs() || {};
         const theirName = String(theirs.name || 'The other player').slice(0, 16);
         const pair = this.pair();
-        const theirCard = getCardData(theirs.offer);
-        const myCard = getCardData(mine.offer);
+        const theirOffer = parseTradeOffer(theirs.offer);
+        const theirCard = getCardData(theirOffer.id);
+        const myCard = getCardData(parseTradeOffer(mine.offer).id);
         const iConfirmed = !!pair && mine.ok === pair;
         const theyConfirmed = !!pair && theirs.ok === pair;
         const theirSets = Array.isArray(theirs.sets) ? theirs.sets : [];
@@ -428,29 +432,34 @@ const TradeLobby = {
                         : 'Check both cards, then confirm.';
         body.appendChild(h('p', { class: 'trade-status', text: status }));
 
-        // My tradable cards: 3+ copies, a set they've unlocked, and once they've picked,
-        // their card's rarity and kind (a promo only trades for a promo).
-        const fits = c => !theirCard || (c.rarity === theirCard.rarity && !!c.promo === !!theirCard.promo);
-        const kind = theirCard ? `${Collection.rarity(theirCard.rarity).name}${theirCard.promo ? ' promo' : ''}` : '';
-        const cards = Profile.tradableCards()
-            .filter(c => theirSets.includes(c.set) && fits(c))
-            .sort((a, b) => a.rarity - b.rarity || cardSets.findIndex(s => s.id === a.set) - cardSets.findIndex(s => s.id === b.set) || a.number - b.number);
+        // What I can give: regular cards with 3+ copies, and shiny cards (any
+        // shiny copy), from sets they've unlocked. Once they've picked: the same
+        // rarity and kind (promo for promo, shiny for shiny).
+        const fits = (c, shiny) => !theirCard || (c.rarity === theirCard.rarity && !!c.promo === !!theirCard.promo && shiny === theirOffer.shiny);
+        const kind = theirCard ? `${Collection.rarity(theirCard.rarity).name}${theirCard.promo ? ' promo' : ''}${theirOffer.shiny ? ' shiny' : ''}` : '';
+        const order = (a, b) => a.rarity - b.rarity || cardSets.findIndex(s => s.id === a.set) - cardSets.findIndex(s => s.id === b.set) || a.number - b.number;
+        const options = [
+            ...Profile.tradableShiny().filter(c => theirSets.includes(c.set) && fits(c, true)).sort(order).map(card => ({ card, shiny: true })),
+            ...Profile.tradableCards().filter(c => theirSets.includes(c.set) && fits(c, false)).sort(order).map(card => ({ card, shiny: false }))
+        ];
         body.appendChild(h('p', { class: 'trade-pick-title', text: theirCard
-            ? `Your ${kind} cards with ${TRADE_MIN_COPIES}+ copies:`
-            : `Your cards with ${TRADE_MIN_COPIES}+ copies:` }));
+            ? (theirOffer.shiny ? `Your ${kind} cards:` : `Your ${kind} cards with ${TRADE_MIN_COPIES}+ copies:`)
+            : `Your shiny cards, and cards with ${TRADE_MIN_COPIES}+ copies:` }));
         const grid = h('div', { class: 'cards-grid trade-grid' });
-        if (!cards.length) {
+        if (!options.length) {
             grid.appendChild(h('p', { class: 'pvp-note', text: theirCard
-                ? `You have no ${kind} card with ${TRADE_MIN_COPIES}+ copies that ${theirName} can receive.`
-                : `You have no card with ${TRADE_MIN_COPIES}+ copies that ${theirName} can receive.` }));
+                ? `You have no ${kind} card ${theirOffer.shiny ? '' : `with ${TRADE_MIN_COPIES}+ copies `}that ${theirName} can receive.`
+                : `You have no card with ${TRADE_MIN_COPIES}+ copies, or shiny card, that ${theirName} can receive.` }));
         }
-        for (const card of cards) {
+        for (const { card, shiny } of options) {
+            const offer = tradeOfferOf(card.id, shiny);
             grid.appendChild(h('div', {
-                class: `card-item ${card.id === mine.offer ? 'trade-picked' : ''}`,
-                on: { click: () => this.offer(card.id) }
+                class: `card-item ${shiny ? 'shiny-item' : ''} ${offer === mine.offer ? 'trade-picked' : ''}`,
+                title: shiny ? `Shiny ${card.name}` : card.name,
+                on: { click: () => this.offer(offer) }
             },
-                h('img', { src: cardImage(card.id), alt: card.name, loading: 'lazy' }),
-                h('div', { class: 'card-quantity', text: String(Profile.owned(card.id)) })));
+                h('img', { src: shiny ? shinyImage(card.id) : cardImage(card.id), alt: card.name + (shiny ? ' (shiny)' : ''), loading: 'lazy' }),
+                h('div', { class: 'card-quantity', text: shiny ? `✨${Profile.ownedShiny(card.id)}` : String(Profile.owned(card.id)) })));
         }
         body.appendChild(grid);
         grid.scrollTop = scroll;

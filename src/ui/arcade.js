@@ -49,7 +49,7 @@ Object.assign(Hub, {
         // Crystal Canopy
         candy: { icon: '🍬', name: 'Candy Crush', page: 'candy', exactSunday: true,
             about: 'Level 3: swap candies to match 3 or more in 3 minutes, around blocked cells and cracked rocks.',
-            rules: 'Tap a candy, then a neighbour to swap them. 6,000+ points: 5 credits and a 50% chance of a gem (a sure gem on Sundays). 5,000+: 3 credits. 3,500+: 2 credits. Less: 1 credit.' },
+            rules: 'Tap a candy, then a neighbour to swap them. 4,000+ points: 5 credits and a 50% chance of a gem (a sure gem on Sundays). 3,000+: 3 credits. 2,500+: 2 credits. Less: 1 credit.' },
         snake: { icon: '🐍', name: 'Snake', page: 'snake', exactSunday: true,
             about: 'The small board: eat to grow, and don\'t bite yourself. The edges wrap around.',
             rules: 'Swipe or use the arrows. Length 18+: 5 credits and a 50% chance of a gem (a sure gem on Sundays). 15-17: 3 credits. 10-14: 2 credits. Less: 1 credit.' }

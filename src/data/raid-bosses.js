@@ -208,6 +208,20 @@ function cardArt(cardId, variant = false) {
     return variant && hasFullArt(cardId) ? fullArtImage(cardId) : cardImage(cardId);
 }
 
+/**
+ * A trade offer is a card id, or "shiny:<card id>" for a shiny copy.
+ * Returns { id, shiny }.
+ */
+function parseTradeOffer(offer) {
+    const s = typeof offer === 'string' ? offer : '';
+    return s.startsWith('shiny:') ? { id: s.slice(6), shiny: true } : { id: s || null, shiny: false };
+}
+
+/** The trade offer string for a card, shiny or regular. */
+function tradeOfferOf(cardId, shiny = false) {
+    return shiny ? `shiny:${cardId}` : cardId;
+}
+
 /** "✦ " for full art, "✨ " for shiny, "" for the normal art: a name prefix. */
 function artMark(variant) {
     return variant === 'shiny' ? '✨ ' : variant ? '✦ ' : '';

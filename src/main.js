@@ -55,6 +55,9 @@ async function bootstrap() {
     Hub.init();
     Screens.showDeckSelection();
     Render.all();
+
+    // 6. A game against the AI the page closed in the middle of: resume it?
+    if (Profile.resumable && typeof BattleSave !== 'undefined') BattleSave.offer();
 }
 
 if (document.readyState === 'loading') {
