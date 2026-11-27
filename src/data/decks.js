@@ -26,7 +26,8 @@ const DeckLibrary = {
             type,
             cards: d.cards.slice(),
             energyTypes: deckEnergyTypes(d),
-            fullArt: cleanFullArt(d.fullArt, d.cards)
+            fullArt: cleanFullArt(d.fullArt, d.cards),
+            shiny: cleanShiny(d.shiny, d.cards, d.fullArt)
         });
         this.decks = presetDeckLists.map(d => Object.assign(entry(d, 'preset'), {
             // The set that has to be unlocked before the AI may pick this deck.
@@ -59,7 +60,8 @@ const DeckLibrary = {
             type: 'auto',
             cards: deck.cards.slice(),
             energyTypes: deckEnergyTypes(deck),
-            fullArt: cleanFullArt(deck.fullArt, deck.cards)
+            fullArt: cleanFullArt(deck.fullArt, deck.cards),
+            shiny: cleanShiny(deck.shiny, deck.cards, deck.fullArt)
         });
         this.decks.push(this.autoDeck);
         return this.autoDeck;
@@ -76,7 +78,8 @@ const DeckLibrary = {
             type: 'pvp',
             cards: deck.cards.slice(),
             energyTypes: deckEnergyTypes(deck),
-            fullArt: cleanFullArt(deck.fullArt, deck.cards)
+            fullArt: cleanFullArt(deck.fullArt, deck.cards),
+            shiny: cleanShiny(deck.shiny, deck.cards, deck.fullArt)
         };
         this.decks.push(this.pvpDeck);
         return this.decks.length - 1;
@@ -99,7 +102,8 @@ const DeckLibrary = {
             type: 'raid',
             cards: deck.cards.slice(),
             energyTypes: deckEnergyTypes(deck),
-            fullArt: cleanFullArt(deck.fullArt, deck.cards)
+            fullArt: cleanFullArt(deck.fullArt, deck.cards),
+            shiny: cleanShiny(deck.shiny, deck.cards, deck.fullArt)
         });
         this.decks.push(this.raidDeck);
         return this.decks.length - 1;
@@ -148,9 +152,9 @@ const DeckLibrary = {
         return this.hasProfile() ? Profile.decks() : [];
     },
 
-    saveCustomDeck(name, cards, previousName = null, energyTypes = null, fullArt = null) {
+    saveCustomDeck(name, cards, previousName = null, energyTypes = null, fullArt = null, shiny = null) {
         if (!this.hasProfile()) return;
-        Profile.saveDeck(name, cards, previousName, energyTypes, fullArt);
+        Profile.saveDeck(name, cards, previousName, energyTypes, fullArt, shiny);
         this.load();
     },
 
@@ -175,9 +179,9 @@ const DeckLibrary = {
         }
     },
 
-    saveTestDeck(name, cards, previousName = null, energyTypes = null, fullArt = null) {
+    saveTestDeck(name, cards, previousName = null, energyTypes = null, fullArt = null, shiny = null) {
         const keep = this.loadTestDecks().filter(d => d.name !== name && d.name !== previousName);
-        keep.push({ name, cards: cards.slice(), energyTypes: cleanEnergyTypes(energyTypes), fullArt: cleanFullArt(fullArt, cards) });
+        keep.push({ name, cards: cards.slice(), energyTypes: cleanEnergyTypes(energyTypes), fullArt: cleanFullArt(fullArt, cards), shiny: cleanShiny(shiny, cards, fullArt) });
         try { localStorage.setItem(this.TEST_KEY, JSON.stringify(keep)); } catch (err) { console.error(err); }
         this.load();
     },
@@ -314,20 +318,47 @@ function cleanFullArt(fullArt, cardIds) {
 }
 
 /**
- * A deck list grouped for display: one entry per card and version, e.g.
- * [{ id, fullArt: true, count: 1 }, { id, fullArt: false, count: 1 }].
+ * A deck's shiny copies as a clean map { cardId: count }: only cards with a
+ * shiny version, and never more than the copies left after the full-art ones
+ * (a shiny copy is one of the deck's copies, so the 2-copy limit still holds).
  */
-function deckEntries(cardIds, fullArt) {
+function cleanShiny(shiny, cardIds, fullArt = null) {
+    const out = {};
+    if (!shiny || typeof shiny !== 'object') return out;
     const fa = cleanFullArt(fullArt, cardIds);
+    const counts = new Map();
+    for (const id of cardIds || []) counts.set(id, (counts.get(id) || 0) + 1);
+    for (const [id, n] of Object.entries(shiny)) {
+        const room = (counts.get(id) || 0) - (fa[id] || 0);
+        const k = Math.min(Math.max(0, Math.floor(Number(n) || 0)), room);
+        if (k > 0 && typeof hasShiny === 'function' && hasShiny(id)) out[id] = k;
+    }
+    return out;
+}
+
+/**
+ * A deck list grouped for display: one entry per card and version. `fullArt`
+ * on an entry is the art variant (true = full art, 'shiny', false = normal), e.g.
+ * [{ id, fullArt: true, count: 1 }, { id, fullArt: 'shiny', count: 1 }].
+ */
+function deckEntries(cardIds, fullArt, shiny = null) {
+    const fa = cleanFullArt(fullArt, cardIds);
+    const sh = cleanShiny(shiny, cardIds, fullArt);
     const counts = new Map();
     for (const id of cardIds || []) counts.set(id, (counts.get(id) || 0) + 1);
     const out = [];
     for (const [id, n] of counts) {
-        const f = fa[id] || 0;
+        const f = fa[id] || 0, s = sh[id] || 0;
         if (f > 0) out.push({ id, fullArt: true, count: f });
-        if (n - f > 0) out.push({ id, fullArt: false, count: n - f });
+        if (s > 0) out.push({ id, fullArt: 'shiny', count: s });
+        if (n - f - s > 0) out.push({ id, fullArt: false, count: n - f - s });
     }
     return out;
+}
+
+/** Sort key for deck rows of the same card: full art, then shiny, then normal. */
+function artRank(variant) {
+    return variant === true ? 0 : variant === 'shiny' ? 1 : 2;
 }
 
 /** Items that only work with one creature type, and the type they need. */

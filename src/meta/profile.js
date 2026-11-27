@@ -191,6 +191,7 @@ const Profile = {
             cardAch: {},                 // cardId -> per-card achievement counters
             cardAchClaimed: {},          // cardId -> { bronze, silver, gold } claimed-at timestamps
             fullArt: {},                 // cardId -> full-art copies owned (raid rewards)
+            shiny: {},                   // cardId -> shiny copies owned (Shiny shop)
             raids: {},                   // bossId -> raid record (see raids.js)
             daily: { date: null, modes: null, unclaimed: [] },  // today's challenges (see daily.js)
             trade: { date: null, total: 0 }                     // last trade day and trades made (trade.js)
@@ -268,7 +269,8 @@ const Profile = {
             s.decks.push({
                 name, cards,
                 energyTypes: energyTypes.length ? energyTypes : defaultDeckEnergyTypes(cards),
-                fullArt: cleanFullArt(d.fullArt, cards)
+                fullArt: cleanFullArt(d.fullArt, cards),
+                shiny: cleanShiny(d.shiny, cards, d.fullArt)
             });
         }
 
@@ -277,6 +279,13 @@ const Profile = {
             for (const [id, qty] of Object.entries(raw.fullArt)) {
                 const n = int(qty);
                 if (n > 0 && getCardData(id) && hasFullArt(id)) s.fullArt[id] = n;
+            }
+        }
+        s.shiny = {};
+        if (raw.shiny && typeof raw.shiny === 'object') {
+            for (const [id, qty] of Object.entries(raw.shiny)) {
+                const n = int(qty);
+                if (n > 0 && hasShiny(id)) s.shiny[id] = n;
             }
         }
         s.raids = Raids.sanitize(raw.raids);
@@ -602,6 +611,16 @@ const Profile = {
         return (this.s && this.s.fullArt[cardId]) || 0;
     },
 
+    /** Shiny copies owned. Also separate from the normal copies. */
+    ownedShiny(cardId) {
+        return (this.s && this.s.shiny && this.s.shiny[cardId]) || 0;
+    },
+
+    /** Every copy owned, whatever the art: normal, full art and shiny. */
+    ownedAny(cardId) {
+        return this.owned(cardId) + this.ownedFullArt(cardId) + this.ownedShiny(cardId);
+    },
+
     _addCard(cardId) {
         const isNew = !this.s.cards[cardId];
         this.s.cards[cardId] = (this.s.cards[cardId] || 0) + 1;
@@ -749,6 +768,40 @@ const Profile = {
     },
 
     // -----------------------------------------------------------------------
+    // Shiny shop: a shiny copy for SHINY_COST_COPIES regular copies and
+    // SHINY_COST_CREDITS credits, keeping at least SHINY_KEEP regular copies.
+    // -----------------------------------------------------------------------
+
+    /** Whether the shiny version of a card can be bought now, and why not. */
+    shinyStatus(cardId) {
+        this.regen();
+        const card = getCardData(cardId);
+        const need = SHINY_COST_COPIES + SHINY_KEEP;
+        const have = this.owned(cardId);
+        const out = { card, need, have, owned: this.ownedShiny(cardId), credits: this.s.credits, reason: null };
+        if (!card || !hasShiny(cardId)) out.reason = 'This card has no shiny version.';
+        else if (!this.isSetUnlocked(card.set)) out.reason = 'That set is still locked.';
+        else if (have < need) {
+            out.reason = `You need ${need} regular copies of ${card.name} (you have ${have}): ${SHINY_COST_COPIES} are traded in and you keep ${SHINY_KEEP}.`;
+        } else if (this.s.credits < SHINY_COST_CREDITS) {
+            out.reason = `A shiny card also costs ${SHINY_COST_CREDITS} 🪙 credits; you have ${this.s.credits}.`;
+        }
+        out.enoughCopies = have >= need;
+        out.canBuy = !out.reason;
+        return out;
+    },
+
+    buyShiny(cardId) {
+        const st = this.shinyStatus(cardId);
+        if (!st.canBuy) return { error: st.reason };
+        this.s.cards[cardId] -= SHINY_COST_COPIES;
+        this._spendCredits(SHINY_COST_CREDITS);
+        this.s.shiny[cardId] = (this.s.shiny[cardId] || 0) + 1;
+        this.touch('buy-shiny', { immediate: true });
+        return { success: true, shiny: this.s.shiny[cardId], left: this.s.cards[cardId] };
+    },
+
+    // -----------------------------------------------------------------------
     // Trading (trade.js): one card for one card with another player
     // -----------------------------------------------------------------------
 
@@ -785,6 +838,12 @@ const Profile = {
         const give = getCardData(giveId), receive = getCardData(receiveId);
         if (!give || !receive) return 'Pick a card on both sides.';
         if (this.owned(giveId) < TRADE_MIN_COPIES) return `You need at least ${TRADE_MIN_COPIES} copies of ${give.name} to trade it.`;
+        // Promo cards only trade for promo cards (and regular for regular).
+        if (!!give.promo !== !!receive.promo) {
+            return give.promo
+                ? `${give.name} is a promo card: it can only be traded for another promo card.`
+                : `${receive.name} is a promo card: it can only be traded for another promo card.`;
+        }
         if (give.rarity !== receive.rarity) {
             return `Both cards must be the same rarity: ${give.name} is ${Collection.rarity(give.rarity).name}, ${receive.name} is ${Collection.rarity(receive.rarity).name}.`;
         }
@@ -1134,14 +1193,15 @@ const Profile = {
         return this.decks().find(d => d.name === name) || null;
     },
 
-    saveDeck(name, cards, previousName = null, energyTypes = null, fullArt = null) {
+    saveDeck(name, cards, previousName = null, energyTypes = null, fullArt = null, shiny = null) {
         const keep = this.s.decks.filter(d => d.name !== name && d.name !== previousName);
         const index = this.s.decks.findIndex(d => d.name === (previousName || name));
         const types = cleanEnergyTypes(energyTypes);
         const entry = {
             name, cards: cards.slice(),
             energyTypes: types.length ? types : defaultDeckEnergyTypes(cards),
-            fullArt: cleanFullArt(fullArt, cards)
+            fullArt: cleanFullArt(fullArt, cards),
+            shiny: cleanShiny(shiny, cards, fullArt)
         };
         if (index >= 0) keep.splice(Math.min(index, keep.length), 0, entry);
         else keep.push(entry);
@@ -1156,13 +1216,14 @@ const Profile = {
 
     /**
      * Checks the deck only uses cards the player owns, in the quantities owned.
-     * Full-art copies are checked against the full-art copies owned, the rest
-     * against the normal ones.
+     * Full-art and shiny copies are checked against the full-art and shiny
+     * copies owned, the rest against the normal ones.
      */
-    checkOwnership(cardIds, fullArt = null) {
+    checkOwnership(cardIds, fullArt = null, shiny = null) {
         const counts = new Map();
         for (const id of cardIds) counts.set(id, (counts.get(id) || 0) + 1);
         const fa = cleanFullArt(fullArt, cardIds);
+        const sh = cleanShiny(shiny, cardIds, fullArt);
         for (const [id, total] of counts) {
             const data = getCardData(id);
             const name = data ? data.name : id;
@@ -1176,7 +1237,17 @@ const Profile = {
                         : `The deck uses ${f} full-art ${name}, but you own ${haveFa}.`
                 };
             }
-            const n = total - f;
+            const sc = sh[id] || 0;
+            const haveSh = this.ownedShiny(id);
+            if (sc > haveSh) {
+                return {
+                    valid: false,
+                    error: haveSh === 0
+                        ? `You don't own the shiny ${name}.`
+                        : `The deck uses ${sc} shiny ${name}, but you own ${haveSh}.`
+                };
+            }
+            const n = total - f - sc;
             const have = this.owned(id);
             if (have < n) {
                 return {

@@ -223,7 +223,7 @@ function fillSlot(slot, card, side, location, index) {
 
 function buildCreature(card, side, location, index) {
     const wrap = document.createElement('div');
-    wrap.className = 'creature' + (card.fullArt ? ' full-art' : '');
+    wrap.className = 'creature' + (card.fullArt === 'shiny' ? ' shiny' : card.fullArt ? ' full-art' : '');
     wrap.dataset.type = getCardType(card.data);
 
     const art = document.createElement('img');
@@ -410,7 +410,8 @@ function buildHandCard(card, index) {
     art.src = cardArt(card.id, card.fullArt);
     art.alt = card.data.name;
     el.appendChild(art);
-    el.classList.toggle('full-art', !!card.fullArt);
+    el.classList.toggle('full-art', card.fullArt === true);
+    el.classList.toggle('shiny', card.fullArt === 'shiny');
 
     const playable = handCardPlayability(card);
     el.classList.toggle('hand-card-dim', !playable.ok);

@@ -260,7 +260,7 @@ const Showcase = {
         host.innerHTML = '';
 
         const card = document.createElement('div');
-        card.className = `showcase-card showcase-${side || 'opponent'}` + (fullArt ? ' showcase-full-art' : '');
+        card.className = `showcase-card showcase-${side || 'opponent'}` + (fullArt === 'shiny' ? ' showcase-shiny' : fullArt ? ' showcase-full-art' : '');
         const img = document.createElement('img');
         img.src = cardArt(cardId, fullArt);
         img.alt = (getCardData(cardId) || {}).name || '';

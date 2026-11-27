@@ -20,10 +20,10 @@
 const AutoTeam = {
     _units: null,
 
-    /** Usable copies of a card: normal plus full art, at most 2 in a deck. */
+    /** Usable copies of a card: normal, full art and shiny, at most 2 in a deck. */
     copies(cardId) {
         if (typeof Profile === 'undefined' || !Profile.s) return 0;
-        return Math.min(MAX_COPIES, Profile.owned(cardId) + Profile.ownedFullArt(cardId));
+        return Math.min(MAX_COPIES, Profile.ownedAny(cardId));
     },
 
     /**
@@ -287,13 +287,16 @@ const AutoTeam = {
         if (energyTypeWarnings(cards, energyTypes).length) return null;
         if (!deckOk(cards)) return null;
 
-        // Full art first: every full-art copy the player owns is used.
-        const fullArt = {};
+        // Full art first, then shiny: every special copy the player owns is used.
+        const fullArt = {}, shiny = {};
         for (const id of new Set(cards)) {
-            const n = Math.min(cards.filter(x => x === id).length, Profile.ownedFullArt(id));
+            const inDeck = cards.filter(x => x === id).length;
+            const n = Math.min(inDeck, Profile.ownedFullArt(id));
             if (n > 0 && hasFullArt(id)) fullArt[id] = n;
+            const s = Math.min(inDeck - (fullArt[id] || 0), Profile.ownedShiny(id));
+            if (s > 0 && hasShiny(id)) shiny[id] = s;
         }
-        if (!Profile.checkOwnership(cards, fullArt).valid) return null;
+        if (!Profile.checkOwnership(cards, fullArt, shiny).valid) return null;
 
         const label = mainType || deckPrimaryType(cards);
         return {
@@ -302,6 +305,7 @@ const AutoTeam = {
             cards: cards.slice(),
             energyTypes,
             fullArt,
+            shiny,
             mainType: mainType || 'Mixed'
         };
     },
@@ -313,7 +317,8 @@ const AutoTeam = {
         return [...counts].map(([id, n]) => {
             const d = getCardData(id);
             const fa = deck.fullArt && deck.fullArt[id] ? ` (${deck.fullArt[id]} full art ✦)` : '';
-            return `${n}× ${d ? d.name : id}${fa}`;
+            const sh = deck.shiny && deck.shiny[id] ? ` (${deck.shiny[id]} shiny ✨)` : '';
+            return `${n}× ${d ? d.name : id}${fa}${sh}`;
         }).join(' · ');
     }
 };

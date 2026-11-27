@@ -177,7 +177,43 @@ function fullArtImage(cardId) {
     return FULL_ART_DIR + cardId;
 }
 
-/** The image for a card, in its full-art version when asked and available. */
-function cardArt(cardId, fullArt = false) {
-    return fullArt && hasFullArt(cardId) ? fullArtImage(cardId) : cardImage(cardId);
+// ---- Shiny cards ------------------------------------------------------------
+// The shiny version of a card: bought in the Store's Shiny shop for regular
+// copies (SHINY_COST_COPIES of them, keeping SHINY_KEEP) and credits. Like
+// full art it is cosmetic and plays exactly like the normal card. The art is
+// in shiny/<card id>: the 64 Elemental Awakening creatures (no items, no promos).
+const SHINY_DIR = 'shiny/';
+const SHINY_SETS = ['EA'];
+const SHINY_COST_COPIES = 10;    // regular copies traded in for one shiny
+const SHINY_KEEP = 2;            // regular copies that must be left afterwards
+const SHINY_COST_CREDITS = 5;
+
+/** True if the card has a shiny version. */
+function hasShiny(cardId) {
+    const card = typeof getCardData === 'function' ? getCardData(cardId) : null;
+    return !!card && SHINY_SETS.includes(card.set) && isCreature(card) && !card.promo;
+}
+
+function shinyImage(cardId) {
+    return SHINY_DIR + cardId;
+}
+
+/**
+ * The image for a card in one art version. `variant` is the art a card
+ * instance or deck row carries in its `fullArt` field: false (normal), true
+ * (full art) or 'shiny'. Falls back to the normal art if that version doesn't exist.
+ */
+function cardArt(cardId, variant = false) {
+    if (variant === 'shiny') return hasShiny(cardId) ? shinyImage(cardId) : cardImage(cardId);
+    return variant && hasFullArt(cardId) ? fullArtImage(cardId) : cardImage(cardId);
+}
+
+/** "✦ " for full art, "✨ " for shiny, "" for the normal art: a name prefix. */
+function artMark(variant) {
+    return variant === 'shiny' ? '✨ ' : variant ? '✦ ' : '';
+}
+
+/** "full art" / "shiny" / "" for labels. */
+function artLabel(variant) {
+    return variant === 'shiny' ? 'shiny' : variant ? 'full art' : '';
 }

@@ -254,11 +254,11 @@ const Screens = {
         const grid = document.getElementById('deck-preview-grid');
         grid.innerHTML = '';
 
-        const ordered = deckEntries(deck.cards, deck.fullArt).sort((a, b) => {
+        const ordered = deckEntries(deck.cards, deck.fullArt, deck.shiny).sort((a, b) => {
             const setA = setForCardId(a.id), setB = setForCardId(b.id);
             const nameA = setA ? setA.name : '', nameB = setB ? setB.name : '';
             if (nameA !== nameB) return nameA.localeCompare(nameB);
-            return cardNumber(a.id) - cardNumber(b.id) || (b.fullArt ? 1 : 0) - (a.fullArt ? 1 : 0);
+            return cardNumber(a.id) - cardNumber(b.id) || artRank(a.fullArt) - artRank(b.fullArt);
         });
 
         for (const entry of ordered) {
@@ -267,17 +267,17 @@ const Screens = {
             if (!data) continue;
 
             const tile = document.createElement('div');
-            tile.className = 'preview-card' + (entry.fullArt ? ' full-art' : '');
+            tile.className = 'preview-card' + (entry.fullArt === 'shiny' ? ' shiny' : entry.fullArt ? ' full-art' : '');
 
             const img = document.createElement('img');
             img.src = cardArt(id, entry.fullArt);
-            img.alt = data.name + (entry.fullArt ? ' (full art)' : '');
+            img.alt = data.name + (entry.fullArt ? ` (${artLabel(entry.fullArt)})` : '');
             CardZoom.bind(img, id, entry.fullArt);
             tile.appendChild(img);
 
             const count = document.createElement('span');
             count.className = 'preview-count';
-            count.textContent = `${entry.fullArt ? '✦ ' : ''}×${entry.count}`;
+            count.textContent = `${artMark(entry.fullArt)}×${entry.count}`;
             tile.appendChild(count);
 
             grid.appendChild(tile);
@@ -424,7 +424,7 @@ const Screens = {
         const check = validateDeck(deck.cards);
         if (!check.valid) return check.error;
         if ((deck.type === 'custom' || deck.type === 'auto') && typeof Profile !== 'undefined' && Profile.s) {
-            const own = Profile.checkOwnership(deck.cards, deck.fullArt);
+            const own = Profile.checkOwnership(deck.cards, deck.fullArt, deck.shiny);
             if (!own.valid) return own.error;
         }
         return null;

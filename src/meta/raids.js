@@ -162,7 +162,7 @@ const Raids = {
      */
     mastery(setId) {
         const cards = Collection.setCards(setId);
-        const copies = id => Profile.owned(id) + Profile.ownedFullArt(id);
+        const copies = id => Profile.ownedAny(id);
         const have = cards.filter(c => copies(c.id) >= (c.promo ? 1 : RAID_NORMAL_COPIES)).length;
         return { have, total: cards.length, done: cards.length > 0 && have === cards.length };
     },

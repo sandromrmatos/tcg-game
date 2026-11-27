@@ -279,7 +279,7 @@ async function evolveCreature(side, handIndex, location, benchIndex) {
     evolution.evolutionChain = (target.evolutionChain || []).concat([{
         id: target.id,
         data: target.data,
-        fullArt: !!target.fullArt,
+        fullArt: target.fullArt === 'shiny' ? 'shiny' : !!target.fullArt,
         borrowed: !!target.borrowed       // a Vulpite Vulpetta (knockout.js)
     }]);
 
@@ -359,6 +359,7 @@ function buildDecks() {
         gameState[side].deck = Rng.shuffle(deck.cards.slice());
         gameState[side].energyTypes = deckEnergyTypes(deck);
         gameState[side].fullArtLeft = cleanFullArt(deck.fullArt, deck.cards);
+        gameState[side].shinyLeft = cleanShiny(deck.shiny, deck.cards, deck.fullArt);
     }
 }
 

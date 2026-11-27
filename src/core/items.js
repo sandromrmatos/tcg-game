@@ -657,7 +657,7 @@ AccessoryRegistry.register('neutralElixir', {
             // A Vulpetta borrowed with Vulpite isn't the player's: it doesn't come back.
             const line = (card.evolutionChain || []).filter(e => !e.borrowed).map(e => {
                 const inst = makeCardInstance(e.id);
-                inst.fullArt = !!e.fullArt;
+                inst.fullArt = e.fullArt === 'shiny' ? 'shiny' : !!e.fullArt;
                 return inst;
             });
             await Status.clear(card, { silent: true });

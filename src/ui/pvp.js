@@ -895,7 +895,7 @@ const PvPLobby = {
         return {
             name: this.setName(document.getElementById('pvp-name') ? document.getElementById('pvp-name').value : this.name()),
             v: PvP.version(),
-            deck: JSON.stringify({ name: deck.name, cards: deck.cards, energyTypes: deck.energyTypes, fullArt: deck.fullArt || {} })
+            deck: JSON.stringify({ name: deck.name, cards: deck.cards, energyTypes: deck.energyTypes, fullArt: deck.fullArt || {}, shiny: deck.shiny || {} })
         };
     },
 

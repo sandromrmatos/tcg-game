@@ -428,17 +428,20 @@ const TradeLobby = {
                         : 'Check both cards, then confirm.';
         body.appendChild(h('p', { class: 'trade-status', text: status }));
 
-        // My tradable cards: 3+ copies, a set they've unlocked, and their card's rarity once they've picked.
+        // My tradable cards: 3+ copies, a set they've unlocked, and once they've picked,
+        // their card's rarity and kind (a promo only trades for a promo).
+        const fits = c => !theirCard || (c.rarity === theirCard.rarity && !!c.promo === !!theirCard.promo);
+        const kind = theirCard ? `${Collection.rarity(theirCard.rarity).name}${theirCard.promo ? ' promo' : ''}` : '';
         const cards = Profile.tradableCards()
-            .filter(c => theirSets.includes(c.set) && (!theirCard || c.rarity === theirCard.rarity))
+            .filter(c => theirSets.includes(c.set) && fits(c))
             .sort((a, b) => a.rarity - b.rarity || cardSets.findIndex(s => s.id === a.set) - cardSets.findIndex(s => s.id === b.set) || a.number - b.number);
         body.appendChild(h('p', { class: 'trade-pick-title', text: theirCard
-            ? `Your ${Collection.rarity(theirCard.rarity).name} cards with ${TRADE_MIN_COPIES}+ copies:`
+            ? `Your ${kind} cards with ${TRADE_MIN_COPIES}+ copies:`
             : `Your cards with ${TRADE_MIN_COPIES}+ copies:` }));
         const grid = h('div', { class: 'cards-grid trade-grid' });
         if (!cards.length) {
             grid.appendChild(h('p', { class: 'pvp-note', text: theirCard
-                ? `You have no ${Collection.rarity(theirCard.rarity).name} card with ${TRADE_MIN_COPIES}+ copies that ${theirName} can receive.`
+                ? `You have no ${kind} card with ${TRADE_MIN_COPIES}+ copies that ${theirName} can receive.`
                 : `You have no card with ${TRADE_MIN_COPIES}+ copies that ${theirName} can receive.` }));
         }
         for (const card of cards) {

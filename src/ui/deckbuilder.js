@@ -51,8 +51,9 @@ const DeckBuilder = {
         // picks types themselves.
         this.energyTypes = [];
         this.energyAuto = true;
-        // Full-art copies in the deck, by card id. Each one is also in `cards`.
+        // Full-art and shiny copies in the deck, by card id. Each one is also in `cards`.
         this.fullArt = {};
+        this.shiny = {};
 
         if (existingName) {
             const saved = this.qa ? DeckLibrary.findTest(existingName) : DeckLibrary.findCustom(existingName);
@@ -61,6 +62,7 @@ const DeckBuilder = {
                 this.energyTypes = deckEnergyTypes(saved);
                 this.energyAuto = false;
                 this.fullArt = cleanFullArt(saved.fullArt, this.cards);
+                this.shiny = cleanShiny(saved.shiny, this.cards, this.fullArt);
             }
         }
 
@@ -267,6 +269,7 @@ const DeckBuilder = {
             clearBtn.addEventListener('click', () => {
                 this.cards = [];
                 this.fullArt = {};
+                this.shiny = {};
                 this.renderPool();
                 this.renderDeck();
             });
@@ -286,12 +289,12 @@ const DeckBuilder = {
     },
 
     /**
-     * How many copies of a card this deck may hold: owned (normal and full
-     * art together), capped at MAX_COPIES.
+     * How many copies of a card this deck may hold: owned (normal, full art
+     * and shiny together), capped at MAX_COPIES.
      */
     limit(cardId) {
         if (this.qa || !this.hasProfile()) return MAX_COPIES;
-        return Math.min(MAX_COPIES, Profile.owned(cardId) + Profile.ownedFullArt(cardId));
+        return Math.min(MAX_COPIES, Profile.ownedAny(cardId));
     },
 
     copiesOf(cardId) {
@@ -302,10 +305,21 @@ const DeckBuilder = {
         return this.fullArt[cardId] || 0;
     },
 
+    shinyIn(cardId) {
+        return (this.shiny && this.shiny[cardId]) || 0;
+    },
+
     /** Another normal copy of this card is available to add. */
     canAddNormal(cardId) {
         if (this.qa || !this.hasProfile()) return true;
-        return this.copiesOf(cardId) - this.fullArtIn(cardId) < Profile.owned(cardId);
+        return this.copiesOf(cardId) - this.fullArtIn(cardId) - this.shinyIn(cardId) < Profile.owned(cardId);
+    },
+
+    /** Another shiny copy of this card is available to add. */
+    canAddShiny(cardId) {
+        if (typeof hasShiny !== 'function' || !hasShiny(cardId)) return false;
+        const have = this.qa || !this.hasProfile() ? MAX_COPIES : Profile.ownedShiny(cardId);
+        return this.shinyIn(cardId) < have;
     },
 
     /** Another full-art copy of this card is available to add. */
@@ -318,7 +332,7 @@ const DeckBuilder = {
     filteredPool() {
         return cardDatabase.filter(card => {
             if (!this.qa && this.hasProfile()) {
-                if (Profile.owned(card.id) + Profile.ownedFullArt(card.id) <= 0) return false;
+                if (Profile.ownedAny(card.id) <= 0) return false;
                 if (!Profile.isSetUnlocked(card.set)) return false;
             }
             if (this.setFilter !== 'all' && card.set !== this.setFilter) return false;
@@ -393,8 +407,18 @@ const DeckBuilder = {
                 const own = document.createElement('span');
                 own.className = 'pool-owned';
                 const fa = Profile.ownedFullArt(card.id);
-                own.textContent = `own ${Profile.owned(card.id)}${fa ? ` + ${fa} ✦` : ''}`;
+                const sh = Profile.ownedShiny(card.id);
+                own.textContent = `own ${Profile.owned(card.id)}${fa ? ` + ${fa} ✦` : ''}${sh ? ` + ${sh} ✨` : ''}`;
                 tile.appendChild(own);
+            }
+            const showShiny = this.qa ? hasShiny(card.id) : this.hasProfile() && Profile.ownedShiny(card.id) > 0;
+            if (showShiny) {
+                tile.classList.add('pool-has-shiny');
+                const mark = document.createElement('span');
+                mark.className = 'shiny-mark';
+                mark.textContent = '✨';
+                mark.title = 'Shiny available';
+                tile.appendChild(mark);
             }
             const showFullArt = this.qa ? hasFullArt(card.id) : this.hasProfile() && Profile.ownedFullArt(card.id) > 0;
             if (showFullArt) {
@@ -418,8 +442,9 @@ const DeckBuilder = {
     // -----------------------------------------------------------------------
 
     /**
-     * Adds a copy. When both a normal and a full-art copy could go in, the
-     * player is asked which one.
+     * Adds a copy. When more than one version (normal, full art, shiny)
+     * could go in, the player is asked which one. Every version counts
+     * towards the same limit of MAX_COPIES copies of the card.
      */
     async add(cardId) {
         if (this.copiesOf(cardId) >= this.limit(cardId)) return;
@@ -427,21 +452,25 @@ const DeckBuilder = {
             Log.warn(`A deck holds ${DECK_SIZE} cards.`);
             return;
         }
-        const normal = this.canAddNormal(cardId);
-        const full = this.canAddFullArt(cardId);
-        if (!normal && !full) return;
+        const can = {
+            normal: () => this.canAddNormal(cardId),
+            full: () => this.canAddFullArt(cardId),
+            shiny: () => this.canAddShiny(cardId)
+        };
+        const options = Object.keys(can).filter(k => can[k]());
+        if (!options.length) return;
 
-        let useFullArt = full && !normal;
-        if (normal && full) {
-            const choice = await this.askVersion(cardId);
+        let choice = options[0];
+        if (options.length > 1) {
+            choice = await this.askVersion(cardId, options);
             if (choice === null) return;
-            useFullArt = choice === 'full';
             // The deck may have changed while the question was open.
             if (this.copiesOf(cardId) >= this.limit(cardId) || this.cards.length >= DECK_SIZE) return;
-            if (useFullArt ? !this.canAddFullArt(cardId) : !this.canAddNormal(cardId)) return;
+            if (!can[choice] || !can[choice]()) return;
         }
         this.cards.push(cardId);
-        if (useFullArt) this.fullArt[cardId] = this.fullArtIn(cardId) + 1;
+        if (choice === 'full') this.fullArt[cardId] = this.fullArtIn(cardId) + 1;
+        if (choice === 'shiny') this.shiny = Object.assign({}, this.shiny, { [cardId]: this.shinyIn(cardId) + 1 });
         this.redrawInPlace();
     },
 
@@ -473,43 +502,51 @@ const DeckBuilder = {
         else page.scrollTop += drift;
     },
 
-    /** Normal or full art? Resolves 'normal', 'full', or null when cancelled. */
-    async askVersion(cardId) {
+    /**
+     * Which version to add, out of `options` ('normal', 'full', 'shiny').
+     * Resolves one of them, or null when cancelled.
+     */
+    async askVersion(cardId, options = ['normal', 'full']) {
         const data = getCardData(cardId);
         const name = data ? data.name : cardId;
+        const labels = { normal: 'Normal', full: '✦ Full art', shiny: '✨ Shiny' };
+        const owns = options.filter(o => o !== 'normal').map(o => (o === 'full' ? 'full-art' : 'shiny'));
         CardZoom.hide();
         if (typeof Hub !== 'undefined' && document.getElementById('hub-dialog')) {
             const answer = await Hub.dialog({
                 title: `Add which ${name}?`,
-                message: 'You own the full-art version of this card. It plays exactly like the normal one.',
-                image: fullArtImage(cardId),
-                buttons: [
-                    { label: 'Cancel', value: null },
-                    { label: 'Normal', value: 'normal' },
-                    { label: '✦ Full art', value: 'full', kind: 'primary' }
-                ]
+                message: `You own the ${owns.join(' and ')} version${owns.length > 1 ? 's' : ''} of this card. ` +
+                    `Every version plays exactly like the normal one and counts towards the ${MAX_COPIES}-copy limit.`,
+                image: options.includes('shiny') && !options.includes('full') ? shinyImage(cardId) : options.includes('full') ? fullArtImage(cardId) : cardImage(cardId),
+                buttons: [{ label: 'Cancel', value: null }].concat(options.map((o, i) =>
+                    ({ label: labels[o], value: o, kind: i === options.length - 1 ? 'primary' : undefined })))
             });
-            return answer && answer.value ? answer.value : null;
+            return answer && options.includes(answer.value) ? answer.value : null;
         }
         const value = await Prompt.chooseOption({
             title: `Add which ${name}?`,
-            options: [{ label: 'Normal', value: 'normal' }, { label: '✦ Full art', value: 'full' }],
+            options: options.map(o => ({ label: labels[o], value: o })),
             cancellable: true
         });
-        return value === 'normal' || value === 'full' ? value : null;
+        return options.includes(value) ? value : null;
     },
 
-    /** Removes one copy; `fullArt` picks the full-art copy. */
-    remove(cardId, fullArt = false) {
+    /** Removes one copy; `variant` picks the full-art (true) or 'shiny' copy. */
+    remove(cardId, variant = false) {
         const index = this.cards.indexOf(cardId);
         if (index === -1) return;
-        if (fullArt) {
+        if (variant === 'shiny') {
+            if (!this.shinyIn(cardId)) return;
+            this.shiny[cardId]--;
+            if (!this.shiny[cardId]) delete this.shiny[cardId];
+        } else if (variant) {
             if (!this.fullArtIn(cardId)) return;
             this.fullArt[cardId]--;
             if (!this.fullArt[cardId]) delete this.fullArt[cardId];
         }
         this.cards.splice(index, 1);
         this.fullArt = cleanFullArt(this.fullArt, this.cards);
+        this.shiny = cleanShiny(this.shiny, this.cards, this.fullArt);
         this.redrawInPlace();
     },
 
@@ -571,10 +608,10 @@ const DeckBuilder = {
         if (host) {
             host.innerHTML = '';
 
-            const ordered = deckEntries(this.cards, this.fullArt).sort((a, b) => {
+            const ordered = deckEntries(this.cards, this.fullArt, this.shiny).sort((a, b) => {
                 const da = getCardData(a.id), db = getCardData(b.id);
                 if (da.stage !== db.stage) return String(da.stage).localeCompare(String(db.stage));
-                return da.name.localeCompare(db.name) || (b.fullArt ? 1 : 0) - (a.fullArt ? 1 : 0);
+                return da.name.localeCompare(db.name) || artRank(a.fullArt) - artRank(b.fullArt);
             });
 
             if (ordered.length === 0) {
@@ -585,23 +622,24 @@ const DeckBuilder = {
                 const id = entry.id;
                 const data = getCardData(id);
                 const row = document.createElement('div');
-                row.className = 'deck-row' + (entry.fullArt ? ' deck-row-full-art' : '');
+                const v = entry.fullArt;   // false, true (full art) or 'shiny'
+                row.className = 'deck-row' + (v === 'shiny' ? ' deck-row-shiny' : v ? ' deck-row-full-art' : '');
 
                 const img = document.createElement('img');
-                img.src = cardArt(id, entry.fullArt);
-                img.alt = data.name + (entry.fullArt ? ' (full art)' : '');
-                CardZoom.bind(img, id, entry.fullArt);
+                img.src = cardArt(id, v);
+                img.alt = data.name + (v ? ` (${artLabel(v)})` : '');
+                CardZoom.bind(img, id, v);
                 row.appendChild(img);
 
                 const label = document.createElement('span');
                 label.className = 'deck-row-name';
-                label.textContent = entry.fullArt ? `✦ ${data.name}` : data.name;
-                if (entry.fullArt) label.title = 'Full art';
+                label.textContent = artMark(v) + data.name;
+                if (v) label.title = v === 'shiny' ? 'Shiny' : 'Full art';
                 row.appendChild(label);
 
                 const stage = document.createElement('span');
                 stage.className = 'deck-row-stage';
-                stage.textContent = entry.fullArt ? `${data.stage} · Full art` : data.stage;
+                stage.textContent = v ? `${data.stage} · ${v === 'shiny' ? 'Shiny' : 'Full art'}` : data.stage;
                 row.appendChild(stage);
 
                 const count = document.createElement('span');
@@ -613,8 +651,8 @@ const DeckBuilder = {
                 remove.className = 'deck-row-remove';
                 remove.type = 'button';
                 remove.textContent = '−';
-                remove.title = `Remove one ${entry.fullArt ? 'full-art ' : ''}${data.name}`;
-                remove.onclick = () => this.remove(id, entry.fullArt);
+                remove.title = `Remove one ${v === 'shiny' ? 'shiny ' : v ? 'full-art ' : ''}${data.name}`;
+                remove.onclick = () => this.remove(id, v);
                 row.appendChild(remove);
 
                 host.appendChild(row);
@@ -654,7 +692,7 @@ const DeckBuilder = {
     check() {
         const result = validateDeck(this.cards);
         if (!result.valid || this.qa || !this.hasProfile()) return result;
-        return Profile.checkOwnership(this.cards, this.fullArt);
+        return Profile.checkOwnership(this.cards, this.fullArt, this.shiny);
     },
 
     save() {
@@ -679,15 +717,16 @@ const DeckBuilder = {
 
         const energyTypes = this.currentEnergyTypes().slice();
         const fullArt = cleanFullArt(this.fullArt, this.cards);
+        const shiny = cleanShiny(this.shiny, this.cards, fullArt);
         if (this.qa) {
-            DeckLibrary.saveTestDeck(name, this.cards, this.editingName, energyTypes, fullArt);
+            DeckLibrary.saveTestDeck(name, this.cards, this.editingName, energyTypes, fullArt, shiny);
             this.close();
             Screens.showDebug();
             return;
         }
 
         // Saving under a new name replaces the edited deck in place.
-        DeckLibrary.saveCustomDeck(name, this.cards, this.editingName, energyTypes, fullArt);
+        DeckLibrary.saveCustomDeck(name, this.cards, this.editingName, energyTypes, fullArt, shiny);
         this.close();
         Screens.showDeckSelection();
     }

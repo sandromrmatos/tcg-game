@@ -57,6 +57,7 @@ function createSide() {
         // Full-art copies still in the deck, by card id (set by buildDecks).
         // The deck itself only holds ids; see instanceFromDeck / returnToDeck.
         fullArtLeft: {},
+        shinyLeft: {},               // the same for shiny copies
 
         // Everything else. Cleared wholesale between games and selectively in
         // endTurn(). See turn.js for the lifecycle.
@@ -186,7 +187,8 @@ function makeCardInstance(cardId) {
         abilityUsedThisTurn: false,
         evolutionId: newEvolutionId(),
         evolutionChain: [],
-        // Shown with its full-art image. Cosmetic only.
+        // The art it is shown with: false (normal), true (full art) or
+        // 'shiny'. Cosmetic only.
         fullArt: false,
         // The accessory card instance attached to this creature, if any.
         accessory: null,
@@ -209,24 +211,30 @@ function makeCardInstance(cardId) {
 
 /**
  * An instance for a card leaving `side`'s deck (draw, opening hand, search).
- * The deck's full-art copies of that card are handed out first.
+ * The deck's full-art copies of that card are handed out first, then its shiny ones.
  */
 function instanceFromDeck(side, cardId) {
     const card = makeCardInstance(cardId);
     const left = gameState[side] && gameState[side].fullArtLeft;
+    const shiny = gameState[side] && gameState[side].shinyLeft;
     if (left && left[cardId] > 0) {
         left[cardId]--;
         card.fullArt = true;
+    } else if (shiny && shiny[cardId] > 0) {
+        shiny[cardId]--;
+        card.fullArt = 'shiny';
     }
     return card;
 }
 
-/** Puts instances back into `side`'s deck as ids, keeping full-art counts right. */
+/** Puts instances back into `side`'s deck as ids, keeping full-art and shiny counts right. */
 function returnToDeck(side, cards) {
     const s = gameState[side];
+    if (!s.shinyLeft) s.shinyLeft = {};
     for (const card of cards) {
         s.deck.push(card.id);
-        if (card.fullArt) s.fullArtLeft[card.id] = (s.fullArtLeft[card.id] || 0) + 1;
+        if (card.fullArt === 'shiny') s.shinyLeft[card.id] = (s.shinyLeft[card.id] || 0) + 1;
+        else if (card.fullArt) s.fullArtLeft[card.id] = (s.fullArtLeft[card.id] || 0) + 1;
     }
 }
 

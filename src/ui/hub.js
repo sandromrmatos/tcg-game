@@ -549,13 +549,15 @@ const Hub = {
         for (const card of Collection.setCards(setId)) {
             const qty = Profile.owned(card.id);
             const fa = Profile.ownedFullArt(card.id);
+            const sh = Profile.ownedShiny(card.id);
+            const any = qty > 0 || fa > 0 || sh > 0;
             const rarity = Collection.rarity(card.rarity);
             grid.appendChild(h('div', {
-                class: `card-item ${qty === 0 && fa === 0 ? 'not-owned' : ''}`,
-                title: qty > 0 || fa > 0 ? card.name : 'Not collected yet',
-                on: { click: () => { if (qty > 0 || fa > 0) this.showCardModal(card, { dex: true }); } }
+                class: `card-item ${any ? '' : 'not-owned'}`,
+                title: any ? card.name : 'Not collected yet',
+                on: { click: () => { if (any) this.showCardModal(card, { dex: true }); } }
             },
-                h('img', { src: cardImage(card.id), alt: qty > 0 || fa > 0 ? card.name : 'Unknown card', loading: 'lazy' }),
+                h('img', { src: cardImage(card.id), alt: any ? card.name : 'Unknown card', loading: 'lazy' }),
                 qty > 0 ? h('div', { class: 'card-quantity', text: String(qty) }) : null,
                 h('span', { class: 'card-rarity', title: rarity.name, text: rarity.icon }),
                 card.promo ? h('span', { class: 'card-promo', text: 'PROMO' }) : null,
@@ -564,6 +566,12 @@ const Hub = {
                     class: 'full-art-badge', type: 'button', text: '✦',
                     title: `Full art owned (${fa}). Tap to view.`, 'aria-label': `View the full-art ${card.name}`,
                     on: { click: e => { e.stopPropagation(); this.showFullArt(card); } }
+                }) : null,
+                // Shiny owned: a badge that opens the shiny image.
+                sh > 0 ? h('button', {
+                    class: `shiny-badge${fa > 0 ? ' shiny-badge-second' : ''}`, type: 'button', text: '✨',
+                    title: `Shiny owned (${sh}). Tap to view.`, 'aria-label': `View the shiny ${card.name}`,
+                    on: { click: e => { e.stopPropagation(); this.showShiny(card); } }
                 }) : null));
         }
         host.appendChild(grid);
@@ -571,7 +579,7 @@ const Hub = {
 
     /** The owned cards of the Dex set, in Dex order: what swiping moves through. */
     dexOwnedCards() {
-        return Collection.setCards(this.dexSet).filter(c => Profile.owned(c.id) > 0 || Profile.ownedFullArt(c.id) > 0);
+        return Collection.setCards(this.dexSet).filter(c => Profile.ownedAny(c.id) > 0);
     },
 
     /** Next (+1) or previous (-1) owned card of the Dex, from the one open. */
@@ -628,17 +636,33 @@ const Hub = {
         }
         const rarity = Collection.rarity(card.rarity);
         const fa = Profile.ownedFullArt(card.id);
+        const sh = Profile.ownedShiny(card.id);
         body.appendChild(h('img', { class: 'card-modal-img' + (slide > 0 ? ' slide-left' : slide < 0 ? ' slide-right' : ''), src: cardImage(card.id), alt: card.name }));
         body.appendChild(h('div', { class: 'card-details' },
             h('h3', { text: card.name }),
             h('p', { class: 'card-type', style: { color: rarity.color } }, `${card.type} • ${rarity.icon} ${rarity.name}${card.promo ? ' • Promo' : ''}`),
             h('p', { text: `${card.stage}${card.hp ? ` · HP ${card.hp}` : ''}` }),
             card.abilityName ? h('p', { text: `Ability: ${card.abilityName}` }) : null,
-            h('p', { class: 'owned-count', text: `You own: ${Profile.owned(card.id)}${fa ? ` · ✦ Full art: ${fa}` : ''}` }),
+            h('p', { class: 'owned-count', text: `You own: ${Profile.owned(card.id)}${fa ? ` · ✦ Full art: ${fa}` : ''}${sh ? ` · ✨ Shiny: ${sh}` : ''}` }),
             fa > 0 ? h('button', {
                 class: 'btn btn-primary', type: 'button', text: '✦ View full art',
                 on: { click: () => this.showFullArt(card) }
+            }) : null,
+            sh > 0 ? h('button', {
+                class: 'btn btn-primary', type: 'button', text: '✨ View shiny',
+                on: { click: () => this.showShiny(card) }
             }) : null));
+        Screens.openModal('hub-card-modal');
+    },
+
+    showShiny(card) {
+        const body = document.getElementById('hub-card-body');
+        body.innerHTML = '';
+        body.appendChild(h('img', { class: 'card-modal-img card-modal-shiny', src: shinyImage(card.id), alt: `${card.name} (shiny)` }));
+        body.appendChild(h('div', { class: 'card-details' },
+            h('h3', { text: `✨ ${card.name}` }),
+            h('p', { class: 'owned-count', text: `Shiny · you own ${Profile.ownedShiny(card.id)}` }),
+            h('button', { class: 'btn btn-ghost', type: 'button', text: 'Normal art', on: { click: () => this.showCardModal(card, { dex: !!this._dexNav }) } })));
         Screens.openModal('hub-card-modal');
     },
 
@@ -738,11 +762,28 @@ const Hub = {
     // Store
     // -----------------------------------------------------------------------
 
+    /** 'regular' (cards for gems) or 'shiny' (shiny cards for copies and credits). */
+    storeMode: 'regular',
+
+    /** ← Regular shop / Shiny shop → */
+    storeModeSwitcher() {
+        const modes = [{ id: 'regular', name: '🛒 Regular shop' }, { id: 'shiny', name: '✨ Shiny shop' }];
+        const index = Math.max(0, modes.findIndex(m => m.id === this.storeMode));
+        const go = i => { this.storeMode = modes[i].id; this.renderStore(); };
+        return h('div', { class: 'set-switcher store-mode-switcher' },
+            h('button', { class: 'set-arrow', type: 'button', text: '←', disabled: index <= 0, 'aria-label': 'Regular shop', on: { click: () => go(index - 1) } }),
+            h('span', { class: 'set-name', text: modes[index].name }),
+            h('button', { class: 'set-arrow', type: 'button', text: '→', disabled: index >= modes.length - 1, 'aria-label': 'Shiny shop', on: { click: () => go(index + 1) } }));
+    },
+
     renderStore() {
+        if (this.storeMode === 'shiny') { this.renderShinyStore(); return; }
         const host = this.pageHost('store');
         const setId = this.storeSet;
         host.appendChild(this.pageTitle('🛒 Store',
-            'Buy any specific card with gems. Prices: 🟢 Common 1 · 🔵 Uncommon 5 · ⭐ Rare 10 · 💎 Epic 20.'));
+            'Buy any specific card with gems. Prices: 🟢 Common 1 · 🔵 Uncommon 5 · ⭐ Rare 10 · 💎 Epic 20. ' +
+            'Use the arrows at the top to switch to the Shiny shop.'));
+        host.appendChild(this.storeModeSwitcher());
         host.appendChild(h('p', { class: 'store-gems', text: `💜 ${Profile.s.gems} Gems` }));
         // Mythical cards can't be bought: the Store only has the collectable sets.
         host.appendChild(this.setSwitcher(setId, id => { this.storeSet = id; this.renderStore(); }, regularSets()));
@@ -762,6 +803,80 @@ const Hub = {
                 h('span', { class: 'card-price', text: `💜 ${Profile.cardCost(card)}` })));
         }
         host.appendChild(grid);
+    },
+
+    /** The Shiny shop: a shiny card for 10 regular copies and 5 credits, keeping 2. */
+    renderShinyStore() {
+        const host = this.pageHost('store');
+        host.appendChild(this.pageTitle('🛒 Store',
+            `Trade ${SHINY_COST_COPIES} regular copies of a card and ${SHINY_COST_CREDITS} 🪙 credits for its shiny version. ` +
+            `You need ${SHINY_COST_COPIES + SHINY_KEEP} regular copies, so you keep ${SHINY_KEEP} afterwards. ` +
+            `Shiny cards play exactly like the normal ones; in the deck builder you choose which version to add, ` +
+            `and every version counts towards the ${MAX_COPIES}-copy limit.`));
+        host.appendChild(this.storeModeSwitcher());
+        host.appendChild(h('p', { class: 'store-gems', text: `🪙 ${Profile.s.credits}/${MAX_CREDITS} Credits` }));
+
+        const sets = regularSets().filter(s => Collection.setCards(s.id).some(c => hasShiny(c.id)));
+        if (!sets.some(s => s.id === this.shinySet)) this.shinySet = sets.length ? sets[0].id : null;
+        if (!this.shinySet) { host.appendChild(this.notice('No shiny cards yet.', '')); return; }
+        host.appendChild(this.setSwitcher(this.shinySet, id => { this.shinySet = id; this.renderStore(); }, sets));
+
+        const locked = !Profile.isSetUnlocked(this.shinySet);
+        if (locked) host.appendChild(this.lockNotice(this.shinySet));
+        const cards = Collection.setCards(this.shinySet).filter(c => hasShiny(c.id));
+        const ready = cards.filter(c => Profile.owned(c.id) >= SHINY_COST_COPIES + SHINY_KEEP).length;
+        host.appendChild(h('p', { class: 'set-progress-line' },
+            `Shiny owned ${cards.filter(c => Profile.ownedShiny(c.id) > 0).length}/${cards.length} · ` +
+            `${ready} card${ready === 1 ? '' : 's'} with ${SHINY_COST_COPIES + SHINY_KEEP}+ copies`));
+
+        const grid = h('div', { class: 'cards-grid' + (locked ? ' grid-locked' : '') });
+        for (const card of cards) {
+            const st = Profile.shinyStatus(card.id);
+            grid.appendChild(h('div', {
+                class: `card-item shiny-item ${st.enoughCopies ? '' : 'shiny-unavailable'} ${st.owned ? 'shiny-owned' : ''}`,
+                title: st.enoughCopies ? `${card.name}: shiny for ${SHINY_COST_COPIES} copies + ${SHINY_COST_CREDITS} 🪙`
+                    : `${card.name}: you have ${st.have} of the ${st.need} regular copies needed`,
+                on: { click: () => { if (!locked) this.showShinyModal(card); } }
+            },
+                h('img', { src: shinyImage(card.id), alt: `${card.name} (shiny)`, loading: 'lazy' }),
+                // How many of this shiny card the player owns.
+                h('div', { class: 'card-quantity', title: 'Shiny copies owned', text: `✨${st.owned}` }),
+                h('span', { class: 'card-price shiny-copies', text: `${st.have}/${st.need}` })));
+        }
+        host.appendChild(grid);
+    },
+
+    shinySet: null,
+
+    showShinyModal(card, error = '') {
+        const body = document.getElementById('hub-store-body');
+        body.innerHTML = '';
+        const st = Profile.shinyStatus(card.id);
+        const rarity = Collection.rarity(card.rarity);
+        body.appendChild(h('img', { class: 'card-modal-img card-modal-shiny', src: shinyImage(card.id), alt: `${card.name} (shiny)` }));
+        body.appendChild(h('div', { class: 'card-details' },
+            h('h3', { text: `✨ ${card.name}` }),
+            h('p', { class: 'card-type', style: { color: rarity.color } }, `${card.type} • ${rarity.icon} ${rarity.name}`),
+            h('p', { class: 'owned-count', text: `Shiny owned: ${st.owned} · regular copies: ${st.have}` }),
+            h('div', { class: 'buy-box' },
+                h('p', { class: 'buy-cost', text: `Cost: ${SHINY_COST_COPIES} regular ${card.name} + 🪙 ${SHINY_COST_CREDITS} (you have ${st.have} and ${st.credits} 🪙)` }),
+                st.reason || error ? h('p', { class: 'buy-error', text: error || st.reason }) : null,
+                h('button', {
+                    class: 'btn btn-primary', type: 'button', disabled: !st.canBuy,
+                    text: st.canBuy ? `✨ Get the shiny ${card.name}` : !st.enoughCopies ? `Need ${st.need} copies` : 'Not enough credits',
+                    on: { click: e => {
+                        e.currentTarget.disabled = true;
+                        const res = Profile.buyShiny(card.id);
+                        if (res.error) { this.showShinyModal(card, res.error); return; }
+                        Screens.closeModal('hub-store-modal');
+                        this.renderStore();
+                        this.renderHeader();
+                        this.alert('✨ Shiny card!',
+                            `You traded ${SHINY_COST_COPIES} ${card.name} and ${SHINY_COST_CREDITS} 🪙 for the shiny ${card.name}. ` +
+                            `You now own ${res.shiny} shiny and ${res.left} regular.`);
+                    } }
+                }))));
+        Screens.openModal('hub-store-modal');
     },
 
     showStoreModal(card, error = '') {
@@ -993,6 +1108,8 @@ const Hub = {
             h('li', { text: 'You can trade once a day.' }),
             h('li', { text: `You can only give a card you own at least ${TRADE_MIN_COPIES} normal copies of (full-art copies don't count), so you always keep 2.` }),
             h('li', { text: 'Both cards must be the same rarity, and nobody can receive a card from a set they haven\'t unlocked.' }),
+            h('li', { text: 'Promo cards can only be traded for promo cards (of the same rarity), and regular cards for regular cards.' }),
+            h('li', { text: 'Full-art and shiny copies can\'t be traded.' }),
             h('li', { text: 'You both see the card you give and the card you get. The trade happens when both of you confirm.' }))));
         const st = Profile.tradeStatus();
         if (!st.canTrade) {
@@ -1675,11 +1792,11 @@ const Hub = {
 
         const table = h('table', { class: 'data-table' });
         table.appendChild(h('thead', {}, h('tr', {},
-            ['Set', 'Unique', '🟢 Common', '🔵 Uncommon', '⭐ Rare', '💎 Epic', 'Promo'].map(t => h('th', { text: t })))));
+            ['Set', 'Unique', '🟢 Common', '🔵 Uncommon', '⭐ Rare', '💎 Epic', '🌟 Mythical', 'Promo'].map(t => h('th', { text: t })))));
         const tbody = h('tbody');
-        const totals = { owned: 0, total: 0, r: { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0] }, promo: [0, 0] };
+        const totals = { owned: 0, total: 0, r: { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0], 5: [0, 0] }, promo: [0, 0] };
         for (const set of cardSets) {
-            const r = { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0] };
+            const r = { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0], 5: [0, 0] };
             const promo = [0, 0];
             let owned = 0, total = 0;
             for (const c of Collection.setCards(set.id)) {
@@ -1689,18 +1806,18 @@ const Hub = {
                 if (c.promo) { promo[1]++; promo[0] += have; }
             }
             totals.owned += owned; totals.total += total;
-            for (const k of [1, 2, 3, 4]) { totals.r[k][0] += r[k][0]; totals.r[k][1] += r[k][1]; }
+            for (const k of [1, 2, 3, 4, 5]) { totals.r[k][0] += r[k][0]; totals.r[k][1] += r[k][1]; }
             totals.promo[0] += promo[0]; totals.promo[1] += promo[1];
             tbody.appendChild(h('tr', {},
                 h('td', { text: (Profile.isSetUnlocked(set.id) ? '' : '🔒 ') + set.name }),
                 h('td', {}, h('strong', { text: `${owned}/${total}` })),
-                [1, 2, 3, 4].map(k => h('td', { text: `${r[k][0]}/${r[k][1]}` })),
+                [1, 2, 3, 4, 5].map(k => h('td', { text: `${r[k][0]}/${r[k][1]}` })),
                 h('td', { text: `${promo[0]}/${promo[1]}` })));
         }
         tbody.appendChild(h('tr', { class: 'total-row' },
             h('td', { text: 'All sets' }),
             h('td', {}, h('strong', { text: `${totals.owned}/${totals.total}` })),
-            [1, 2, 3, 4].map(k => h('td', { text: `${totals.r[k][0]}/${totals.r[k][1]}` })),
+            [1, 2, 3, 4, 5].map(k => h('td', { text: `${totals.r[k][0]}/${totals.r[k][1]}` })),
             h('td', { text: `${totals.promo[0]}/${totals.promo[1]}` })));
         table.appendChild(tbody);
         host.appendChild(h('div', { class: 'table-container' }, table));

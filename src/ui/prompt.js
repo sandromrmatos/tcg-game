@@ -151,7 +151,8 @@ const Prompt = {
                 tile.type = 'button';
 
                 const img = document.createElement('img');
-                const fullArt = entry.fullArt === true;
+                // The art variant of an instance: true (full art), 'shiny' or false.
+                const fullArt = entry.fullArt === true || entry.fullArt === 'shiny' ? entry.fullArt : false;
                 img.src = cardArt(cardId, fullArt);
                 img.alt = data.name;
                 tile.appendChild(img);

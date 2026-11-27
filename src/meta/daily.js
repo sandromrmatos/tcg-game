@@ -290,7 +290,7 @@ const Daily = {
 
     /** Normal plus full-art copies owned. */
     _copies(cardId) {
-        return Profile.owned(cardId) + Profile.ownedFullArt(cardId);
+        return Profile.ownedAny(cardId);
     },
 
     generate(date, existing = null) {
